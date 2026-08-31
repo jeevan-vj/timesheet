@@ -1,5 +1,5 @@
 # Implementer Agent
 
-Read `AGENTS.md`, `SPEC.md`, `SECURITY.md`, `docs/ARCHITECTURE.md`, the issue, and relevant tests. Write a short plan and acceptance criteria, use TDD where practical, implement the smallest coherent change, then run the full verification suite.
+Compatibility entrypoint for factory implementation. Act as the orchestrator described in `.factory/agents/orchestrator.md` and use the registered spec, frontend, API, database, and verifier subagents. Keep one issue on one branch and produce one PR.
 
 Never derive ownership from client input, weaken tests or validation, rewrite historical rates, log confidential data, modify an applied migration, or edit protected control-plane files unless explicitly asked.

@@ -4,14 +4,33 @@ import { fileURLToPath } from 'node:url';
 
 const API_URL = process.env.CURSOR_AGENTS_URL || 'https://api.cursor.com/v1/agents';
 
+const SPECIALISTS = [
+  ['spec', 'Specify the task and return an evidence-based task contract', 'spec.md'],
+  ['frontend', 'Implement accessible browser-facing React behavior', 'frontend.md'],
+  ['api', 'Implement authenticated and owner-scoped API behavior', 'api.md'],
+  ['database', 'Implement safe Drizzle, D1, query, and migration changes', 'database.md'],
+  ['verifier', 'Independently verify acceptance criteria without editing files', 'verifier.md'],
+];
+
+export function loadCustomSubagents() {
+  return SPECIALISTS.map(([name, description, file]) => ({
+    name,
+    description,
+    prompt: fs.readFileSync(new URL(`./agents/${file}`, import.meta.url), 'utf8'),
+    model: 'inherit',
+  }));
+}
+
 export function buildImplementPrompt({ issueNumber, title, body, repository }) {
   return [
-    `You are the Cursor factory implementer for ${repository}.`,
+    `You are the Cursor factory orchestrator for ${repository}.`,
     `Own GitHub issue #${issueNumber}: ${title}`,
     '',
-    'Read and obey AGENTS.md and .factory/agents/implementer.md.',
+    'Read and obey AGENTS.md, .factory/agents/orchestrator.md, and the relevant specialist instructions.',
     'Read SPEC.md, SECURITY.md, docs/ARCHITECTURE.md, docs/THREAT_MODEL.md, the issue, and relevant tests.',
-    'Plan, implement with TDD, and run: pnpm install --frozen-lockfile && pnpm test && pnpm typecheck && pnpm build.',
+    'Ask the spec subagent for a task contract before editing. Delegate only the necessary editing specialists, sequentially, in this shared checkout.',
+    'After integration, ask the verifier subagent to check every acceptance criterion without editing. Route findings back to the responsible specialist and allow at most two repair cycles.',
+    'Implement with TDD where practical, then run: pnpm install --frozen-lockfile && pnpm test && pnpm typecheck && pnpm build.',
     `Open a PR containing Closes #${issueNumber}, verification results, and security/payroll/migration impact.`,
     'Never weaken owner scoping, trusted-origin checks, rate snapshots, validation, migrations, or tests.',
     'Never edit AGENTS.md, .github/**, or .factory/** unless the issue explicitly requires protected work.',
@@ -25,6 +44,7 @@ export function buildAgentPayload({ repository, issueNumber, title, body, starti
     name: `factory #${issueNumber}`.slice(0, 100),
     prompt: { text: buildImplementPrompt({ issueNumber, title, body, repository }) },
     repos: [{ url: repository.startsWith('http') ? repository : `https://github.com/${repository}`, startingRef }],
+    customSubagents: loadCustomSubagents(),
     autoCreatePR: true,
     skipReviewerRequest: true,
   };

@@ -69,8 +69,14 @@ jobs:
           body_file="$RUNNER_TEMP/issue.md"; printf '%s' "$BODY" > "$body_file"
           gh issue edit "$ISSUE" --repo "$REPOSITORY" --add-label factory:implementing
           output="$(node .factory/dispatch-cursor.mjs --repo "$REPOSITORY" --issue "$ISSUE" --title "$TITLE" --body-file "$body_file" --ref "${{ github.event.repository.default_branch }}")"
+          agent_id="$(printf '%s' "$output" | jq -r '.agent.id // .id // empty')"
           url="$(printf '%s' "$output" | jq -r '.agent.url // .url // empty')"
-          gh issue comment "$ISSUE" --repo "$REPOSITORY" --body "Cursor Cloud Agent dispatched${url:+: $url}"
+          if [ -z "$agent_id" ]; then
+            gh issue edit "$ISSUE" --repo "$REPOSITORY" --add-label factory:needs-human
+            gh issue comment "$ISSUE" --repo "$REPOSITORY" --body 'Cursor accepted the task but returned no durable agent ID, so automated repair follow-ups are disabled.'
+            exit 0
+          fi
+          gh issue comment "$ISSUE" --repo "$REPOSITORY" --body "Cursor Cloud Agent dispatched${url:+: $url}\n\n<!-- factory-agent-id:$agent_id -->"
       - name: Record Codex handoff
         if: steps.gate.outputs.delegated == 'true' && steps.gate.outputs.provider == 'codex'
         env:

@@ -30,11 +30,10 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
           RUN_PRS: ${{ toJson(github.event.workflow_run.pull_requests) }}
-          ALLOW_HIGH_RISK: ${{ vars.FACTORY_ALLOW_HIGH_RISK_AUTOMERGE }}
         run: |
           set -euo pipefail
           pr="$(printf '%s' "$RUN_PRS" | jq -r '.[0].number // empty')"
-          if [ -z "$pr" ]; then pr="$(gh pr list --repo "$REPOSITORY" --state open --head "$HEAD_BRANCH" --json number --jq '.[0].number // empty')"; fi
+          if [ -z "$pr" ]; then [ -n "$HEAD_BRANCH" ] || exit 0; pr="$(gh pr list --repo "$REPOSITORY" --state open --head "$HEAD_BRANCH" --json number --jq '.[0].number // empty')"; fi
           [ -n "$pr" ] || exit 0
           pr_json="$(gh api "repos/$REPOSITORY/pulls/$pr")"
           head="$(printf '%s' "$pr_json" | jq -r .head.sha)"
@@ -51,9 +50,13 @@ jobs:
           [ "$gate" = success ] || exit 0
           files="$RUNNER_TEMP/files.txt"; gh api --paginate "repos/$REPOSITORY/pulls/$pr/files?per_page=100" --jq '.[].filename' > "$files"
           risk="$(node .factory/classify-risk.mjs < "$files")"
-          if [ "$risk" = protected ] || { [ "$risk" = high ] && [ "$ALLOW_HIGH_RISK" != true ]; }; then
+          if [ "$risk" != low ]; then
             gh issue edit "$issue" --repo "$REPOSITORY" --add-label factory:needs-human || true
-            gh pr comment "$pr" --repo "$REPOSITORY" --body "Factory verification passed, but **$risk-risk** changes require human approval."
+            marker="<!-- factory-human-gate:$head:$risk -->"
+            pr_comments="$RUNNER_TEMP/pr-comments.json"
+            gh api --paginate "repos/$REPOSITORY/issues/$pr/comments?per_page=100" | jq -s '[.[][]]' > "$pr_comments"
+            existing="$(jq --arg marker "$marker" '[.[] | select((.body // "") | contains($marker))] | length' "$pr_comments")"
+            if [ "$existing" -eq 0 ]; then gh pr comment "$pr" --repo "$REPOSITORY" --body "Factory verification passed, but **$risk-risk** changes require human approval.\n\n$marker"; fi
             exit 0
           fi
           reviews="$RUNNER_TEMP/reviews.json"; gh api --paginate "repos/$REPOSITORY/pulls/$pr/reviews?per_page=100" | jq -s '[.[][]]' > "$reviews"
