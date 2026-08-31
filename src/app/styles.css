@@ -18,6 +18,11 @@ h2 { letter-spacing:-.035em; }
 .button.small { padding:9px 14px; border-radius:9px; font-size:.87rem; }
 .button.secondary { background:#eef0ec; color:var(--ink); box-shadow:none; }
 .button:disabled { opacity:.45; cursor:not-allowed; }
+.button.danger { background:#b33b1f; box-shadow:0 7px 18px rgba(179,59,31,.18); }
+dialog.modal { margin:auto; border:0; }
+dialog.modal::backdrop { background:rgba(16,29,22,.48); backdrop-filter:blur(4px); }
+.delete-shift-dialog { width:min(460px,100%); }
+.delete-shift-dialog #delete-shift-copy { color:var(--muted); line-height:1.55; margin:0 0 22px; }
 .text-link { font-weight:700; text-decoration:none; }
 .landing { min-height:100vh; }
 .hero { max-width:1180px; margin:65px auto 90px; padding:0 30px; display:grid; grid-template-columns:1.05fr .8fr; gap:90px; align-items:center; }
