@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.next/
+.pnpm-store/
+.vinext/
+.wrangler/
+.dev.vars
+.env
+.env.*
+!.env.example
+coverage/
+*.log
+.DS_Store

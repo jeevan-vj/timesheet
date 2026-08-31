@@ -1,0 +1,15 @@
+name: Factory Review Signal
+on:
+  pull_request_review:
+    types: [submitted]
+permissions:
+  contents: read
+jobs:
+  signal:
+    if: >-
+      github.event.review.user.type == 'Bot' &&
+      (github.event.review.user.login == 'cursor[bot]' || github.event.review.user.login == 'cursor' || github.event.review.user.login == 'chatgpt-codex-connector[bot]')
+    name: Factory review signal
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Trusted controller will evaluate the live PR and review state."

@@ -1,0 +1,11 @@
+/AGENTS.md @jeevan-vj
+/.github/ @jeevan-vj
+/.factory/ @jeevan-vj
+/SECURITY.md @jeevan-vj
+/docs/THREAT_MODEL.md @jeevan-vj
+/wrangler.jsonc @jeevan-vj
+/src/lib/auth.ts @jeevan-vj
+/src/lib/auth-options.ts @jeevan-vj
+/src/lib/payroll.ts @jeevan-vj
+/src/db/ @jeevan-vj
+/drizzle/ @jeevan-vj

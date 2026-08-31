@@ -1,0 +1,8 @@
+{
+  "protected": { "exact": ["AGENTS.md"], "prefixes": [".github/", ".factory/"] },
+  "high": {
+    "exact": ["SECURITY.md", "docs/THREAT_MODEL.md", "wrangler.jsonc", "src/lib/auth.ts", "src/lib/auth-options.ts", "src/lib/payroll.ts", "src/lib/validation.ts"],
+    "prefixes": ["src/app/api/auth/", "src/db/", "drizzle/"]
+  },
+  "medium": { "exact": ["package.json", "pnpm-lock.yaml"], "prefixes": ["src/app/api/", "src/services/"] }
+}

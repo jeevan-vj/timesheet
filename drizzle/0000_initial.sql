@@ -1,0 +1,31 @@
+PRAGMA foreign_keys=ON;
+
+CREATE TABLE `user` (`id` text PRIMARY KEY NOT NULL,`name` text NOT NULL,`email` text NOT NULL,`email_verified` integer DEFAULT false NOT NULL,`image` text,`created_at` integer NOT NULL,`updated_at` integer NOT NULL);
+CREATE UNIQUE INDEX `user_email_unique` ON `user` (`email`);
+CREATE TABLE `session` (`id` text PRIMARY KEY NOT NULL,`user_id` text NOT NULL,`token` text NOT NULL,`expires_at` integer NOT NULL,`ip_address` text,`user_agent` text,`created_at` integer NOT NULL,`updated_at` integer NOT NULL,FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade);
+CREATE UNIQUE INDEX `session_token_unique` ON `session` (`token`);
+CREATE INDEX `session_user_id_idx` ON `session` (`user_id`);
+CREATE TABLE `account` (`id` text PRIMARY KEY NOT NULL,`user_id` text NOT NULL,`issuer` text NOT NULL,`account_id` text NOT NULL,`provider_id` text NOT NULL,`access_token` text,`refresh_token` text,`access_token_expires_at` integer,`refresh_token_expires_at` integer,`scope` text,`id_token` text,`password` text,`created_at` integer NOT NULL,`updated_at` integer NOT NULL,FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade);
+CREATE INDEX `account_user_id_idx` ON `account` (`user_id`);
+CREATE UNIQUE INDEX `account_issuer_account_id_uq` ON `account` (`issuer`,`account_id`);
+CREATE TABLE `verification` (`id` text PRIMARY KEY NOT NULL,`identifier` text NOT NULL,`value` text NOT NULL,`expires_at` integer NOT NULL,`created_at` integer NOT NULL,`updated_at` integer NOT NULL);
+CREATE INDEX `verification_identifier_idx` ON `verification` (`identifier`);
+CREATE TABLE `rate_limit` (`id` text PRIMARY KEY NOT NULL,`key` text NOT NULL,`count` integer NOT NULL,`last_request` integer NOT NULL);
+CREATE UNIQUE INDEX `rate_limit_key_uq` ON `rate_limit` (`key`);
+
+CREATE TABLE `site` (`id` text PRIMARY KEY NOT NULL,`owner_user_id` text NOT NULL,`created_at` integer NOT NULL,`updated_at` integer NOT NULL,`name` text NOT NULL,`address` text DEFAULT '' NOT NULL,`active` integer DEFAULT true NOT NULL,FOREIGN KEY (`owner_user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade);
+CREATE INDEX `site_owner_idx` ON `site` (`owner_user_id`);
+CREATE UNIQUE INDEX `site_owner_name_uq` ON `site` (`owner_user_id`,`name`);
+CREATE TABLE `contractor` (`id` text PRIMARY KEY NOT NULL,`owner_user_id` text NOT NULL,`created_at` integer NOT NULL,`updated_at` integer NOT NULL,`name` text NOT NULL,`email` text DEFAULT '' NOT NULL,`phone` text DEFAULT '' NOT NULL,`default_rate_cents` integer NOT NULL,`currency` text DEFAULT 'NZD' NOT NULL,`active` integer DEFAULT true NOT NULL,FOREIGN KEY (`owner_user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade);
+CREATE INDEX `contractor_owner_idx` ON `contractor` (`owner_user_id`);
+CREATE UNIQUE INDEX `contractor_owner_name_uq` ON `contractor` (`owner_user_id`,`name`);
+CREATE TABLE `assignment` (`id` text PRIMARY KEY NOT NULL,`owner_user_id` text NOT NULL,`created_at` integer NOT NULL,`updated_at` integer NOT NULL,`contractor_id` text NOT NULL,`site_id` text NOT NULL,`rate_cents` integer,`active` integer DEFAULT true NOT NULL,FOREIGN KEY (`owner_user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade,FOREIGN KEY (`contractor_id`) REFERENCES `contractor`(`id`) ON UPDATE no action ON DELETE cascade,FOREIGN KEY (`site_id`) REFERENCES `site`(`id`) ON UPDATE no action ON DELETE cascade);
+CREATE INDEX `assignment_owner_idx` ON `assignment` (`owner_user_id`);
+CREATE INDEX `assignment_contractor_idx` ON `assignment` (`contractor_id`);
+CREATE INDEX `assignment_site_idx` ON `assignment` (`site_id`);
+CREATE UNIQUE INDEX `assignment_owner_contractor_site_uq` ON `assignment` (`owner_user_id`,`contractor_id`,`site_id`);
+CREATE TABLE `time_entry` (`id` text PRIMARY KEY NOT NULL,`owner_user_id` text NOT NULL,`created_at` integer NOT NULL,`updated_at` integer NOT NULL,`contractor_id` text NOT NULL,`site_id` text NOT NULL,`work_date` text NOT NULL,`start_minutes` integer NOT NULL,`end_minutes` integer NOT NULL,`break_minutes` integer DEFAULT 0 NOT NULL,`paid_minutes` integer NOT NULL,`rate_cents` integer NOT NULL,`notes` text DEFAULT '' NOT NULL,FOREIGN KEY (`owner_user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade,FOREIGN KEY (`contractor_id`) REFERENCES `contractor`(`id`) ON UPDATE no action ON DELETE restrict,FOREIGN KEY (`site_id`) REFERENCES `site`(`id`) ON UPDATE no action ON DELETE restrict);
+CREATE INDEX `time_entry_owner_week_idx` ON `time_entry` (`owner_user_id`,`work_date`);
+CREATE INDEX `time_entry_contractor_idx` ON `time_entry` (`contractor_id`);
+CREATE INDEX `time_entry_site_idx` ON `time_entry` (`site_id`);
+CREATE UNIQUE INDEX `time_entry_owner_contractor_site_date_uq` ON `time_entry` (`owner_user_id`,`contractor_id`,`site_id`,`work_date`);

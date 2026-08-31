@@ -1,0 +1,80 @@
+name: Factory Intake
+on:
+  issues:
+    types: [opened, reopened]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      issue_number: { description: "Issue number", required: true, type: string }
+permissions:
+  contents: read
+  issues: write
+concurrency:
+  group: factory-intake-${{ github.event.issue.number || inputs.issue_number }}
+  cancel-in-progress: false
+jobs:
+  intake:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' && github.event.issue.user.login == github.repository_owner) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request == null && github.event.comment.user.login == github.repository_owner && (contains(github.event.comment.body, '@cursor') || contains(github.event.comment.body, '@codex')))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+          sparse-checkout: .factory
+      - name: Resolve issue
+        id: issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_NUMBER: ${{ github.event.issue.number }}
+          EVENT_TITLE: ${{ github.event.issue.title }}
+          EVENT_BODY: ${{ github.event.issue.body }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          INPUT_NUMBER: ${{ inputs.issue_number }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = workflow_dispatch ]; then
+            issue="$INPUT_NUMBER"; json="$(gh api "repos/$REPOSITORY/issues/$issue")"
+            title="$(printf '%s' "$json" | jq -r .title)"; body="$(printf '%s' "$json" | jq -r '.body // ""')"; handoff="$body"
+          elif [ "$EVENT_NAME" = issue_comment ]; then issue="$EVENT_NUMBER"; title="$EVENT_TITLE"; body="$EVENT_BODY"; handoff="$COMMENT_BODY"
+          else issue="$EVENT_NUMBER"; title="$EVENT_TITLE"; body="$EVENT_BODY"; handoff="$EVENT_BODY"; fi
+          { echo "number=$issue"; echo "title<<EOF"; printf '%s\n' "$title"; echo EOF; echo "body<<EOF"; printf '%s\n' "$body"; echo EOF; echo "handoff<<EOF"; printf '%s\n' "$handoff"; echo EOF; } >> "$GITHUB_OUTPUT"
+      - name: Detect handoff
+        id: gate
+        env:
+          HANDOFF: ${{ steps.issue.outputs.handoff }}
+        run: |
+          result="$(printf '%s' "$HANDOFF" | node .factory/handoff.mjs)"
+          echo "delegated=$(printf '%s' "$result" | jq -r .delegated)" >> "$GITHUB_OUTPUT"
+          echo "provider=$(printf '%s' "$result" | jq -r '.provider // ""')" >> "$GITHUB_OUTPUT"
+      - name: Dispatch Cursor Cloud Agent
+        if: steps.gate.outputs.delegated == 'true' && steps.gate.outputs.provider == 'cursor'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ISSUE: ${{ steps.issue.outputs.number }}
+          TITLE: ${{ steps.issue.outputs.title }}
+          BODY: ${{ steps.issue.outputs.body }}
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+        run: |
+          set -euo pipefail
+          for spec in 'factory:ready|0E8A16' 'factory:delegated|1D76DB' 'factory:implementing|5319E7' 'factory:needs-human|D93F0B' 'factory:complete|2DA44E'; do IFS='|' read -r name color <<< "$spec"; gh label create "$name" --repo "$REPOSITORY" --color "$color" --force >/dev/null; done
+          gh issue edit "$ISSUE" --repo "$REPOSITORY" --add-label factory:delegated
+          if [ -z "${CURSOR_API_KEY:-}" ]; then gh issue edit "$ISSUE" --repo "$REPOSITORY" --add-label factory:needs-human; gh issue comment "$ISSUE" --repo "$REPOSITORY" --body 'Cursor handoff accepted, but `CURSOR_API_KEY` is not configured. Add it in repository Actions secrets and comment `@cursor` again.'; exit 0; fi
+          body_file="$RUNNER_TEMP/issue.md"; printf '%s' "$BODY" > "$body_file"
+          gh issue edit "$ISSUE" --repo "$REPOSITORY" --add-label factory:implementing
+          output="$(node .factory/dispatch-cursor.mjs --repo "$REPOSITORY" --issue "$ISSUE" --title "$TITLE" --body-file "$body_file" --ref "${{ github.event.repository.default_branch }}")"
+          url="$(printf '%s' "$output" | jq -r '.agent.url // .url // empty')"
+          gh issue comment "$ISSUE" --repo "$REPOSITORY" --body "Cursor Cloud Agent dispatched${url:+: $url}"
+      - name: Record Codex handoff
+        if: steps.gate.outputs.delegated == 'true' && steps.gate.outputs.provider == 'codex'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ISSUE: ${{ steps.issue.outputs.number }}
+        run: gh issue edit "$ISSUE" --repo "$REPOSITORY" --add-label factory:delegated
