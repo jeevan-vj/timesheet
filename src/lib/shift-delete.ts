@@ -14,7 +14,7 @@ export type ShiftDeleteRequest = { method: "DELETE"; url: string };
 
 export const idleShiftDelete: ShiftDeleteSession = { phase: "idle", target: null };
 
-export function requestShiftDelete(target: ShiftDeleteTarget): ShiftDeleteSession {
+export function requestShiftDelete(target: ShiftDeleteTarget): Extract<ShiftDeleteSession, { phase: "confirming" }> {
   return { phase: "confirming", target };
 }
 

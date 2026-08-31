@@ -84,6 +84,7 @@ function DeleteShiftDialog({ session, onCancel, onConfirm }: { session: ShiftDel
     if (!node) return;
     if (target && !node.open) node.showModal();
     if (!target && node.open) node.close();
+    return () => { if (node.open) node.close(); };
   }, [target]);
   return <dialog ref={dialogRef} className="modal delete-shift-dialog" aria-labelledby="delete-shift-title" aria-describedby="delete-shift-copy" onCancel={(event) => { if (busy) event.preventDefault(); else onCancel(); }} onClick={(event) => { if (event.target === event.currentTarget && !busy) onCancel(); }}>
     {prompt ? <><div className="modal-title"><div><p className="eyebrow">Remove recorded hours</p><h2 id="delete-shift-title">{prompt.title}</h2></div><button type="button" className="icon-button" aria-label={prompt.closeLabel} onClick={onCancel} disabled={busy}>×</button></div><p id="delete-shift-copy">{prompt.description}</p><div className="form-actions"><button type="button" className="button secondary" autoFocus onClick={onCancel} disabled={busy}>{prompt.cancelLabel}</button><button type="button" className="button danger" onClick={onConfirm} disabled={busy} aria-busy={busy}>{prompt.confirmLabel}</button></div></> : null}
