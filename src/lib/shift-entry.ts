@@ -101,7 +101,7 @@ export function clockShiftError(startMinutes: number, endMinutes: number, breakM
   }
 }
 
-export export function paidHoursError(hours: number, minutePart: number): string | null {
+export function paidHoursError(hours: number, minutePart: number): string | null {
   if (!Number.isInteger(hours) || !Number.isInteger(minutePart)) return "Enter whole hours and minutes.";
   if (minutePart < 0 || minutePart > 59) return "Minutes must be between 0 and 59.";
   if (hours < 0 || hours * 60 + minutePart <= 0) return "Paid hours must be greater than zero.";
