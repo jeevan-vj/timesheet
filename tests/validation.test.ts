@@ -16,7 +16,44 @@ describe("API validation", () => {
   });
 
   it("rejects malformed dates and clock values", () => {
-    expect(timeEntryInput.safeParse({ contractorId: "c", siteId: "s", workDate: "31/08/2026", startMinutes: 480, endMinutes: 960, breakMinutes: 30 }).success).toBe(false);
-    expect(timeEntryInput.safeParse({ contractorId: "c", siteId: "s", workDate: "2026-08-31", startMinutes: -1, endMinutes: 960, breakMinutes: 30 }).success).toBe(false);
+    expect(timeEntryInput.safeParse({ entryMode: "clock", contractorId: "c", siteId: "s", workDate: "31/08/2026", startMinutes: 480, endMinutes: 960, breakMinutes: 30 }).success).toBe(false);
+    expect(timeEntryInput.safeParse({ entryMode: "clock", contractorId: "c", siteId: "s", workDate: "2026-08-31", startMinutes: -1, endMinutes: 960, breakMinutes: 30 }).success).toBe(false);
+  });
+
+  it("accepts paid hours without start, finish, or break", () => {
+    expect(timeEntryInput.parse({
+      entryMode: "paid_hours",
+      contractorId: "c",
+      siteId: "s",
+      workDate: "2026-08-31",
+      paidMinutes: 480,
+    })).toMatchObject({ entryMode: "paid_hours", paidMinutes: 480, notes: "" });
+  });
+
+  it("rejects paid hours that are missing, zero, or overnight", () => {
+    expect(timeEntryInput.safeParse({ entryMode: "paid_hours", contractorId: "c", siteId: "s", workDate: "2026-08-31" }).success).toBe(false);
+    expect(timeEntryInput.safeParse({ entryMode: "paid_hours", contractorId: "c", siteId: "s", workDate: "2026-08-31", paidMinutes: 0 }).success).toBe(false);
+    expect(timeEntryInput.safeParse({ entryMode: "paid_hours", contractorId: "c", siteId: "s", workDate: "2026-08-31", paidMinutes: 1440 }).success).toBe(false);
+  });
+
+  it("accepts an optional inline assignment rate on either entry method", () => {
+    expect(timeEntryInput.parse({
+      entryMode: "clock",
+      contractorId: "c",
+      siteId: "s",
+      workDate: "2026-08-31",
+      startMinutes: 480,
+      endMinutes: 990,
+      breakMinutes: 30,
+      assignSite: { rateCents: 3_500 },
+    }).assignSite).toEqual({ rateCents: 3_500 });
+    expect(timeEntryInput.parse({
+      entryMode: "paid_hours",
+      contractorId: "c",
+      siteId: "s",
+      workDate: "2026-08-31",
+      paidMinutes: 120,
+      assignSite: {},
+    }).assignSite).toEqual({ rateCents: null });
   });
 });

@@ -12,11 +12,22 @@ export type ContractorWeek = {
   payCents: number;
 };
 
+export const MAX_SAME_DAY_MINUTES = 1_439;
+
 export function calculatePaidMinutes(startMinutes: number, endMinutes: number, breakMinutes: number): number {
   const paid = endMinutes - startMinutes - breakMinutes;
   if (!Number.isInteger(startMinutes) || !Number.isInteger(endMinutes) || !Number.isInteger(breakMinutes) || paid <= 0) {
     throw new Error("invalid_shift");
   }
+  return paid;
+}
+
+export function paidMinutesFromParts(hours: number, minutePart: number): number {
+  if (!Number.isInteger(hours) || !Number.isInteger(minutePart) || hours < 0 || minutePart < 0 || minutePart > 59) {
+    throw new Error("invalid_shift");
+  }
+  const paid = hours * 60 + minutePart;
+  if (paid <= 0 || paid > MAX_SAME_DAY_MINUTES) throw new Error("invalid_shift");
   return paid;
 }
 

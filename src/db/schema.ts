@@ -105,6 +105,7 @@ export const timeEntries = sqliteTable("time_entry", {
   paidMinutes: integer("paid_minutes").notNull(),
   rateCents: integer("rate_cents").notNull(),
   notes: text("notes").notNull().default(""),
+  entryMode: text("entry_mode").notNull().default("clock").$type<"clock" | "paid_hours">(),
 }, (t) => [
   index("time_entry_owner_week_idx").on(t.ownerUserId, t.workDate),
   index("time_entry_contractor_idx").on(t.contractorId),

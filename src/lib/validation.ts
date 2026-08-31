@@ -23,14 +23,29 @@ export const assignmentInput = z.object({
   rateCents: rateCents.nullable().default(null),
 });
 
-export const timeEntryInput = z.object({
+const timeEntryBase = {
   contractorId: trimmed(64),
   siteId: trimmed(64),
   workDate: z.string().refine(isIsoDate, "Invalid work date"),
-  startMinutes: z.number().int().min(0).max(1438),
-  endMinutes: z.number().int().min(1).max(1439),
-  breakMinutes: z.number().int().min(0).max(720),
   notes: optionalTrimmed(500),
-});
+  assignSite: z.object({
+    rateCents: rateCents.nullable().default(null),
+  }).optional(),
+};
+
+export const timeEntryInput = z.discriminatedUnion("entryMode", [
+  z.object({
+    entryMode: z.literal("clock"),
+    startMinutes: z.number().int().min(0).max(1438),
+    endMinutes: z.number().int().min(1).max(1439),
+    breakMinutes: z.number().int().min(0).max(720),
+    ...timeEntryBase,
+  }),
+  z.object({
+    entryMode: z.literal("paid_hours"),
+    paidMinutes: z.number().int().min(1).max(1439),
+    ...timeEntryBase,
+  }),
+]);
 
 export const weekStartInput = z.string().refine(isMonday, "Week must start on Monday");

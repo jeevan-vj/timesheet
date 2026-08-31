@@ -1,6 +1,7 @@
 import { and, asc, eq, gte, lte } from "drizzle-orm";
 import { db } from "@/db/client";
 import { assignments, contractors, sites, timeEntries } from "@/db/schema";
+import { isUniqueConstraintError } from "@/lib/db-errors";
 import { calculatePaidMinutes, summarizeWeek, weekEnd } from "@/lib/payroll";
 import type { z } from "zod";
 import type { assignmentInput, contractorInput, siteInput, timeEntryInput } from "@/lib/validation";
@@ -36,7 +37,26 @@ export async function createAssignment(database: Database, ownerUserId: string, 
 }
 
 export async function createTimeEntry(database: Database, ownerUserId: string, input: TimeEntryInput) {
-  const paidMinutes = calculatePaidMinutes(input.startMinutes, input.endMinutes, input.breakMinutes);
+  if (input.assignSite) {
+    try {
+      await createAssignment(database, ownerUserId, {
+        contractorId: input.contractorId,
+        siteId: input.siteId,
+        rateCents: input.assignSite.rateCents,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === "not_found") throw error;
+      if (!isUniqueConstraintError(error)) throw error;
+    }
+  }
+
+  const paidMinutes = input.entryMode === "paid_hours"
+    ? input.paidMinutes
+    : calculatePaidMinutes(input.startMinutes, input.endMinutes, input.breakMinutes);
+  const clock = input.entryMode === "paid_hours"
+    ? { startMinutes: 0, endMinutes: paidMinutes, breakMinutes: 0 }
+    : { startMinutes: input.startMinutes, endMinutes: input.endMinutes, breakMinutes: input.breakMinutes };
+
   const [match] = await database
     .select({ assignmentRate: assignments.rateCents, defaultRate: contractors.defaultRateCents })
     .from(assignments)
@@ -45,12 +65,39 @@ export async function createTimeEntry(database: Database, ownerUserId: string, i
     .where(and(eq(assignments.ownerUserId, ownerUserId), eq(assignments.contractorId, input.contractorId), eq(assignments.siteId, input.siteId), eq(assignments.active, true)))
     .limit(1);
   if (!match) throw new Error("not_found");
+
+  const [duplicate] = await database
+    .select({ id: timeEntries.id })
+    .from(timeEntries)
+    .where(and(
+      eq(timeEntries.ownerUserId, ownerUserId),
+      eq(timeEntries.contractorId, input.contractorId),
+      eq(timeEntries.siteId, input.siteId),
+      eq(timeEntries.workDate, input.workDate),
+    ))
+    .limit(1);
+  if (duplicate) throw new Error("duplicate_entry");
+
   const row = {
-    id: id(), ownerUserId, ...input, paidMinutes,
+    id: id(),
+    ownerUserId,
+    contractorId: input.contractorId,
+    siteId: input.siteId,
+    workDate: input.workDate,
+    notes: input.notes,
+    ...clock,
+    paidMinutes,
+    entryMode: input.entryMode,
     rateCents: match.assignmentRate ?? match.defaultRate,
-    createdAt: now(), updatedAt: now(),
+    createdAt: now(),
+    updatedAt: now(),
   };
-  await database.insert(timeEntries).values(row);
+  try {
+    await database.insert(timeEntries).values(row);
+  } catch (error) {
+    if (isUniqueConstraintError(error)) throw new Error("duplicate_entry");
+    throw error;
+  }
   return row;
 }
 
@@ -70,7 +117,7 @@ export async function getDashboard(database: Database, ownerUserId: string, week
       siteId: timeEntries.siteId, siteName: sites.name, workDate: timeEntries.workDate,
       startMinutes: timeEntries.startMinutes, endMinutes: timeEntries.endMinutes,
       breakMinutes: timeEntries.breakMinutes, paidMinutes: timeEntries.paidMinutes,
-      rateCents: timeEntries.rateCents, notes: timeEntries.notes,
+      rateCents: timeEntries.rateCents, notes: timeEntries.notes, entryMode: timeEntries.entryMode,
     }).from(timeEntries)
       .innerJoin(contractors, and(eq(contractors.id, timeEntries.contractorId), eq(contractors.ownerUserId, ownerUserId)))
       .innerJoin(sites, and(eq(sites.id, timeEntries.siteId), eq(sites.ownerUserId, ownerUserId)))
