@@ -11,7 +11,8 @@ Contractor identity/contact data, site locations, rates, work notes, time record
 | One owner reads or mutates another owner's data | Server-derived owner ID plus owner predicates on every query and relation lookup |
 | Client forges ownership or a relationship | APIs do not accept owner IDs; assignment and entry services verify owner-scoped contractor/site rows |
 | Rate changes rewrite prior payroll | Effective assignment/default rate is snapshotted on entry creation |
-| Duplicate daily entry inflates pay | Unique owner/contractor/site/date index plus validation |
+| Duplicate daily entry inflates pay | Unique owner/contractor/site/date index, pre-insert owner-scoped lookup, and a specific `duplicate_entry` error |
+| Client forges an inline assignment | Assignment create still verifies owner-scoped contractor and site rows before the entry is stored |
 | CSRF creates or deletes records | Cookie-authenticated mutations require a configured trusted Origin |
 | Accidental deletion of a recorded shift | Confirmation dialog before the existing owner-scoped DELETE; authorization and payroll math are unchanged |
 | Money/time rounding drift | Integer cents and minutes; per-entry cent rounding is specified and tested |

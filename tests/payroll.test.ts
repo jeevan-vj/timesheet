@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateEntryPayCents, calculatePaidMinutes, isMonday, summarizeWeek } from "../src/lib/payroll";
+import { calculateEntryPayCents, calculatePaidMinutes, isMonday, paidMinutesFromParts, summarizeWeek } from "../src/lib/payroll";
 
 describe("payroll calculations", () => {
   it("subtracts an unpaid break from a same-day shift", () => {
@@ -10,6 +10,14 @@ describe("payroll calculations", () => {
     expect(() => calculatePaidMinutes(600, 600, 0)).toThrow("invalid_shift");
     expect(() => calculatePaidMinutes(600, 540, 0)).toThrow("invalid_shift");
     expect(() => calculatePaidMinutes(600, 660, 60)).toThrow("invalid_shift");
+  });
+
+  it("converts paid hours plus minutes into integer minutes", () => {
+    expect(paidMinutesFromParts(8, 0)).toBe(480);
+    expect(paidMinutesFromParts(0, 45)).toBe(45);
+    expect(() => paidMinutesFromParts(0, 0)).toThrow("invalid_shift");
+    expect(() => paidMinutesFromParts(24, 0)).toThrow("invalid_shift");
+    expect(() => paidMinutesFromParts(8, 60)).toThrow("invalid_shift");
   });
 
   it("rounds each entry pay to the nearest cent", () => {

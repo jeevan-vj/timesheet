@@ -20,9 +20,11 @@ Owners can assign contractors to sites. An assignment may override the contracto
 
 ### CT-004 Daily time entries
 
-An owner records a contractor, site, date, start time, finish time, and unpaid break. The contractor must be actively assigned to the site. Finish must be after start and paid time must remain positive.
+An owner records a contractor, site, date, and paid duration. Paid duration is entered either as hours after unpaid breaks, or as start time, finish time, and unpaid break. Finish must be after start and paid time must remain positive. Overnight shifts are out of scope.
 
-Only one entry per contractor/site/date is allowed in MVP. Entries may be replaced by editing in a future version.
+The contractor must be actively assigned to the site. The owner may assign the contractor to another active site from the same entry flow, with an optional site rate.
+
+Only one entry per contractor/site/date is allowed in MVP. Duplicate attempts return a specific error and do not create a second entry. Entries may be replaced by editing in a future version.
 
 ### CT-005 Historical rate integrity
 
