@@ -6,9 +6,9 @@ labels: "factory:ready"
 assignees: ""
 ---
 
-@cursor Please own this engineering task end-to-end.
+@cursor Please orchestrate this engineering task end-to-end on one branch.
 
-Read and obey `AGENTS.md`, the product/security/architecture contracts, `.factory/agents/implementer.md`, and relevant tests. Plan, implement with TDD, run frozen install/test/typecheck/build, and open a PR containing `Closes #ISSUE_NUMBER`, verification results, and security/payroll/migration impact. Follow CI and review feedback until merge-ready.
+Read and obey `AGENTS.md`, the product/security/architecture contracts, `.factory/agents/orchestrator.md`, and relevant tests. Ask the spec subagent for a task contract, route only the necessary specialists sequentially, verify the integrated acceptance criteria, run frozen install/test/typecheck/build, and open one PR containing `Closes #ISSUE_NUMBER`, verification results, and security/payroll/migration impact. Follow CI and review feedback until merge-ready.
 
 ## Goal
 
