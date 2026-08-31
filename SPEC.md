@@ -36,6 +36,10 @@ Weeks start on Monday in the business timezone. The dashboard groups entries by 
 
 Money is stored as integer cents. Work dates are ISO calendar dates and times are minutes after local midnight. Floating-point hours are display-only.
 
+### CT-008 Confirmed shift deletion
+
+An owner can delete a recorded shift from the weekly dashboard. The delete control opens a confirmation that identifies the contractor, site, and work date. Cancel or closing the dialog leaves the entry unchanged and does not call DELETE. Confirm sends one owner-scoped DELETE for that entry, then refreshes the week using the existing success and error messaging.
+
 ## Non-goals
 
 - tax, holiday pay, GST, expenses, invoicing, or bank payments;

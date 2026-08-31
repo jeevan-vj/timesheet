@@ -13,6 +13,7 @@ Contractor identity/contact data, site locations, rates, work notes, time record
 | Rate changes rewrite prior payroll | Effective assignment/default rate is snapshotted on entry creation |
 | Duplicate daily entry inflates pay | Unique owner/contractor/site/date index plus validation |
 | CSRF creates or deletes records | Cookie-authenticated mutations require a configured trusted Origin |
+| Accidental deletion of a recorded shift | Confirmation dialog before the existing owner-scoped DELETE; authorization and payroll math are unchanged |
 | Money/time rounding drift | Integer cents and minutes; per-entry cent rounding is specified and tested |
 | Sensitive data reaches logs | No request-body/domain logging; automated boundary test |
 | Cloud agent reaches production | Cursor receives no production secrets; trusted GitHub workflows own merge/deploy gates |

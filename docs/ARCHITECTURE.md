@@ -17,3 +17,4 @@ The vinext App Router runs as a Cloudflare Worker. D1 is accessed through the `D
 - An overnight shift is out of scope; finish must be later on the same date.
 - One contractor/site/date entry keeps entry and correction semantics simple for the first release.
 - Gross totals are contractor payments before tax/GST/expenses and are not a payroll or tax determination.
+- Deleting a recorded shift requires confirmation that names the contractor, site, and work date before the owner-scoped DELETE runs.
