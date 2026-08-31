@@ -74,23 +74,30 @@ jobs:
           node --input-type=module -e '
             const url = new URL("/api/health", process.env.PRODUCTION_URL);
             url.searchParams.set("release", process.env.GITHUB_SHA);
-            let response;
+            let verified = false;
+            let lastError;
             for (let attempt = 0; attempt < 5; attempt += 1) {
-              response = await fetch(url, { redirect: "error" });
-              if (response.ok) break;
-              await new Promise((resolve) => setTimeout(resolve, 2000));
+              try {
+                const response = await fetch(url, { redirect: "error" });
+                if (!response.ok) throw new Error(`Health check failed with ${response.status}`);
+                const body = await response.json();
+                if (body.status !== "ok" || body.database !== "ok" || body.release !== process.env.GITHUB_SHA) throw new Error("Health response does not match the active release");
+                const requiredHeaders = {
+                  "cache-control": "no-store",
+                  "content-security-policy": "frame-ancestors 'none'",
+                  "referrer-policy": "no-referrer",
+                  "x-content-type-options": "nosniff",
+                  "x-frame-options": "DENY",
+                };
+                for (const [name, expected] of Object.entries(requiredHeaders)) {
+                  if (!response.headers.get(name)?.includes(expected)) throw new Error(`Missing required ${name} response header`);
+                }
+                verified = true;
+                break;
+              } catch (error) {
+                lastError = error;
+                if (attempt < 4) await new Promise((resolve) => setTimeout(resolve, 2000));
+              }
             }
-            if (!response?.ok) throw new Error(`Health check failed with ${response?.status}`);
-            const body = await response.json();
-            if (body.status !== "ok" || body.database !== "ok" || body.release !== process.env.GITHUB_SHA) throw new Error("Health response does not match the active release");
-            const requiredHeaders = {
-              "cache-control": "no-store",
-              "content-security-policy": "frame-ancestors 'none'",
-              "referrer-policy": "no-referrer",
-              "x-content-type-options": "nosniff",
-              "x-frame-options": "DENY",
-            };
-            for (const [name, expected] of Object.entries(requiredHeaders)) {
-              if (!response.headers.get(name)?.includes(expected)) throw new Error(`Missing required ${name} response header`);
-            }
+            if (!verified) throw lastError;
           '
