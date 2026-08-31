@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply cleantrack-timesheet --local",
-    "cf:types": "wrangler types worker-configuration.d.ts --include-runtime false --env-file .dev.vars.example"
+    "cf:types": "wrangler types worker-configuration.d.ts --include-runtime false"
   },
   "dependencies": {
     "@better-auth/drizzle-adapter": "1.7.2",

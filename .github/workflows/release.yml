@@ -1,22 +1,96 @@
 name: Release to Cloudflare
+
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
+
+concurrency:
+  group: cleantrack-production
+  cancel-in-progress: false
+
 permissions:
   contents: read
+
 jobs:
-  deploy:
+  verify:
     runs-on: ubuntu-latest
-    environment: production
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm test
+      - run: pnpm typecheck
+      - run: pnpm build
+
+  deploy:
+    needs: verify
+    if: github.repository == 'jeevan-vj/timesheet' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_URL }}
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-        with: { persist-credentials: false }
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with: { node-version: 22 }
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm test && pnpm typecheck && pnpm build
-      - run: pnpm wrangler d1 migrations apply cleantrack-timesheet --remote
-      - run: pnpm run deploy
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm build
+      - name: Apply production D1 migrations
+        run: pnpm exec wrangler d1 migrations apply cleantrack-timesheet --remote --config wrangler.jsonc
+      - name: Deploy production release
+        run: >-
+          pnpm exec wrangler deploy
+          --config dist/server/wrangler.json
+          --tag "$GITHUB_SHA"
+          --message "GitHub Actions release $GITHUB_SHA"
+          --var "BETTER_AUTH_URL:${PRODUCTION_URL}"
+          --var "AUTH_TRUSTED_ORIGINS:"
+          --var "RELEASE_SHA:${GITHUB_SHA}"
+      - name: Verify active release identity
+        shell: bash
+        run: |
+          pnpm exec wrangler deployments status --name cleantrack-timesheet --json > "$RUNNER_TEMP/deployment.json"
+          active_version="$(node -e "const d=require(process.argv[1]); const v=d.versions?.find((item) => item.percentage === 100)?.version_id; if (!v) process.exit(1); process.stdout.write(v)" "$RUNNER_TEMP/deployment.json")"
+          pnpm exec wrangler versions view "$active_version" --name cleantrack-timesheet --json > "$RUNNER_TEMP/version.json"
+          node -e "const v=require(process.argv[1]); if (v.annotations?.['workers/tag'] !== process.env.GITHUB_SHA) { console.error('Active Cloudflare version does not match the workflow SHA'); process.exit(1) }" "$RUNNER_TEMP/version.json"
+      - name: Production smoke test
+        run: |
+          node --input-type=module -e '
+            const url = new URL("/api/health", process.env.PRODUCTION_URL);
+            url.searchParams.set("release", process.env.GITHUB_SHA);
+            let response;
+            for (let attempt = 0; attempt < 5; attempt += 1) {
+              response = await fetch(url, { redirect: "error" });
+              if (response.ok) break;
+              await new Promise((resolve) => setTimeout(resolve, 2000));
+            }
+            if (!response?.ok) throw new Error(`Health check failed with ${response?.status}`);
+            const body = await response.json();
+            if (body.status !== "ok" || body.database !== "ok" || body.release !== process.env.GITHUB_SHA) throw new Error("Health response does not match the active release");
+            const requiredHeaders = {
+              "cache-control": "no-store",
+              "content-security-policy": "frame-ancestors 'none'",
+              "referrer-policy": "no-referrer",
+              "x-content-type-options": "nosniff",
+              "x-frame-options": "DENY",
+            };
+            for (const [name, expected] of Object.entries(requiredHeaders)) {
+              if (!response.headers.get(name)?.includes(expected)) throw new Error(`Missing required ${name} response header`);
+            }
+          '
