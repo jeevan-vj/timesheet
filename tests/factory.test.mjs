@@ -6,9 +6,31 @@ import { buildRepairPrompt, createFollowUpRun } from '../.factory/followup-curso
 import { classifyRisk, loadPolicy } from '../.factory/classify-risk.mjs';
 
 describe('Cursor factory', () => {
-  it('prefers an explicit @cursor handoff', () => {
-    expect(detectFactoryHandoff('@cursor implement this')).toEqual({ delegated:true, provider:'cursor' });
-    expect(detectFactoryHandoff('cursor without mention')).toEqual({ delegated:false, provider:null });
+  it('starts Cursor intake from factory:ready and ignores bare @cursor mentions', () => {
+    expect(detectFactoryHandoff({ labels: ['factory:ready'], text: 'Ship weekly CSV' })).toEqual({
+      delegated: true,
+      provider: 'cursor',
+      reason: 'factory:ready',
+    });
+    expect(detectFactoryHandoff('@cursor implement this')).toEqual({
+      delegated: false,
+      provider: null,
+      reason: null,
+    });
+    expect(detectFactoryHandoff({ labels: [], text: '@codex please take this' })).toEqual({
+      delegated: true,
+      provider: 'codex',
+      reason: 'mention',
+    });
+  });
+  it('keeps the factory issue template free of @cursor mentions', () => {
+    const template = fs.readFileSync(new URL('../.github/ISSUE_TEMPLATE/factory-task.md', import.meta.url), 'utf8');
+    const workflow = fs.readFileSync(new URL('../.github/workflows/factory.yml', import.meta.url), 'utf8');
+    expect(template).toContain('factory:ready');
+    expect(template).not.toMatch(/^@cursor\b/m);
+    expect(workflow).toContain("github.event.label.name == 'factory:ready'");
+    expect(workflow).not.toContain("contains(github.event.comment.body, '@cursor')");
+    expect(workflow).toContain('Skipping dispatch; durable factory agent already recorded');
   });
   it('creates an auto-PR Cursor Agents payload', () => {
     const payload=buildAgentPayload({repository:'jeevan-vj/timesheet',issueNumber:4,title:'Weekly CSV',body:'Export approved totals'});

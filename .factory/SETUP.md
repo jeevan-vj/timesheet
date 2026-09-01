@@ -5,8 +5,8 @@
 3. Keep the Cursor environment minimal: Node 22, pnpm 10, repository access, and build/test tooling only.
 4. Do not add Cloudflare credentials, production D1 access, `BETTER_AUTH_SECRET`, broad PATs, or personal session tokens to Cursor.
 5. Configure a `main` ruleset requiring `CI / verify`, `Factory deterministic gate`, resolved conversations, and Code Owner review.
-6. Open a **Factory task** issue. The template begins with `@cursor`; GitHub Actions dispatches the agent with `autoCreatePR=true`.
-7. Configure Cursor Automations from `.factory/automations/` for independent review. The trusted GitHub repair workflow routes CI failures and trusted review feedback back to the durable orchestrator.
+6. Open a **Factory task** issue. The template applies `factory:ready` (no `@cursor` mention). GitHub Actions dispatches the orchestrator via the Agents API with `autoCreatePR=true`. Re-apply `factory:ready` or use `workflow_dispatch` to retry intake after `factory:needs-human`.
+7. Configure Cursor Automations from `.factory/automations/` for independent review. The trusted GitHub repair workflow routes CI failures and trusted review feedback back to the durable orchestrator. Keep `@cursor` on PRs for optional human refine; factory intake must stay label/API-driven to avoid double sessions.
 
 Repository variables:
 
