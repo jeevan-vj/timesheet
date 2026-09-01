@@ -33,6 +33,7 @@ async function send(url: string, body?: unknown, method = "POST") {
 export function Dashboard() {
   const [week, setWeek] = useState(() => mondayFor()); const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true); const [message, setMessage] = useState("");
+  const [editing, setEditing] = useState<Entry | null>(null);
   const loadGeneration = useRef(0);
   const load = useCallback(async () => {
     const generation = loadGeneration.current + 1;
@@ -66,17 +67,18 @@ export function Dashboard() {
       <section className="stats"><article><span>Paid hours</span><strong>{duration(totalMinutes)}</strong><small>{data.entries.length} daily {data.entries.length === 1 ? "entry" : "entries"}</small></article><article><span>Contractor pay</span><strong>{money(totalPay)}</strong><small>{data.summary.length} {data.summary.length === 1 ? "contractor" : "contractors"}</small></article><article><span>Active sites</span><strong>{data.sites.length}</strong><small>{data.assignments.length} team assignments</small></article></section>
       <section className="main-grid">
         <section className="panel"><div className="panel-title"><div><p className="eyebrow">Monday – Sunday</p><h2>{readableDate(data.weekStart)} – {readableDate(data.weekEnd)}</h2></div><ShiftEntrySheet data={data} onSave={async (body) => { await send("/api/time-entries", body); setMessage("Shift added."); await load(); }} /></div>
-          {data.entries.length ? <div className="table-wrap"><table><thead><tr><th>Date</th><th>Contractor</th><th>Site</th><th>Shift</th><th>Paid</th><th>Pay</th><th></th></tr></thead><tbody>{data.entries.map((entry) => <ShiftRow key={entry.id} entry={entry} onDelete={(target) => deleteFlow.request(target)} />)}</tbody></table></div> : <EmptyState title="No shifts this week" body="Add the first daily shift once you have a contractor and a site." />}
+          {data.entries.length ? <div className="table-wrap"><table><thead><tr><th>Date</th><th>Contractor</th><th>Site</th><th>Shift</th><th>Paid</th><th>Pay</th><th></th></tr></thead><tbody>{data.entries.map((entry) => <ShiftRow key={entry.id} entry={entry} onEdit={() => setEditing(entry)} onDelete={(target) => deleteFlow.request(target)} />)}</tbody></table></div> : <EmptyState title="No shifts this week" body="Add the first daily shift once you have a contractor and a site." />}
         </section>
         <aside className="panel summary-panel"><p className="eyebrow">Payment summary</p><h2>What to pay</h2>{data.summary.length ? <>{data.summary.map((row) => <div className="summary-row" key={row.contractorId}><div><strong>{row.contractorName}</strong><small>{duration(row.paidMinutes)}</small></div><b>{money(row.payCents)}</b></div>)}<div className="summary-total"><span>Total</span><strong>{money(totalPay)}</strong></div></> : <p className="muted roomy">Payment totals appear as shifts are added.</p>}</aside>
       </section>
       <SetupPanel data={data} mutate={mutate} />
     </>}
+    {editing && data ? <ShiftEntrySheet key={editing.id} data={data} entry={editing} onDismiss={() => setEditing(null)} onSave={async (body) => { await send(`/api/time-entries/${editing.id}`, body, "PATCH"); await load(); setMessage("Shift updated."); }} /> : null}
     <DeleteShiftDialog session={deleteSession} onCancel={() => deleteFlow.cancel()} onConfirm={() => void deleteFlow.confirm()} />
   </main>;
 }
 
-function ShiftRow({ entry, onDelete }: { entry: Entry; onDelete: (target: ShiftDeleteTarget) => void }) {
+function ShiftRow({ entry, onEdit, onDelete }: { entry: Entry; onEdit: () => void; onDelete: (target: ShiftDeleteTarget) => void }) {
   const note = visibleShiftNote(entry.notes);
   const noteId = `shift-note-${entry.id}`;
   return <tr aria-describedby={note ? noteId : undefined}>
@@ -89,7 +91,7 @@ function ShiftRow({ entry, onDelete }: { entry: Entry; onDelete: (target: ShiftD
     <td>{entry.entryMode === "paid_hours" ? <>Paid hours</> : <>{clock(entry.startMinutes)}–{clock(entry.endMinutes)}<small>{entry.breakMinutes ? `${entry.breakMinutes}m break` : "No break"}</small></>}</td>
     <td>{duration(entry.paidMinutes)}</td>
     <td><strong>{money(Math.round(entry.paidMinutes * entry.rateCents / 60))}</strong><small>{money(entry.rateCents)}/hr</small></td>
-    <td><button className="icon-button" aria-label={`Delete ${entry.contractorName} shift`} onClick={() => onDelete({ id: entry.id, contractorName: entry.contractorName, siteName: entry.siteName, workDate: entry.workDate })}>×</button></td>
+    <td><div className="row-actions"><button type="button" className="button small" aria-label={`Edit ${entry.contractorName} shift`} onClick={onEdit}>Edit</button><button className="icon-button" aria-label={`Delete ${entry.contractorName} shift`} onClick={() => onDelete({ id: entry.id, contractorName: entry.contractorName, siteName: entry.siteName, workDate: entry.workDate })}>×</button></div></td>
   </tr>;
 }
 

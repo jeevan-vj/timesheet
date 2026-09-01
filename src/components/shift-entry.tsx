@@ -3,13 +3,18 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   ASSIGN_ANOTHER_SITE,
+  breakMinuteOptions,
+  contractorsForEdit,
   createShiftSaveGuard,
   draftDurationError,
+  draftFromTimeEntry,
   draftPaidMinutes,
   draftSaveError,
+  editPreviewRateCents,
   effectiveRateCents,
   formatNzd,
   formatPayPreview,
+  isEditReclassification,
   initialShiftDraft,
   parseRateDollars,
   selectContractor,
@@ -17,8 +22,11 @@ import {
   shiftEntryBlocker,
   shiftEntryPayload,
   shiftSaveErrorMessage,
+  shiftUpdatePayload,
   sitesForContractor,
+  sitesForEdit,
   switchEntryMode,
+  type RecordedTimeEntry,
   type ShiftEntryDraft,
 } from "@/lib/shift-entry";
 
@@ -40,37 +48,74 @@ function startingDraft(data: ShiftEntryData): ShiftEntryDraft {
   return initialShiftDraft({ weekStart: data.weekStart, contractorId, siteId: assignedId });
 }
 
-export function ShiftEntrySheet({ data, onSave }: { data: ShiftEntryData; onSave: (body: unknown) => Promise<void> }) {
-  const blocker = shiftEntryBlocker(data);
+function breakLabel(minutes: number) {
+  if (minutes === 0) return "No break";
+  if (minutes === 60) return "1 hour";
+  return `${minutes} minutes`;
+}
+
+export function ShiftEntrySheet({
+  data,
+  entry,
+  onSave,
+  onDismiss,
+}: {
+  data: ShiftEntryData;
+  entry?: RecordedTimeEntry;
+  onSave: (body: unknown) => Promise<void>;
+  onDismiss?: () => void;
+}) {
+  const editing = Boolean(entry);
+  const blocker = editing ? null : shiftEntryBlocker(data);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const guard = useRef(createShiftSaveGuard()).current;
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState<ShiftEntryDraft>(() => startingDraft(data));
+  const [open, setOpen] = useState(editing);
+  const [draft, setDraft] = useState<ShiftEntryDraft>(() => entry ? draftFromTimeEntry(entry) : startingDraft(data));
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const titleId = editing ? "edit-shift-title" : "shift-title";
+  const modeName = editing ? "edit-entry-mode" : "entry-mode";
 
   useEffect(() => {
     const node = dialogRef.current;
     if (!node) return;
     if (open && !node.open) node.showModal();
     if (!open && node.open) node.close();
+    return () => { if (node.open) node.close(); };
   }, [open]);
 
   const grouped = useMemo(
     () => sitesForContractor(data.sites, data.assignments, draft.contractorId),
     [data.sites, data.assignments, draft.contractorId],
   );
+  const contractorOptions = entry
+    ? contractorsForEdit(data.contractors, { id: entry.contractorId, name: entry.contractorName })
+    : data.contractors;
+  const siteOptions = entry
+    ? sitesForEdit(data.sites, data.assignments, draft.contractorId, {
+      contractorId: entry.contractorId,
+      siteId: entry.siteId,
+      siteName: entry.siteName,
+    })
+    : grouped.assigned;
   const contractor = data.contractors.find((row) => row.id === draft.contractorId);
-  const assigning = draft.assigningSite || draft.siteId === ASSIGN_ANOTHER_SITE;
+  const assigning = !editing && (draft.assigningSite || draft.siteId === ASSIGN_ANOTHER_SITE);
   const assignment = data.assignments.find((row) => row.contractorId === draft.contractorId && row.siteId === draft.siteId);
   const overrideRate = assigning ? parseRateDollars(draft.newSiteRate) : null;
-  const rateCents = contractor && overrideRate !== "invalid"
-    ? effectiveRateCents({
-      defaultRateCents: contractor.defaultRateCents,
-      assignmentRateCents: assigning ? null : assignment?.rateCents ?? null,
-      overrideRateCents: typeof overrideRate === "number" ? overrideRate : null,
+  const rateCents = entry
+    ? editPreviewRateCents({
+      entry,
+      draft,
+      defaultRateCents: contractor?.defaultRateCents ?? null,
+      assignmentRateCents: assignment ? assignment.rateCents : undefined,
     })
-    : null;
+    : contractor && overrideRate !== "invalid"
+      ? effectiveRateCents({
+        defaultRateCents: contractor.defaultRateCents,
+        assignmentRateCents: assigning ? null : assignment?.rateCents ?? null,
+        overrideRateCents: typeof overrideRate === "number" ? overrideRate : null,
+      })
+      : null;
   const paidMinutes = draftPaidMinutes(draft);
   const durationError = draftDurationError(draft);
   const preview = rateCents && paidMinutes ? formatPayPreview(paidMinutes, rateCents) : null;
@@ -86,20 +131,22 @@ export function ShiftEntrySheet({ data, onSave }: { data: ShiftEntryData; onSave
     if (busy) return;
     setOpen(false);
     setError("");
+    onDismiss?.();
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const problem = draftSaveError(draft);
+    const problem = draftSaveError(draft, editing ? { allowAssignSite: false } : undefined);
     if (problem) { setError(problem); return; }
     await guard.run(async () => {
       setBusy(true);
       setError("");
       try {
-        await onSave(shiftEntryPayload(draft));
+        await onSave(editing ? shiftUpdatePayload(draft) : shiftEntryPayload(draft));
         setOpen(false);
+        onDismiss?.();
       } catch (cause) {
-        setError(shiftSaveErrorMessage(cause));
+        setError(editing ? shiftSaveErrorMessage(cause, "edit") : shiftSaveErrorMessage(cause));
       } finally {
         setBusy(false);
       }
@@ -111,19 +158,19 @@ export function ShiftEntrySheet({ data, onSave }: { data: ShiftEntryData; onSave
   }
 
   return <div className="dialog-wrap">
-    <button type="button" className="button small" onClick={openSheet}>+ Add shift</button>
+    {editing ? null : <button type="button" className="button small" onClick={openSheet}>+ Add shift</button>}
     <dialog
       ref={dialogRef}
       className="modal shift-sheet"
-      aria-labelledby="shift-title"
+      aria-labelledby={titleId}
       onCancel={(event) => { event.preventDefault(); closeSheet(); }}
       onClick={(event) => { if (event.target === event.currentTarget && !busy) closeSheet(); }}
     >
       <form className="shift-sheet-form" onSubmit={submit}>
         <div className="modal-title">
           <div>
-            <p className="eyebrow">Daily entry</p>
-            <h2 id="shift-title">Add a completed shift</h2>
+            <p className="eyebrow">{editing ? "Correction" : "Daily entry"}</p>
+            <h2 id={titleId}>{editing ? "Correct this shift" : "Add a completed shift"}</h2>
           </div>
           <button type="button" className="icon-button sheet-close" aria-label="Close shift form" onClick={closeSheet} disabled={busy}>×</button>
         </div>
@@ -135,7 +182,7 @@ export function ShiftEntrySheet({ data, onSave }: { data: ShiftEntryData; onSave
               const assignedIds = sitesForContractor(data.sites, data.assignments, contractorId).assigned.map((site) => site.id);
               setDraft(selectContractor(draft, contractorId, assignedIds));
             }}>
-              {data.contractors.map((row) => <option value={row.id} key={row.id}>{row.name}</option>)}
+              {contractorOptions.map((row) => <option value={row.id} key={row.id}>{row.name}</option>)}
             </select>
           </label>
           <label>Site
@@ -145,8 +192,8 @@ export function ShiftEntrySheet({ data, onSave }: { data: ShiftEntryData; onSave
               onChange={(event) => setDraft(selectSite(draft, event.target.value))}
             >
               <option value="" disabled>Choose a site</option>
-              {grouped.assigned.map((site) => <option value={site.id} key={site.id}>{site.name}</option>)}
-              {grouped.unassigned.length ? <option value={ASSIGN_ANOTHER_SITE}>Assign another site</option> : null}
+              {siteOptions.map((site) => <option value={site.id} key={site.id}>{site.name}</option>)}
+              {!editing && grouped.unassigned.length ? <option value={ASSIGN_ANOTHER_SITE}>Assign another site</option> : null}
             </select>
           </label>
           {assigning ? <>
@@ -177,11 +224,11 @@ export function ShiftEntrySheet({ data, onSave }: { data: ShiftEntryData; onSave
             <legend>Entry method</legend>
             <div role="radiogroup" aria-label="Entry method" className="mode-toggle-row">
               <label className={draft.mode === "paid_hours" ? "is-active" : ""}>
-                <input type="radio" name="entry-mode" checked={draft.mode === "paid_hours"} onChange={() => setDraft(switchEntryMode(draft, "paid_hours"))} />
+                <input type="radio" name={modeName} checked={draft.mode === "paid_hours"} onChange={() => setDraft(switchEntryMode(draft, "paid_hours"))} />
                 Paid hours
               </label>
               <label className={draft.mode === "clock" ? "is-active" : ""}>
-                <input type="radio" name="entry-mode" checked={draft.mode === "clock"} onChange={() => setDraft(switchEntryMode(draft, "clock"))} />
+                <input type="radio" name={modeName} checked={draft.mode === "clock"} onChange={() => setDraft(switchEntryMode(draft, "clock"))} />
                 Start &amp; finish
               </label>
             </div>
@@ -209,11 +256,9 @@ export function ShiftEntrySheet({ data, onSave }: { data: ShiftEntryData; onSave
               </label>
               <label className="full">Unpaid break
                 <select value={draft.breakMinutes} onChange={(event) => setDraft({ ...draft, breakMinutes: Number(event.target.value) })}>
-                  <option value={0}>No break</option>
-                  <option value={15}>15 minutes</option>
-                  <option value={30}>30 minutes</option>
-                  <option value={45}>45 minutes</option>
-                  <option value={60}>1 hour</option>
+                  {breakMinuteOptions(draft.breakMinutes).map((minutes) => (
+                    <option value={minutes} key={minutes}>{breakLabel(minutes)}</option>
+                  ))}
                 </select>
               </label>
             </div>
@@ -222,6 +267,9 @@ export function ShiftEntrySheet({ data, onSave }: { data: ShiftEntryData; onSave
           <div className="pay-preview" aria-live="polite">
             <p className="eyebrow">Estimated gross pay</p>
             {preview ? <p className="pay-preview-sum">{preview}</p> : <p className="muted">Enter paid hours to see estimated pay.</p>}
+            {editing && entry && isEditReclassification(entry, draft) && preview
+              ? <p className="muted">Changing contractor or site snapshots the current site rate onto this shift.</p>
+              : null}
           </div>
           <label className="notes-field">Notes <small>Optional</small>
             <textarea maxLength={500} placeholder="Keys returned, extra area cleaned…" value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} />
@@ -229,7 +277,7 @@ export function ShiftEntrySheet({ data, onSave }: { data: ShiftEntryData; onSave
         </div>
         <div className="shift-sheet-footer">
           <button type="button" className="button secondary" onClick={closeSheet} disabled={busy}>Cancel</button>
-          <button className="button" disabled={busy} aria-busy={busy}>{busy ? "Saving…" : "Save shift"}</button>
+          <button className="button" disabled={busy} aria-busy={busy}>{busy ? "Saving…" : editing ? "Save changes" : "Save shift"}</button>
         </div>
       </form>
     </dialog>
