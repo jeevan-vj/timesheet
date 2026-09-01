@@ -96,7 +96,7 @@ describe('Cursor factory', () => {
     expect(controller).toContain('if [ "$risk" != low ]');
     expect(repair).toContain('if [ "$attempts" -ge 2 ]');
     expect(repair).toContain('https://api.cursor.com/v1/agents/$agent_id/runs');
-    expect(repair).toContain('ref: ${{ github.event.repository.default_branch }}');
+    expect(repair).not.toContain('actions/checkout');
     expect(repair).toContain('.user.login == "github-actions[bot]"');
     expect(repair).toContain('[ "$head" = "$RUN_HEAD_SHA" ]');
     expect(repair).toContain('/runs?limit=1');
