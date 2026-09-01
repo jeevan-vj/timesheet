@@ -5,3 +5,7 @@ export const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
 ];
+
+export const securityResponseHeaders = Object.fromEntries(
+  securityHeaders.map(({ key, value }) => [key, value]),
+);
