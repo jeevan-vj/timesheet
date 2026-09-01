@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contractorInput, siteInput, timeEntryInput } from "../src/lib/validation";
+import { assignmentInput, assignmentRateInput, contractorInput, siteInput, timeEntryInput } from "../src/lib/validation";
 
 describe("API validation", () => {
   it("accepts an integer-cent contractor rate", () => {
@@ -55,5 +55,27 @@ describe("API validation", () => {
       paidMinutes: 120,
       assignSite: {},
     }).assignSite).toEqual({ rateCents: null });
+  });
+
+  it("accepts assignment create rates including null and the inherited default", () => {
+    expect(assignmentInput.parse({ contractorId: "c", siteId: "s", rateCents: 1_500 }).rateCents).toBe(1_500);
+    expect(assignmentInput.parse({ contractorId: "c", siteId: "s", rateCents: 25_000 }).rateCents).toBe(25_000);
+    expect(assignmentInput.parse({ contractorId: "c", siteId: "s", rateCents: null }).rateCents).toBeNull();
+    expect(assignmentInput.parse({ contractorId: "c", siteId: "s" }).rateCents).toBeNull();
+  });
+
+  it("rejects assignment create rates below 1500, above 25000, or non-integers", () => {
+    expect(assignmentInput.safeParse({ contractorId: "c", siteId: "s", rateCents: 1_499 }).success).toBe(false);
+    expect(assignmentInput.safeParse({ contractorId: "c", siteId: "s", rateCents: 25_001 }).success).toBe(false);
+    expect(assignmentInput.safeParse({ contractorId: "c", siteId: "s", rateCents: 30.5 }).success).toBe(false);
+  });
+
+  it("requires PATCH assignmentRateInput.rateCents and allows null within the same bounds", () => {
+    expect(assignmentRateInput.parse({ rateCents: 2_200 })).toEqual({ rateCents: 2_200 });
+    expect(assignmentRateInput.parse({ rateCents: null })).toEqual({ rateCents: null });
+    expect(assignmentRateInput.safeParse({}).success).toBe(false);
+    expect(assignmentRateInput.safeParse({ rateCents: 1_499 }).success).toBe(false);
+    expect(assignmentRateInput.safeParse({ rateCents: 25_001 }).success).toBe(false);
+    expect(assignmentRateInput.safeParse({ rateCents: 3_200.1 }).success).toBe(false);
   });
 });

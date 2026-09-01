@@ -23,6 +23,10 @@ export const assignmentInput = z.object({
   rateCents: rateCents.nullable().default(null),
 });
 
+export const assignmentRateInput = z.object({
+  rateCents: rateCents.nullable(),
+});
+
 const timeEntryBase = {
   contractorId: trimmed(64),
   siteId: trimmed(64),
