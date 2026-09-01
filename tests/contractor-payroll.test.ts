@@ -55,4 +55,15 @@ describe("contractor mutations preserve snapshotted pay", () => {
     expect(functionBody(timesheetSource, "createTimeEntry")).toMatch(/eq\(\s*contractors\.active,\s*true\s*\)/);
     expect(timesheetSource).not.toMatch(/contractor_archived/);
   });
+
+  it("archives and restores contractor and assignment flags in one D1 batch", () => {
+    const archive = functionBody(timesheetSource, "archiveContractor");
+    const restore = functionBody(timesheetSource, "restoreContractor");
+    expect(archive).toMatch(/database\.batch\(/);
+    expect(restore).toMatch(/database\.batch\(/);
+    expect(archive).toMatch(/update\(\s*assignments\s*\)[\s\S]*update\(\s*contractors\s*\)/);
+    expect(restore).toMatch(/update\(\s*contractors\s*\)[\s\S]*update\(\s*assignments\s*\)/);
+    expect(archive).not.toMatch(/timeEntries/);
+    expect(restore).not.toMatch(/timeEntries/);
+  });
 });

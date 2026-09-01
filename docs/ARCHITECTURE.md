@@ -12,7 +12,7 @@ The owner can assign a contractor to another active site in the same create-entr
 
 ## Contractor lifecycle
 
-A contractor row stays in place for the owner's history. Archive sets `active=false` on all of that owner's assignments for the contractor, then on the contractor row. Restore is the inverse on the same row (contractor first, then assignments) and never inserts a new contractor. Both operations are idempotent and never write `time_entry`.
+A contractor row stays in place for the owner's history. Archive sets `active=false` on all of that owner's assignments for the contractor, then on the contractor row. Restore is the inverse on the same row (contractor first, then assignments) and never inserts a new contractor. Both writes are issued in one Drizzle D1 `batch` so they share a single round trip. D1 batch is not rollback-atomic; retry remains safe because the operations are idempotent. Both never write `time_entry`.
 
 The unique index `contractor_owner_name_uq` on `(owner_user_id, name)` includes archived rows. A same-owner create or rename that collides, including with an archived name, returns `409 { error: "duplicate_contractor" }`. Different owners may share names. Cross-owner get, update, archive, and restore return identical `404 { error: "not_found" }` with no writes.
 

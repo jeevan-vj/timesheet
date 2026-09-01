@@ -60,22 +60,29 @@ export async function updateContractor(database: Database, ownerUserId: string, 
   }
 }
 
-export async function archiveContractor(database: Database, ownerUserId: string, contractorId: string) {
+async function ownedContractorId(database: Database, ownerUserId: string, contractorId: string) {
   const [existing] = await database.select({ id: contractors.id }).from(contractors).where(and(eq(contractors.id, contractorId), eq(contractors.ownerUserId, ownerUserId))).limit(1);
-  requireOwnedContractor(existing);
+  return requireOwnedContractor(existing).id;
+}
+
+export async function archiveContractor(database: Database, ownerUserId: string, contractorId: string) {
+  const ownedId = await ownedContractorId(database, ownerUserId, contractorId);
   const updatedAt = now();
-  await database.update(assignments).set({ active: false, updatedAt }).where(and(eq(assignments.ownerUserId, ownerUserId), eq(assignments.contractorId, contractorId)));
-  const [updated] = await database.update(contractors).set({ active: false, updatedAt }).where(and(eq(contractors.id, contractorId), eq(contractors.ownerUserId, ownerUserId))).returning();
-  return toContractorResource(requireOwnedContractor(updated));
+  const [, updatedRows] = await database.batch([
+    database.update(assignments).set({ active: false, updatedAt }).where(and(eq(assignments.ownerUserId, ownerUserId), eq(assignments.contractorId, ownedId))),
+    database.update(contractors).set({ active: false, updatedAt }).where(and(eq(contractors.id, ownedId), eq(contractors.ownerUserId, ownerUserId))).returning(),
+  ]);
+  return toContractorResource(requireOwnedContractor(updatedRows[0]));
 }
 
 export async function restoreContractor(database: Database, ownerUserId: string, contractorId: string) {
-  const [existing] = await database.select({ id: contractors.id }).from(contractors).where(and(eq(contractors.id, contractorId), eq(contractors.ownerUserId, ownerUserId))).limit(1);
-  requireOwnedContractor(existing);
+  const ownedId = await ownedContractorId(database, ownerUserId, contractorId);
   const updatedAt = now();
-  const [updated] = await database.update(contractors).set({ active: true, updatedAt }).where(and(eq(contractors.id, contractorId), eq(contractors.ownerUserId, ownerUserId))).returning();
-  await database.update(assignments).set({ active: true, updatedAt }).where(and(eq(assignments.ownerUserId, ownerUserId), eq(assignments.contractorId, contractorId)));
-  return toContractorResource(requireOwnedContractor(updated));
+  const [updatedRows] = await database.batch([
+    database.update(contractors).set({ active: true, updatedAt }).where(and(eq(contractors.id, ownedId), eq(contractors.ownerUserId, ownerUserId))).returning(),
+    database.update(assignments).set({ active: true, updatedAt }).where(and(eq(assignments.ownerUserId, ownerUserId), eq(assignments.contractorId, ownedId))),
+  ]);
+  return toContractorResource(requireOwnedContractor(updatedRows[0]));
 }
 
 export async function createAssignment(database: Database, ownerUserId: string, input: AssignmentInput) {
