@@ -17,6 +17,27 @@ export const contractorInput = z.object({
   defaultRateCents: rateCents,
 });
 
+const contractorFieldMessages: Record<string, string> = {
+  name: "Enter a name between 1 and 100 characters.",
+  email: "Enter a valid email or leave it blank.",
+  phone: "Phone must be at most 40 characters.",
+  defaultRateCents: "Default hourly rate must be a whole number of cents between 1500 and 25000 (NZ$15–NZ$250).",
+};
+
+export function invalidRequestFromZod(error: { issues: ReadonlyArray<{ path: readonly PropertyKey[] }> }): {
+  error: "invalid_request";
+  fields?: Record<string, string>;
+} {
+  const fields: Record<string, string> = {};
+  for (const issue of error.issues) {
+    const key = issue.path[0];
+    if (typeof key !== "string" || !(key in contractorFieldMessages) || fields[key]) continue;
+    fields[key] = contractorFieldMessages[key];
+  }
+  if (Object.keys(fields).length === 0) return { error: "invalid_request" };
+  return { error: "invalid_request", fields };
+}
+
 export const assignmentInput = z.object({
   contractorId: trimmed(64),
   siteId: trimmed(64),

@@ -1,6 +1,12 @@
 import { and, asc, eq, gte, lte } from "drizzle-orm";
 import { db } from "@/db/client";
 import { assignments, contractors, sites, timeEntries } from "@/db/schema";
+import {
+  contractorUpdateWriteSet,
+  mapContractorWriteError,
+  requireOwnedContractor,
+  toContractorResource,
+} from "@/lib/contractor-lifecycle";
 import { isUniqueConstraintError } from "@/lib/db-errors";
 import { calculatePaidMinutes, summarizeWeek, weekEnd } from "@/lib/payroll";
 import type { z } from "zod";
@@ -22,9 +28,54 @@ export async function createSite(database: Database, ownerUserId: string, input:
 }
 
 export async function createContractor(database: Database, ownerUserId: string, input: ContractorInput) {
-  const row = { id: id(), ownerUserId, ...input, currency: "NZD", active: true, createdAt: now(), updatedAt: now() };
-  await database.insert(contractors).values(row);
-  return row;
+  const row = { id: id(), ownerUserId, ...input, currency: "NZD" as const, active: true, createdAt: now(), updatedAt: now() };
+  try {
+    await database.insert(contractors).values(row);
+  } catch (error) {
+    mapContractorWriteError(error);
+  }
+  return toContractorResource(row);
+}
+
+export async function listContractors(database: Database, ownerUserId: string, includeArchived: boolean) {
+  const rows = includeArchived
+    ? await database.select().from(contractors).where(eq(contractors.ownerUserId, ownerUserId)).orderBy(asc(contractors.name))
+    : await database.select().from(contractors).where(and(eq(contractors.ownerUserId, ownerUserId), eq(contractors.active, true))).orderBy(asc(contractors.name));
+  return rows.map(toContractorResource);
+}
+
+export async function getContractor(database: Database, ownerUserId: string, contractorId: string) {
+  const [row] = await database.select().from(contractors).where(and(eq(contractors.id, contractorId), eq(contractors.ownerUserId, ownerUserId))).limit(1);
+  return toContractorResource(requireOwnedContractor(row));
+}
+
+export async function updateContractor(database: Database, ownerUserId: string, contractorId: string, input: ContractorInput) {
+  const [existing] = await database.select({ id: contractors.id }).from(contractors).where(and(eq(contractors.id, contractorId), eq(contractors.ownerUserId, ownerUserId))).limit(1);
+  requireOwnedContractor(existing);
+  try {
+    const [updated] = await database.update(contractors).set(contractorUpdateWriteSet(input, now())).where(and(eq(contractors.id, contractorId), eq(contractors.ownerUserId, ownerUserId))).returning();
+    return toContractorResource(requireOwnedContractor(updated));
+  } catch (error) {
+    mapContractorWriteError(error);
+  }
+}
+
+export async function archiveContractor(database: Database, ownerUserId: string, contractorId: string) {
+  const [existing] = await database.select({ id: contractors.id }).from(contractors).where(and(eq(contractors.id, contractorId), eq(contractors.ownerUserId, ownerUserId))).limit(1);
+  requireOwnedContractor(existing);
+  const updatedAt = now();
+  await database.update(assignments).set({ active: false, updatedAt }).where(and(eq(assignments.ownerUserId, ownerUserId), eq(assignments.contractorId, contractorId)));
+  const [updated] = await database.update(contractors).set({ active: false, updatedAt }).where(and(eq(contractors.id, contractorId), eq(contractors.ownerUserId, ownerUserId))).returning();
+  return toContractorResource(requireOwnedContractor(updated));
+}
+
+export async function restoreContractor(database: Database, ownerUserId: string, contractorId: string) {
+  const [existing] = await database.select({ id: contractors.id }).from(contractors).where(and(eq(contractors.id, contractorId), eq(contractors.ownerUserId, ownerUserId))).limit(1);
+  requireOwnedContractor(existing);
+  const updatedAt = now();
+  const [updated] = await database.update(contractors).set({ active: true, updatedAt }).where(and(eq(contractors.id, contractorId), eq(contractors.ownerUserId, ownerUserId))).returning();
+  await database.update(assignments).set({ active: true, updatedAt }).where(and(eq(assignments.ownerUserId, ownerUserId), eq(assignments.contractorId, contractorId)));
+  return toContractorResource(requireOwnedContractor(updated));
 }
 
 export async function createAssignment(database: Database, ownerUserId: string, input: AssignmentInput) {
@@ -111,7 +162,7 @@ export async function getDashboard(database: Database, ownerUserId: string, week
   const [siteRows, contractorRows, assignmentRows, entryRows] = await Promise.all([
     database.select({ id: sites.id, name: sites.name, address: sites.address }).from(sites).where(and(eq(sites.ownerUserId, ownerUserId), eq(sites.active, true))).orderBy(asc(sites.name)),
     database.select({ id: contractors.id, name: contractors.name, email: contractors.email, phone: contractors.phone, defaultRateCents: contractors.defaultRateCents, currency: contractors.currency }).from(contractors).where(and(eq(contractors.ownerUserId, ownerUserId), eq(contractors.active, true))).orderBy(asc(contractors.name)),
-    database.select({ id: assignments.id, contractorId: assignments.contractorId, siteId: assignments.siteId, rateCents: assignments.rateCents }).from(assignments).where(and(eq(assignments.ownerUserId, ownerUserId), eq(assignments.active, true))),
+    database.select({ id: assignments.id, contractorId: assignments.contractorId, siteId: assignments.siteId, rateCents: assignments.rateCents }).from(assignments).innerJoin(contractors, and(eq(contractors.id, assignments.contractorId), eq(contractors.ownerUserId, ownerUserId), eq(contractors.active, true))).where(and(eq(assignments.ownerUserId, ownerUserId), eq(assignments.active, true))),
     database.select({
       id: timeEntries.id, contractorId: timeEntries.contractorId, contractorName: contractors.name,
       siteId: timeEntries.siteId, siteName: sites.name, workDate: timeEntries.workDate,

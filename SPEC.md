@@ -12,7 +12,7 @@ All business data is private to an authenticated owner. Every domain query and m
 
 ### CT-002 Sites and contractors
 
-Owners can create active cleaning sites and contractors. A contractor has a default hourly rate in integer cents and may work at many sites.
+Owners can create active cleaning sites. Owners can list, create, read, update, archive, and restore contractors. A contractor has a default hourly rate in integer cents and may work at many sites. Contractor names are unique per owner, including archived rows; different owners may share names. Archive deactivates the contractor and that owner's assignments for the contractor; it does not delete rows or time entries. Restore reactivates the same contractor row and those assignments. Dashboard contractor and site selects stay active-only.
 
 ### CT-003 Site assignments
 
@@ -28,7 +28,7 @@ Only one entry per contractor/site/date is allowed in MVP. Duplicate attempts re
 
 ### CT-005 Historical rate integrity
 
-The effective hourly rate is copied onto every new time entry. Changing a contractor or assignment rate never changes historical pay.
+The effective hourly rate is copied onto every new time entry. Changing a contractor or assignment rate never rewrites historical `rate_cents`. Archived contractors remain readable by the owner; historical weeks keep the contractor name and snapshotted pay. Contractor update, archive, and restore never update or delete time entries.
 
 ### CT-006 Weekly payroll
 

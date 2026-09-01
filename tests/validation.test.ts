@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contractorInput, siteInput, timeEntryInput } from "../src/lib/validation";
+import { contractorInput, invalidRequestFromZod, siteInput, timeEntryInput } from "../src/lib/validation";
 
 describe("API validation", () => {
   it("accepts an integer-cent contractor rate", () => {
@@ -9,6 +9,84 @@ describe("API validation", () => {
   it("rejects fractional or implausible rates", () => {
     expect(contractorInput.safeParse({ name: "A", email: "", defaultRateCents: 30.5 }).success).toBe(false);
     expect(contractorInput.safeParse({ name: "A", email: "", defaultRateCents: 100 }).success).toBe(false);
+  });
+
+  it("strips ownership and lifecycle fields from contractor input", () => {
+    expect(contractorInput.parse({
+      name: "Aroha",
+      defaultRateCents: 3200,
+      ownerUserId: "forged",
+      currency: "USD",
+      active: false,
+      id: "forged-id",
+    })).toEqual({ name: "Aroha", email: "", phone: "", defaultRateCents: 3200 });
+  });
+
+  it("maps contractor Zod issues to the first generic message per known field", () => {
+    const name = contractorInput.safeParse({ name: "", email: "", defaultRateCents: 3200 });
+    expect(name.success).toBe(false);
+    if (!name.success) {
+      expect(invalidRequestFromZod(name.error)).toEqual({
+        error: "invalid_request",
+        fields: { name: "Enter a name between 1 and 100 characters." },
+      });
+    }
+
+    const email = contractorInput.safeParse({ name: "A", email: "not-an-email", defaultRateCents: 3200 });
+    expect(email.success).toBe(false);
+    if (!email.success) {
+      expect(invalidRequestFromZod(email.error)).toEqual({
+        error: "invalid_request",
+        fields: { email: "Enter a valid email or leave it blank." },
+      });
+    }
+
+    const phone = contractorInput.safeParse({ name: "A", email: "", phone: "x".repeat(41), defaultRateCents: 3200 });
+    expect(phone.success).toBe(false);
+    if (!phone.success) {
+      expect(invalidRequestFromZod(phone.error)).toEqual({
+        error: "invalid_request",
+        fields: { phone: "Phone must be at most 40 characters." },
+      });
+    }
+
+    const fractional = contractorInput.safeParse({ name: "A", email: "", defaultRateCents: 30.5 });
+    expect(fractional.success).toBe(false);
+    if (!fractional.success) {
+      expect(invalidRequestFromZod(fractional.error)).toEqual({
+        error: "invalid_request",
+        fields: { defaultRateCents: "Default hourly rate must be a whole number of cents between 1500 and 25000 (NZ$15–NZ$250)." },
+      });
+    }
+
+    const tooLow = contractorInput.safeParse({ name: "A", email: "", defaultRateCents: 100 });
+    expect(tooLow.success).toBe(false);
+    if (!tooLow.success) {
+      expect(invalidRequestFromZod(tooLow.error)).toEqual({
+        error: "invalid_request",
+        fields: { defaultRateCents: "Default hourly rate must be a whole number of cents between 1500 and 25000 (NZ$15–NZ$250)." },
+      });
+    }
+
+    const many = contractorInput.safeParse({ name: "", email: "bad", phone: "x".repeat(41), defaultRateCents: 100 });
+    expect(many.success).toBe(false);
+    if (!many.success) {
+      expect(invalidRequestFromZod(many.error)).toEqual({
+        error: "invalid_request",
+        fields: {
+          name: "Enter a name between 1 and 100 characters.",
+          email: "Enter a valid email or leave it blank.",
+          phone: "Phone must be at most 40 characters.",
+          defaultRateCents: "Default hourly rate must be a whole number of cents between 1500 and 25000 (NZ$15–NZ$250).",
+        },
+      });
+    }
+
+    const root = contractorInput.safeParse(1);
+    expect(root.success).toBe(false);
+    if (!root.success) {
+      expect(invalidRequestFromZod(root.error)).toEqual({ error: "invalid_request" });
+    }
   });
 
   it("normalises trimmed site values", () => {
