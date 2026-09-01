@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contractorInput, siteInput, timeEntryInput, timeEntryUpdateInput } from "../src/lib/validation";
+import { contractorInput,parseIncludeArchived, siteInput, timeEntryInput, timeEntryUpdateInput } from "../src/lib/validation";
 
 describe("API validation", () => {
   it("accepts an integer-cent contractor rate", () => {
@@ -13,6 +13,26 @@ describe("API validation", () => {
 
   it("normalises trimmed site values", () => {
     expect(siteInput.parse({ name: "  Harbour Offices ", address: " 1 Quay St " })).toEqual({ name: "Harbour Offices", address: "1 Quay St" });
+  });
+
+  it("rejects empty or overlong site fields and ignores active or owner ids", () => {
+    expect(siteInput.safeParse({ name: "", address: "1 Quay St" }).success).toBe(false);
+    expect(siteInput.safeParse({ name: "A".repeat(101) }).success).toBe(false);
+    expect(siteInput.safeParse({ name: "Harbour", address: "A".repeat(241) }).success).toBe(false);
+    expect(siteInput.parse({ name: "Harbour", address: "1 Quay St", active: false, owner_user_id: "forged" })).toEqual({
+      name: "Harbour",
+      address: "1 Quay St",
+    });
+  });
+
+  it("treats only includeArchived=1 as including archived sites", () => {
+    expect(parseIncludeArchived("1")).toBe(true);
+    expect(parseIncludeArchived(null)).toBe(false);
+    expect(parseIncludeArchived("")).toBe(false);
+    expect(parseIncludeArchived("0")).toBe(false);
+    expect(parseIncludeArchived("true")).toBe(false);
+    expect(parseIncludeArchived("yes")).toBe(false);
+    expect(parseIncludeArchived("all")).toBe(false);
   });
 
   it("rejects malformed dates and clock values", () => {

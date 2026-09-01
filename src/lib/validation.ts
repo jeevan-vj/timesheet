@@ -59,3 +59,7 @@ export const timeEntryUpdateInput = z.discriminatedUnion("entryMode", [
 ]);
 
 export const weekStartInput = z.string().refine(isMonday, "Week must start on Monday");
+
+export function parseIncludeArchived(value: string | null): boolean {
+  return value === "1";
+}
