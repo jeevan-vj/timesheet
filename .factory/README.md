@@ -13,6 +13,8 @@ Safety boundaries:
 - Only low-risk PRs are eligible for autonomous merge. API, service, dependency, auth, payroll, database, migration, deployment, and control-plane changes require human approval.
 - `AGENTS.md`, `.github/**`, and `.factory/**` are protected and never autonomously merged.
 
-When CI or the trusted independent reviewer requests changes, the repair workflow sends a follow-up run to the same durable Cursor agent and existing branch. The orchestrator routes confirmed findings to the responsible specialist, re-verifies, and pushes to the existing PR. Missing agent state, a busy/failed follow-up, or two unsuccessful repair cycles escalates to `factory:needs-human`.
+When CI fails or the trusted independent reviewer reports P0-P2 findings (including findings submitted as a `COMMENTED` review), the repair workflow sends a follow-up run to the same durable Cursor agent and existing branch. If that durable agent is already running, the workflow waits for it to finish, stops if the PR head changes, and then queues the repair without cancelling the active run. Only successfully dispatched repairs count toward the two-cycle limit.
+
+After a repaired head passes the deterministic gate, the controller replies to the original blocking threads and requests a fresh independent `@codex review`. Old blocking threads remain open until a trusted, non-blocking review covers the new head. The controller then resolves the superseded threads and removes a transient `factory:needs-human` label; high-risk and protected changes immediately restore the human gate. Missing durable-agent state, a failed follow-up after waiting, or two dispatched repair cycles escalates to `factory:needs-human`.
 
 See [SETUP.md](SETUP.md) to activate the factory.

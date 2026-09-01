@@ -4,6 +4,10 @@ import fs from 'node:fs';
 import { buildAgentPayload, dispatchCursorAgent } from '../.factory/dispatch-cursor.mjs';
 import { buildRepairPrompt, createFollowUpRun } from '../.factory/followup-cursor.mjs';
 import { classifyRisk, loadPolicy } from '../.factory/classify-risk.mjs';
+import {
+  blockingFactoryReviewCommentIds,
+  selectActionableFactoryReview,
+} from '../.factory/review-bots.mjs';
 
 describe('Cursor factory', () => {
   it('starts Cursor intake from factory:ready and ignores bare @cursor mentions', () => {
@@ -64,14 +68,46 @@ describe('Cursor factory', () => {
     expect(init.body).toContain('sequentially');
     expect(init.body).not.toContain('test-key');
   });
+  it('routes trusted COMMENTED P0-P2 findings but ignores advisory or stale reviews', () => {
+    const reviews = [
+      { id: 1, commit_id: 'head-1', state: 'COMMENTED', submitted_at: '2026-09-01T10:00:00Z', user: { login: 'chatgpt-codex-connector[bot]', type: 'Bot' } },
+      { id: 2, commit_id: 'head-1', state: 'COMMENTED', submitted_at: '2026-09-01T10:01:00Z', user: { login: 'unknown-reviewer[bot]', type: 'Bot' } },
+      { id: 3, commit_id: 'old-head', state: 'CHANGES_REQUESTED', submitted_at: '2026-09-01T10:02:00Z', user: { login: 'cursor[bot]', type: 'Bot' } },
+    ];
+    const comments = [
+      { id: 101, pull_request_review_id: 1, body: '[P2] Add behavioral authorization coverage.' },
+      { id: 102, pull_request_review_id: 1, body: '[P3] Consider renaming this helper.' },
+      { id: 103, pull_request_review_id: 2, body: '[P1] Untrusted bot finding.' },
+    ];
+
+    const selected = selectActionableFactoryReview(reviews, comments, 'head-1');
+    expect(selected.id).toBe(1);
+    expect(selected.blockingFindings).toEqual(['[P2] Add behavioral authorization coverage.']);
+    expect(selected.blockingCommentIds).toEqual([101]);
+    expect(blockingFactoryReviewCommentIds(reviews, comments)).toEqual([101]);
+    expect(selectActionableFactoryReview(reviews, comments, 'unreviewed-head')).toBeNull();
+
+    reviews.push({ id: 4, commit_id: 'head-1', state: 'COMMENTED', body: 'No blocking findings.', submitted_at: '2026-09-01T10:03:00Z', user: { login: 'chatgpt-codex-connector[bot]', type: 'Bot' } });
+    expect(selectActionableFactoryReview(reviews, comments, 'head-1')).toBeNull();
+  });
   it('limits autonomous merge to low-risk changes and repair to two cycles', () => {
     const controller=fs.readFileSync(new URL('../.github/workflows/factory-controller.yml',import.meta.url),'utf8');
     const repair=fs.readFileSync(new URL('../.github/workflows/factory-repair.yml',import.meta.url),'utf8');
     expect(controller).toContain('if [ "$risk" != low ]');
     expect(repair).toContain('if [ "$attempts" -ge 2 ]');
     expect(repair).toContain('https://api.cursor.com/v1/agents/$agent_id/runs');
-    expect(repair).not.toContain('actions/checkout');
+    expect(repair).toContain('refs/heads/${{ github.event.repository.default_branch }}');
     expect(repair).toContain('.user.login == "github-actions[bot]"');
     expect(repair).toContain('[ "$head" = "$RUN_HEAD_SHA" ]');
+    expect(repair).toContain('/runs?limit=1');
+    expect(repair).toContain('CREATING|RUNNING');
+    expect(repair).toContain('current_head=');
+    expect(repair).not.toContain('/cancel');
+    expect(controller).toContain('@codex review');
+    expect(controller).toContain('factory-review-request:');
+    expect(controller).toContain('/replies');
+    expect(controller).toContain('resolveReviewThread');
+    expect(controller).toContain('--remove-label factory:needs-human');
+    expect(controller).toContain('approved|commented');
   });
 });
