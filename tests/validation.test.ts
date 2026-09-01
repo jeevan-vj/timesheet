@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contractorInput, parseIncludeArchived, siteInput, timeEntryInput } from "../src/lib/validation";
+import { contractorInput,parseIncludeArchived, siteInput, timeEntryInput, timeEntryUpdateInput } from "../src/lib/validation";
 
 describe("API validation", () => {
   it("accepts an integer-cent contractor rate", () => {
@@ -75,5 +75,70 @@ describe("API validation", () => {
       paidMinutes: 120,
       assignSite: {},
     }).assignSite).toEqual({ rateCents: null });
+  });
+});
+
+const clockUpdate = {
+  entryMode: "clock" as const,
+  contractorId: "c",
+  siteId: "s",
+  workDate: "2026-08-31",
+  startMinutes: 480,
+  endMinutes: 990,
+  breakMinutes: 30,
+};
+
+const paidHoursUpdate = {
+  entryMode: "paid_hours" as const,
+  contractorId: "c",
+  siteId: "s",
+  workDate: "2026-08-31",
+  paidMinutes: 480,
+};
+
+describe("time entry update validation", () => {
+  it("accepts clock and paid_hours updates like create", () => {
+    expect(timeEntryUpdateInput.parse(clockUpdate)).toMatchObject({
+      entryMode: "clock",
+      contractorId: "c",
+      siteId: "s",
+      workDate: "2026-08-31",
+      startMinutes: 480,
+      endMinutes: 990,
+      breakMinutes: 30,
+      notes: "",
+    });
+    expect(timeEntryUpdateInput.parse(paidHoursUpdate)).toMatchObject({
+      entryMode: "paid_hours",
+      paidMinutes: 480,
+      notes: "",
+    });
+  });
+
+  it("rejects zero or overnight paid minutes, malformed dates, and negative clock values", () => {
+    expect(timeEntryUpdateInput.safeParse({ ...paidHoursUpdate, paidMinutes: 0 }).success).toBe(false);
+    expect(timeEntryUpdateInput.safeParse({ ...paidHoursUpdate, paidMinutes: 1440 }).success).toBe(false);
+    expect(timeEntryUpdateInput.safeParse({ ...clockUpdate, workDate: "31/08/2026" }).success).toBe(false);
+    expect(timeEntryUpdateInput.safeParse({ ...clockUpdate, startMinutes: -1 }).success).toBe(false);
+  });
+
+  it("omits assignSite from the parsed update object", () => {
+    const parsed = timeEntryUpdateInput.parse({
+      ...clockUpdate,
+      assignSite: { rateCents: 3_500 },
+    });
+    expect(parsed).not.toHaveProperty("assignSite");
+  });
+
+  it("does not parse client rateCents or owner identifiers onto the update object", () => {
+    const parsed = timeEntryUpdateInput.parse({
+      ...paidHoursUpdate,
+      rateCents: 9_999,
+      ownerUserId: "forged-owner",
+      owner_user_id: "forged-owner",
+    });
+    expect(parsed).not.toHaveProperty("rateCents");
+    expect(parsed).not.toHaveProperty("ownerUserId");
+    expect(parsed).not.toHaveProperty("owner_user_id");
   });
 });
