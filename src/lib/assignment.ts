@@ -106,8 +106,8 @@ export function planAssignmentWrite(input: {
   site: RelationStatus;
   existing: { id: string; active: boolean } | null;
 }): AssignmentWritePlan {
-  if (input.existing?.active) return { type: "duplicate" };
   if (input.contractor !== "active" || input.site !== "active") return { type: "not_found" };
+  if (input.existing?.active) return { type: "duplicate" };
   if (!input.existing) return { type: "insert" };
   return { type: "restore", id: input.existing.id, applyRate: true };
 }
@@ -293,4 +293,15 @@ export async function applyInlineAssignSite(
     if (error instanceof Error && error.message === "duplicate_assignment") return;
     throw error;
   }
+}
+
+export async function applyInlineAssignSiteAfterPrecheck(
+  repo: AssignmentRepository,
+  ownerUserId: string,
+  input: { contractorId: string; siteId: string; assignSite?: { rateCents: number | null } },
+  clock: AssignmentClock,
+  precheck: () => Promise<void>,
+): Promise<void> {
+  await precheck();
+  await applyInlineAssignSite(repo, ownerUserId, input, clock);
 }

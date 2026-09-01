@@ -14,7 +14,7 @@ Contractor identity/contact data, site locations, rates, work notes, time record
 | Duplicate daily entry inflates pay | Unique owner/contractor/site/date index, pre-insert owner-scoped lookup, and a specific `duplicate_entry` error |
 | Duplicate active assignment or extra rows for the same pair | Unique owner/contractor/site index; archived rows are reused instead of inserting duplicates; a second active create returns `duplicate_assignment` |
 | Unassign deletes history | Unassign only sets `active=false`; time entries and snapshotted rates remain |
-| Client forges an inline assignment | Inline restore/create still verifies owner-scoped active contractor and site rows before the entry is stored; `not_found` is not swallowed |
+| Client forges an inline assignment | Inline restore/create still verifies owner-scoped active contractor and site rows before the entry is stored; `not_found` is not swallowed. Shift validation and duplicate-date checks run before the assignment write |
 | CSRF creates or deletes records | Cookie-authenticated mutations require a configured trusted Origin |
 | Accidental deletion of a recorded shift | Confirmation dialog before the existing owner-scoped DELETE; authorization and payroll math are unchanged |
 | Money/time rounding drift | Integer cents and minutes; per-entry cent rounding is specified and tested |

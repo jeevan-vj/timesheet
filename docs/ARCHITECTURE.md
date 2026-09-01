@@ -6,13 +6,13 @@
 
 An assignment connects a contractor to a site and may provide a rate override. Assignment CRUD is owner-scoped: list and get return active and archived rows joined to the same-owner contractor and site; create inserts or reuses the unique pair; PATCH updates only `rateCents`; DELETE archives (`active=false`); restore reactivates when both relations are still active. Unassign confirmation is a UI concern; the API archives in one owner-scoped DELETE and does not delete history.
 
-The owner/contractor/site unique index is reused rather than inserting duplicates. An archived pair restored by POST create applies the submitted rate; restore-by-id does not change `rateCents`. A second active create returns `duplicate_assignment`.
+The owner/contractor/site unique index is reused rather than inserting duplicates. An archived pair restored by POST create applies the submitted rate; restore-by-id does not change `rateCents`. A second active create returns `duplicate_assignment` only when both related entities are still active; otherwise create returns `not_found`.
 
 When a time entry is created, the service resolves the active assignment (inner-joining an active owned contractor and site), snapshots the effective rate onto that new entry only, calculates paid minutes, and stores both. Weekly summaries aggregate immutable entry snapshots. Changing an assignment override later never rewrites `time_entry.rate_cents`.
 
 Paid-hours entries store integer paid minutes directly. Clock columns remain required, so those rows use a same-day window equal to the paid duration (`00:00` plus paid minutes, no break) and `entry_mode = paid_hours` so the UI does not treat them as clock times. Start-and-finish entries keep `entry_mode = clock`.
 
-The owner can assign a contractor to another site in the same create-entry request (`assignSite`). That inline path creates a missing assignment or restores an archived pair (applying `assignSite.rateCents`), and does not rewrite an already-active override. Dashboard new-entry options include only assignments whose contractor and site are both active and owned (inner joins); archived assignments and inactive relations are omitted from that list.
+The owner can assign a contractor to another site in the same create-entry request (`assignSite`). That inline path creates a missing assignment or restores an archived pair (applying `assignSite.rateCents`), and does not rewrite an already-active override. Shift validation and the duplicate contractor/site/date check run before the assignment write so a failed entry does not leave a restored assignment. Dashboard new-entry options include only assignments whose contractor and site are both active and owned (inner joins); archived assignments and inactive relations are omitted from that list.
 
 ## Runtime
 

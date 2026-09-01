@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyInlineAssignSite,
+  applyInlineAssignSiteAfterPrecheck,
   assignmentHttpStatus,
   inlineAssignmentIntent,
   isNewEntryAssignment,
@@ -68,6 +69,8 @@ describe("assignment write plans", () => {
     expect(planAssignmentWrite({ contractor: "inactive", site: "active", existing: null }).type).toBe("not_found");
     expect(planAssignmentWrite({ contractor: "active", site: "missing", existing: { id: "a1", active: false } }).type).toBe("not_found");
     expect(planAssignmentWrite({ contractor: "missing", site: "active", existing: { id: "a1", active: false } }).type).toBe("not_found");
+    expect(planAssignmentWrite({ contractor: "inactive", site: "active", existing: { id: "a1", active: true } }).type).toBe("not_found");
+    expect(planAssignmentWrite({ contractor: "active", site: "inactive", existing: { id: "a1", active: true } }).type).toBe("not_found");
   });
 
   it("treats owner-scoped misses as missing rather than inactive", () => {
@@ -246,6 +249,15 @@ describe("assignment service lifecycle", () => {
     seedActivePair(foreign, { siteOwner: OTHER });
     await expect(runCreateAssignment(foreign, OWNER, { contractorId: "c1", siteId: "s1", rateCents: 2_000 }, testClock())).rejects.toThrow("not_found");
     expect(foreign.assignments.size).toBe(0);
+  });
+
+  it("returns not_found rather than duplicate when an active assignment has an inactive relation", async () => {
+    const store = new MemoryTimesheetStore();
+    seedActivePair(store, { contractorActive: false });
+    store.seedAssignment({ id: "a1", ownerUserId: OWNER, contractorId: "c1", siteId: "s1", rateCents: 3_500, active: true, createdAt, updatedAt });
+    const before = store.snapshotAssignments();
+    await expect(runCreateAssignment(store, OWNER, { contractorId: "c1", siteId: "s1", rateCents: 9_000 }, testClock())).rejects.toThrow("not_found");
+    expect(store.snapshotAssignments()).toEqual(before);
   });
 
   it("rejects a second active create as duplicate_assignment without a second row", async () => {
@@ -429,6 +441,34 @@ describe("assignment service lifecycle", () => {
     await applyInlineAssignSite(store, OWNER, { contractorId: "c1", siteId: "s1", assignSite: { rateCents: 9_999 } }, testClock());
     expect(store.assignments.get("a1")?.rateCents).toBe(4_000);
     expect(snapshotRate(store, OWNER, "c1", "s1")).toBe(4_000);
+  });
+
+  it("does not restore an archived pair when time-entry precheck fails", async () => {
+    const store = new MemoryTimesheetStore();
+    seedActivePair(store);
+    archivedAssignment(store, 4_000);
+    await expect(applyInlineAssignSiteAfterPrecheck(
+      store,
+      OWNER,
+      { contractorId: "c1", siteId: "s1", assignSite: { rateCents: 2_500 } },
+      testClock(),
+      async () => { throw new Error("duplicate_entry"); },
+    )).rejects.toThrow("duplicate_entry");
+    expect(store.assignments.get("a1")).toMatchObject({ active: false, rateCents: 4_000 });
+  });
+
+  it("restores an archived pair only after time-entry precheck succeeds", async () => {
+    const store = new MemoryTimesheetStore();
+    seedActivePair(store);
+    archivedAssignment(store, 4_000);
+    await applyInlineAssignSiteAfterPrecheck(
+      store,
+      OWNER,
+      { contractorId: "c1", siteId: "s1", assignSite: { rateCents: 2_500 } },
+      testClock(),
+      async () => undefined,
+    );
+    expect(store.assignments.get("a1")).toMatchObject({ active: true, rateCents: 2_500 });
   });
 
   it("does not insert a time entry when inline restore/create fails", async () => {

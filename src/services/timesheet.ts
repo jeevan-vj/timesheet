@@ -2,7 +2,7 @@ import { and, asc, eq, gte, lte } from "drizzle-orm";
 import type { db } from "@/db/client";
 import { assignments, contractors, sites, timeEntries } from "@/db/schema";
 import {
-  applyInlineAssignSite,
+  applyInlineAssignSiteAfterPrecheck,
   runCreateAssignment,
   runGetAssignment,
   runListAssignments,
@@ -145,14 +145,26 @@ export async function restoreAssignment(database: Database, ownerUserId: string,
 }
 
 export async function createTimeEntry(database: Database, ownerUserId: string, input: TimeEntryInput) {
-  await applyInlineAssignSite(assignmentRepo(database), ownerUserId, input, clock);
-
   const paidMinutes = input.entryMode === "paid_hours"
     ? input.paidMinutes
     : calculatePaidMinutes(input.startMinutes, input.endMinutes, input.breakMinutes);
   const shiftClock = input.entryMode === "paid_hours"
     ? { startMinutes: 0, endMinutes: paidMinutes, breakMinutes: 0 }
     : { startMinutes: input.startMinutes, endMinutes: input.endMinutes, breakMinutes: input.breakMinutes };
+
+  await applyInlineAssignSiteAfterPrecheck(assignmentRepo(database), ownerUserId, input, clock, async () => {
+    const [duplicate] = await database
+      .select({ id: timeEntries.id })
+      .from(timeEntries)
+      .where(and(
+        eq(timeEntries.ownerUserId, ownerUserId),
+        eq(timeEntries.contractorId, input.contractorId),
+        eq(timeEntries.siteId, input.siteId),
+        eq(timeEntries.workDate, input.workDate),
+      ))
+      .limit(1);
+    if (duplicate) throw new Error("duplicate_entry");
+  });
 
   const [match] = await database
     .select({ assignmentRate: assignments.rateCents, defaultRate: contractors.defaultRateCents })
@@ -162,18 +174,6 @@ export async function createTimeEntry(database: Database, ownerUserId: string, i
     .where(and(eq(assignments.ownerUserId, ownerUserId), eq(assignments.contractorId, input.contractorId), eq(assignments.siteId, input.siteId), eq(assignments.active, true)))
     .limit(1);
   if (!match) throw new Error("not_found");
-
-  const [duplicate] = await database
-    .select({ id: timeEntries.id })
-    .from(timeEntries)
-    .where(and(
-      eq(timeEntries.ownerUserId, ownerUserId),
-      eq(timeEntries.contractorId, input.contractorId),
-      eq(timeEntries.siteId, input.siteId),
-      eq(timeEntries.workDate, input.workDate),
-    ))
-    .limit(1);
-  if (duplicate) throw new Error("duplicate_entry");
 
   const row = {
     id: id(),
