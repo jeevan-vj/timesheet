@@ -3,11 +3,14 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   cancelSiteArchive,
+  completeSiteMutation,
   createSiteArchiveFlow,
   idleSiteArchive,
+  readSiteList,
   requestSiteArchive,
   siteArchivePrompt,
   siteArchiveRequest,
+  siteMutationFeedback,
   siteRestoreRequest,
   siteRowActions,
   siteSaveErrorMessage,
@@ -99,6 +102,38 @@ describe("site restore request", () => {
   });
 });
 
+describe("site list fetch failures", () => {
+  it("treats a rejected fetch as an error instead of hanging on loading", async () => {
+    await expect(readSiteList(async () => { throw new TypeError("Failed to fetch"); })).resolves.toEqual({ status: "error" });
+  });
+
+  it("treats invalid JSON as an error", async () => {
+    await expect(readSiteList(async () => new Response("nope", { status: 200 }))).resolves.toEqual({ status: "error" });
+  });
+});
+
+describe("site mutation refresh failures", () => {
+  it("does not treat a refresh failure as a save failure", async () => {
+    const result = await completeSiteMutation(async () => undefined, async () => { throw new Error("Failed to fetch"); });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected refresh failure");
+    expect(result.phase).toBe("refresh");
+    const feedback = siteMutationFeedback(result, "Site added.");
+    expect(feedback.saved).toBe(true);
+    expect(feedback.kind).toBe("warning");
+    expect(feedback.message.toLowerCase()).not.toContain("could not save");
+    expect(feedback.message.toLowerCase()).toMatch(/refresh|reload/);
+  });
+
+  it("keeps duplicate and validation failures on the save path", async () => {
+    const result = await completeSiteMutation(async () => { throw new Error("duplicate_site"); }, async () => undefined);
+    expect(result).toEqual({ ok: false, phase: "save", error: expect.any(Error) });
+    const feedback = siteMutationFeedback(result, "Site added.");
+    expect(feedback.saved).toBe(false);
+    expect(feedback.message.toLowerCase()).toContain("already has a site");
+  });
+});
+
 describe("siteSaveErrorMessage", () => {
   it("maps duplicate_site to a non-disclosing workspace-name conflict", () => {
     const message = siteSaveErrorMessage(new Error("duplicate_site"));
@@ -137,12 +172,17 @@ describe("site setup presentation", () => {
     const component = fs.readFileSync(path.resolve("src/components/site-setup.tsx"), "utf8");
     const dashboard = fs.readFileSync(path.resolve("src/components/dashboard.tsx"), "utf8");
 
+    expect(helper).toContain("readSiteList");
+    expect(helper).toContain("completeSiteMutation");
     expect(helper).not.toContain("owner_user_id");
     expect(component).not.toContain("owner_user_id");
     expect(component).toContain("sitesListUrl(");
     expect(component).toContain('cache: "no-store"');
-    expect(component).toContain("siteSaveErrorMessage");
+    expect(component).toContain("readSiteList");
+    expect(component).toContain("completeSiteMutation");
+    expect(component).toContain("siteMutationFeedback");
     expect(component).toContain("Show archived sites");
+    expect(component).toContain("Try again");
     expect(component).toContain("aria-labelledby");
     expect(component).toContain("aria-describedby");
     expect(component).toContain("autoFocus");

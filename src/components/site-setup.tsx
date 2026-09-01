@@ -2,17 +2,20 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import {
+  completeSiteMutation,
   createSiteArchiveFlow,
   idleSiteArchive,
+  readSiteList,
   siteArchivePrompt,
+  siteMutationFeedback,
   siteRestoreRequest,
   siteRowActions,
-  siteSaveErrorMessage,
   sitesListUrl,
   type SiteArchiveSession,
+  type SiteListItem,
 } from "@/lib/site-setup";
 
-type ManagedSite = { id: string; name: string; address: string; active: boolean };
+type ManagedSite = SiteListItem;
 
 async function sendJson(url: string, body?: unknown, method = "POST") {
   const response = await fetch(url, {
@@ -45,12 +48,13 @@ export function SiteSetup({ onReload, onAnnounce }: { onReload: () => Promise<vo
     const generation = loadGeneration.current + 1;
     loadGeneration.current = generation;
     setListStatus("loading");
-    const response = await fetch(sitesListUrl(includeArchived), { cache: "no-store" });
-    if (response.status === 401) { window.location.assign("/sign-in"); return; }
-    if (generation !== loadGeneration.current) return;
-    if (!response.ok) { setListStatus("error"); return; }
-    setSites(await response.json() as ManagedSite[]);
+    const result = await readSiteList(() => fetch(sitesListUrl(includeArchived), { cache: "no-store" }));
+    if (generation !== loadGeneration.current) return "stale" as const;
+    if (result.status === "unauthorized") { window.location.assign("/sign-in"); return "unauthorized" as const; }
+    if (result.status === "error") { setListStatus("error"); return "error" as const; }
+    setSites(result.sites);
     setListStatus("ready");
+    return "ready" as const;
   }, [includeArchived]);
 
   useEffect(() => { void loadSites(); }, [loadSites]);
@@ -59,18 +63,18 @@ export function SiteSetup({ onReload, onAnnounce }: { onReload: () => Promise<vo
     setBusy(true);
     setNotice("");
     try {
-      await action();
-      await loadSites();
-      await onReload();
-      setNotice(success);
-      onAnnounce(success);
-      return true;
-    } catch (error) {
-      if (error instanceof Error && error.message === "unauthorized") return false;
-      const message = siteSaveErrorMessage(error);
-      setNotice(message);
-      onAnnounce(message);
-      return false;
+      const result = await completeSiteMutation(action, async () => {
+        const list = await loadSites();
+        if (list === "unauthorized") throw new Error("unauthorized");
+        await onReload();
+        if (list === "error") throw new Error("refresh_failed");
+      });
+      const feedback = siteMutationFeedback(result, success);
+      if (feedback.kind !== "silent") {
+        setNotice(feedback.message);
+        onAnnounce(feedback.message);
+      }
+      return feedback.saved;
     } finally {
       setBusy(false);
     }
@@ -106,7 +110,7 @@ export function SiteSetup({ onReload, onAnnounce }: { onReload: () => Promise<vo
     {notice ? <p className={`site-setup-status ${notice.startsWith("Site ") ? "notice" : "alert"}`} role={notice.startsWith("Site ") ? "status" : "alert"}>{notice}</p> : null}
     <label className="show-archived"><input type="checkbox" checked={includeArchived} onChange={(event) => { setIncludeArchived(event.target.checked); setEditingId(null); }} /> Show archived sites</label>
     {listStatus === "loading" && !sites.length ? <p className="muted" role="status">Loading sites…</p> : null}
-    {listStatus === "error" ? <p className="alert" role="alert">Could not load sites. Please try again.</p> : null}
+    {listStatus === "error" ? <p className="alert" role="alert">Could not load sites. <button type="button" className="link-button" onClick={() => void loadSites()}>Try again</button></p> : null}
     {listStatus === "ready" && !sites.length ? <p className="muted" role="status">No sites yet.</p> : null}
     {sites.map((site) => editingId === site.id
       ? <form className="mini-form site-edit-form compact-row" key={site.id} onSubmit={(event) => void updateSite(event, site.id)}>
