@@ -23,6 +23,8 @@ dialog.modal { margin:auto; border:0; }
 dialog.modal::backdrop { background:rgba(16,29,22,.48); backdrop-filter:blur(4px); }
 .delete-shift-dialog { width:min(460px,100%); }
 .delete-shift-dialog #delete-shift-copy { color:var(--muted); line-height:1.55; margin:0 0 22px; }
+.unassign-assignment-dialog { width:min(460px,100%); }
+.unassign-assignment-dialog #unassign-assignment-copy { color:var(--muted); line-height:1.55; margin:0 0 22px; }
 .text-link { font-weight:700; text-decoration:none; }
 .landing { min-height:100vh; }
 .hero { max-width:1180px; margin:65px auto 90px; padding:0 30px; display:grid; grid-template-columns:1.05fr .8fr; gap:90px; align-items:center; }
@@ -82,6 +84,19 @@ label small { color:var(--muted); font-weight:400; }
 .summary-panel { position:sticky; top:15px; }.summary-row { display:flex; justify-content:space-between; gap:15px; padding:16px 0; border-bottom:1px solid #edeee9; }.summary-row div strong,.summary-row div small { display:block; }.summary-row small { color:var(--muted); margin-top:4px; font-size:.74rem; }.summary-total { display:flex; justify-content:space-between; padding-top:22px; }.summary-total strong { font-size:1.35rem; font-weight:800; }.roomy { margin-top:32px; }
 .empty { padding:65px 20px; text-align:center; }.empty span { display:grid; place-items:center; margin:0 auto 15px; width:50px; height:50px; border-radius:16px; background:var(--mint); color:var(--green); font-size:1.4rem; }.empty h3 { margin-bottom:8px; }.empty p { color:var(--muted); max-width:360px; margin:auto; }
 .setup { margin-top:55px; padding-top:10px; }.setup > div:first-child { max-width:620px; }.setup-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-top:22px; }.setup-card { padding:20px; }.setup-title { display:flex; justify-content:space-between; align-items:center; }.setup-title h3 { margin:0; }.setup-title span { background:#eef0ec; border-radius:20px; padding:4px 9px; font-size:.72rem; font-weight:800; }.compact-list { display:grid; gap:0; margin-top:14px; }.compact-row { padding:11px 0; border-top:1px solid #edeee9; }.compact-row strong,.compact-row small { display:block; }.compact-row strong { font-size:.83rem; }.compact-row small { color:var(--muted); margin-top:3px; font-size:.72rem; } details { border-top:1px solid #edeee9; padding-top:14px; margin-top:5px; } summary { cursor:pointer; color:var(--green); font-weight:800; font-size:.8rem; }.mini-form { margin-top:14px; gap:10px; }.mini-form input,.mini-form select { font-size:.82rem; padding:9px 10px; }
+.assignment-notice { margin:12px 0 0; padding:9px 11px; border-radius:9px; font-size:.8rem; }
+.assignment-notice.is-error { background:#f9e4dd; color:#7e3523; }
+.assignment-notice.is-ok { background:var(--mint); color:var(--green); }
+.assignment-notice p { margin:0 0 8px; }
+.assignment-loading,.assignment-empty { padding:14px 0 4px; color:var(--muted); font-size:.82rem; }
+.assignment-row-head { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
+.assignment-row-actions { display:flex; flex-wrap:wrap; gap:6px; flex:none; }
+.assignment-row details { border-top:0; margin-top:4px; padding-top:4px; }
+.assignment-row .mini-form { margin-top:8px; }
+.assignment-row.is-archived strong { color:#4e5b54; }
+.assignment-restore-hint { margin:6px 0 0; font-size:.72rem; }
+.assignment-rate-actions { display:flex; justify-content:flex-end; gap:8px; }
+.button.tiny { padding:6px 10px; border-radius:8px; font-size:.75rem; box-shadow:none; }
 .modal-backdrop { position:fixed; inset:0; z-index:10; display:grid; place-items:center; padding:20px; background:rgba(16,29,22,.48); backdrop-filter:blur(4px); }.modal { width:min(590px,100%); max-height:calc(100vh - 30px); overflow:auto; background:#fff; border-radius:20px; padding:26px; box-shadow:0 30px 100px rgba(0,0,0,.25); }.modal-title { display:flex; justify-content:space-between; align-items:start; margin-bottom:22px; }.modal-title h2 { margin:0; }.form-grid { grid-template-columns:1fr 1fr; }.form-grid .full { grid-column:1/-1; }.form-grid textarea { min-height:80px; resize:vertical; }.form-actions { display:flex; justify-content:flex-end; gap:10px; }
 .shift-setup-action { display:flex; flex-direction:column; align-items:flex-end; gap:8px; max-width:240px; text-align:right; }.shift-setup-action .muted { margin:0; font-size:.8rem; }
 dialog.shift-sheet { width:min(520px,100%); max-height:min(100dvh,100vh); padding:0; overflow:hidden; }
