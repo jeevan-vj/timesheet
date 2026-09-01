@@ -1,5 +1,5 @@
 import { and, asc, eq, gte, lte, ne } from "drizzle-orm";
-import { db } from "@/db/client";
+import type { db } from "@/db/client";
 import { assignments, contractors, sites, timeEntries } from "@/db/schema";
 import { isUniqueConstraintError } from "@/lib/db-errors";
 import { summarizeWeek, weekEnd } from "@/lib/payroll";

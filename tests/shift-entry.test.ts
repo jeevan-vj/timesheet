@@ -16,6 +16,7 @@ import {
   fromMinutes,
   initialShiftDraft,
   paidHoursError,
+  shiftDateBounds,
   parseRateDollars,
   selectContractor,
   shiftEntryBlocker,
@@ -288,6 +289,13 @@ describe("edit hydration", () => {
   });
 });
 
+describe("edit date bounds", () => {
+  it("leaves create dates inside the displayed week and allows edit dates outside it", () => {
+    expect(shiftDateBounds(false, "2026-08-31", "2026-09-06")).toEqual({ min: "2026-08-31", max: "2026-09-06" });
+    expect(shiftDateBounds(true, "2026-08-31", "2026-09-06")).toEqual({ min: undefined, max: undefined });
+  });
+});
+
 describe("clock minutes round-trip", () => {
   it("pads HH:MM as the inverse of toMinutes", () => {
     expect(fromMinutes(toMinutes("08:00"))).toBe("08:00");
@@ -441,6 +449,7 @@ describe("edit sheet wiring", () => {
     expect(sheet).toContain("editPreviewRateCents");
     expect(sheet).toContain("Correct this shift");
     expect(sheet).toContain("snapshots the current site rate");
+    expect(sheet).toContain("shiftDateBounds(editing, data.weekStart, data.weekEnd)");
     expect(sheet).toContain("Add a completed shift");
     expect(sheet).toContain("ASSIGN_ANOTHER_SITE");
     expect(sheet).toContain("shiftSaveErrorMessage(cause, \"edit\")");

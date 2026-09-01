@@ -128,6 +128,10 @@ export function draftFromTimeEntry(entry: RecordedTimeEntry): ShiftEntryDraft {
   };
 }
 
+export function shiftDateBounds(editing: boolean, weekStart: string, weekEnd: string) {
+  return editing ? { min: undefined, max: undefined } : { min: weekStart, max: weekEnd };
+}
+
 export function isEditReclassification(
   entry: Pick<RecordedTimeEntry, "contractorId" | "siteId">,
   draft: Pick<ShiftEntryDraft, "contractorId" | "siteId">,

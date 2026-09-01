@@ -24,6 +24,7 @@ import {
   shiftSaveErrorMessage,
   shiftUpdatePayload,
   sitesForContractor,
+  shiftDateBounds,
   sitesForEdit,
   switchEntryMode,
   type RecordedTimeEntry,
@@ -119,6 +120,7 @@ export function ShiftEntrySheet({
   const paidMinutes = draftPaidMinutes(draft);
   const durationError = draftDurationError(draft);
   const preview = rateCents && paidMinutes ? formatPayPreview(paidMinutes, rateCents) : null;
+  const dateBounds = shiftDateBounds(editing, data.weekStart, data.weekEnd);
 
   function openSheet() {
     setDraft(startingDraft(data));
@@ -218,7 +220,7 @@ export function ShiftEntrySheet({
             </label>
           </> : null}
           <label>Date
-            <input type="date" min={data.weekStart} max={data.weekEnd} required value={draft.workDate} onChange={(event) => setDraft({ ...draft, workDate: event.target.value })} />
+            <input type="date" min={dateBounds.min} max={dateBounds.max} required value={draft.workDate} onChange={(event) => setDraft({ ...draft, workDate: event.target.value })} />
           </label>
           <fieldset className="mode-toggle">
             <legend>Entry method</legend>

@@ -24,7 +24,7 @@ An owner records a contractor, site, date, and paid duration. Paid duration is e
 
 The contractor must be actively assigned to the site. The owner may assign the contractor to another active site from the same entry flow, with an optional site rate. Inline assign-another-site remains create-only.
 
-An owner can inspect a recorded shift and correct contractor, site, date, entry mode, duration or clock times, unpaid break, and notes. Only one entry per owner/contractor/site/date is allowed. Duplicate create or update returns `duplicate_entry` and does not write a second row.
+An owner can inspect a recorded shift and correct contractor, site, date, entry mode, duration or clock times, unpaid break, and notes. Correcting the work date may move the shift out of the currently displayed week; the week view then refreshes. Only one entry per owner/contractor/site/date is allowed. Duplicate create or update returns `duplicate_entry` and does not write a second row.
 
 Edit requires an active same-owner assignment only when contractor or site changes. Duration, date, mode, and notes-only corrections keep the original rate snapshot.
 
