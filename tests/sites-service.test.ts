@@ -360,8 +360,17 @@ describe("site service", () => {
     const harbour = await createSite(asDb(memory), ownerA, { name: "Harbour Offices", address: "" });
     const aroha = await createContractor(asDb(memory), ownerA, { name: "Aroha", email: "", phone: "", defaultRateCents: 3200 });
     const assignment = await createAssignment(asDb(memory), ownerA, { contractorId: aroha.id, siteId: harbour.id, rateCents: 3500 });
+    await createTimeEntry(asDb(memory), ownerA, {
+      entryMode: "paid_hours",
+      contractorId: aroha.id,
+      siteId: harbour.id,
+      workDate: "2026-08-31",
+      paidMinutes: 480,
+      notes: "weekly clean",
+    });
     await archiveSite(asDb(memory), ownerA, harbour.id);
     const siteCount = memory.store.site.length;
+    const entriesBefore = structuredClone(memory.store.time_entry);
 
     const restored = await restoreSite(asDb(memory), ownerA, harbour.id);
 
@@ -370,6 +379,7 @@ describe("site service", () => {
     expect(memory.store.site).toHaveLength(siteCount);
     expect(memory.store.site.filter((row) => row.id === harbour.id)).toHaveLength(1);
     expect(memory.store.assignment.find((row) => row.id === assignment.id)?.active).toBe(true);
+    expect(memory.store.time_entry).toEqual(entriesBefore);
   });
 
   it("throws duplicate_site when the owner already has that name", async () => {
@@ -407,6 +417,8 @@ describe("site service", () => {
     await expect(updateSite(asDb(memory), ownerB, harbour.id, { name: "Stolen", address: "" })).rejects.toThrow("not_found");
     await expect(archiveSite(asDb(memory), ownerB, harbour.id)).rejects.toThrow("not_found");
     await expect(restoreSite(asDb(memory), ownerB, harbour.id)).rejects.toThrow("not_found");
+    expect((await listSites(asDb(memory), ownerB)).map((site) => site.id)).not.toContain(harbour.id);
+    expect((await listSites(asDb(memory), ownerB, true)).map((site) => site.id)).not.toContain(harbour.id);
     expect(memory.store).toEqual(before);
   });
 

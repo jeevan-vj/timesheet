@@ -150,6 +150,7 @@ describe("site setup presentation", () => {
     expect(component).toMatch(/aria-label=\{`Archive \$\{/);
     expect(component).toMatch(/aria-label=\{`Restore \$\{/);
     expect(component).toContain("role=\"status\"");
+    expect(component).toContain("role=\"alert\"");
     expect(component).toContain("/sign-in");
 
     expect(dashboard).toContain("<SiteSetup");

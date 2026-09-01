@@ -103,10 +103,10 @@ export function SiteSetup({ onReload, onAnnounce }: { onReload: () => Promise<vo
   }
 
   return <div className="site-setup">
-    {notice ? <p className={`site-setup-status ${notice.startsWith("Site ") ? "notice" : "alert"}`} role="status">{notice}</p> : null}
+    {notice ? <p className={`site-setup-status ${notice.startsWith("Site ") ? "notice" : "alert"}`} role={notice.startsWith("Site ") ? "status" : "alert"}>{notice}</p> : null}
     <label className="show-archived"><input type="checkbox" checked={includeArchived} onChange={(event) => { setIncludeArchived(event.target.checked); setEditingId(null); }} /> Show archived sites</label>
     {listStatus === "loading" && !sites.length ? <p className="muted" role="status">Loading sites…</p> : null}
-    {listStatus === "error" ? <p className="alert" role="status">Could not load sites. Please try again.</p> : null}
+    {listStatus === "error" ? <p className="alert" role="alert">Could not load sites. Please try again.</p> : null}
     {listStatus === "ready" && !sites.length ? <p className="muted" role="status">No sites yet.</p> : null}
     {sites.map((site) => editingId === site.id
       ? <form className="mini-form site-edit-form compact-row" key={site.id} onSubmit={(event) => void updateSite(event, site.id)}>
