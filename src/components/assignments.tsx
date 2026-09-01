@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import {
   ASSIGNMENT_LIST_LOAD_ERROR,
+  assignmentCreateSuccess,
   assignmentMutationMessage,
   assignmentSuccessMessage,
   canRestoreAssignment,
@@ -23,6 +24,7 @@ type SiteOption = { id: string; name: string };
 async function send(url: string, body?: unknown, method = "POST") {
   const response = await fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
   if (!response.ok) { const data = await response.json().catch(() => ({})) as { error?: string }; throw new Error(data.error ?? "request_failed"); }
+  return response;
 }
 
 function messageFromError(error: unknown): string {
@@ -77,15 +79,15 @@ export function AssignmentManager({
     await Promise.all([reloadRef.current(), onWeekRefreshRef.current()]);
   }, setUnassignSession)).current;
 
-  async function runMutation(task: () => Promise<void>, success: string): Promise<boolean> {
+  async function runMutation(task: () => Promise<string | void | Response>, success: string): Promise<boolean> {
     if (busyRef.current) return false;
     busyRef.current = true;
     setBusy(true);
     setNotice("");
     try {
-      await task();
+      const custom = await task();
       setNoticeKind("ok");
-      setNotice(success);
+      setNotice(typeof custom === "string" ? custom : success);
       await Promise.all([reload(), onWeekRefresh()]);
       return true;
     } catch (error) {
@@ -154,7 +156,7 @@ export function AssignmentManager({
           </details>
         </div>;
       })}
-      <CreateAssignmentForm contractors={contractors} sites={sites} busy={mutating} onSave={(body) => runMutation(() => send("/api/assignments", body), assignmentSuccessMessage.created)} onInvalid={() => { setNoticeKind("error"); setNotice(assignmentMutationMessage("invalid_request")); }} />
+      <CreateAssignmentForm contractors={contractors} sites={sites} busy={mutating} onSave={(body) => runMutation(async () => assignmentCreateSuccess((await send("/api/assignments", body)).status), assignmentSuccessMessage.created)} onInvalid={() => { setNoticeKind("error"); setNotice(assignmentMutationMessage("invalid_request")); }} />
     </div>
     <UnassignAssignmentDialog session={unassignSession} onCancel={() => unassignFlow.cancel()} onConfirm={() => void confirmUnassign()} />
   </article>;

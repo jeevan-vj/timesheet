@@ -39,6 +39,10 @@ export const assignmentSuccessMessage = {
   rateCleared: "Future entries will use the contractor default.",
 } as const;
 
+export function assignmentCreateSuccess(status: number): string {
+  return status === 200 ? assignmentSuccessMessage.restored : assignmentSuccessMessage.created;
+}
+
 export function requestUnassignAssignment(target: UnassignAssignmentTarget): Extract<UnassignAssignmentSession, { phase: "confirming" }> {
   return { phase: "confirming", target };
 }

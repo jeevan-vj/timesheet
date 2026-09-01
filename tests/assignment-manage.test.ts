@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  assignmentCreateSuccess,
   assignmentMutationMessage,
   assignmentRateLabel,
   assignmentStatusLabel,
@@ -139,6 +140,11 @@ describe("unassign assignment confirmation", () => {
 });
 
 describe("assignment mutation copy", () => {
+  it("announces restore when POST create reuses an archived pair", () => {
+    expect(assignmentCreateSuccess(201)).toBe("Assignment added.");
+    expect(assignmentCreateSuccess(200)).toBe("Assignment restored.");
+  });
+
   it("maps duplicate, missing/inactive, validation, and generic failure copy", () => {
     expect(assignmentMutationMessage("duplicate_assignment")).toBe("That contractor is already assigned to this site.");
     expect(assignmentMutationMessage("not_found")).toBe("That contractor or site is missing or inactive.");
