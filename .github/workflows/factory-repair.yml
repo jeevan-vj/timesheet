@@ -61,22 +61,13 @@ jobs:
             review_comments="$RUNNER_TEMP/review-comments.json"
             gh api --paginate "repos/$REPOSITORY/pulls/$pr/reviews?per_page=100" | jq -s '[.[][]]' > "$reviews"
             gh api --paginate "repos/$REPOSITORY/pulls/$pr/comments?per_page=100" | jq -s '[.[][]]' > "$review_comments"
-            selected="$(jq --arg head "$head" '[.[] | select(.commit_id == $head) | select(.user.type == "Bot" and (.user.login == "cursor[bot]" or .user.login == "cursor" or .user.login == "chatgpt-codex-connector[bot]"))] | sort_by(.submitted_at) | last // {}' "$reviews")"
+            selected="$(node --input-type=module -e 'import fs from "node:fs"; const reviews=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const comments=JSON.parse(fs.readFileSync(process.argv[2],"utf8")); const head=process.argv[3]; const trusted=new Set(["cursor[bot]","cursor","chatgpt-codex-connector[bot]"]); const blocking=(text)=>(/(^|[^A-Za-z0-9])P[0-2]([^A-Za-z0-9]|$)/i).test(String(text||"")); const review=reviews.filter((item)=>item.commit_id===head&&item.user?.type==="Bot"&&trusted.has(item.user?.login)).sort((a,b)=>String(a.submitted_at||"").localeCompare(String(b.submitted_at||""))).at(-1); if(review){const findings=comments.filter((item)=>Number(item.pull_request_review_id)===Number(review.id)&&blocking(item.body)).map((item)=>String(item.body).trim()); if(blocking(review.body)) findings.unshift(String(review.body).trim()); if(String(review.state||"").toLowerCase()==="changes_requested"||findings.length) process.stdout.write(JSON.stringify({...review,blockingFindings:findings.length?findings:["The trusted review requested changes."]}));}' "$reviews" "$review_comments" "$head")"
             review_id="$(printf '%s' "$selected" | jq -r '.id // empty')"
             review_head="$(printf '%s' "$selected" | jq -r '.commit_id // empty')"
             [ -n "$review_id" ] && [ "$review_head" = "$head" ] || exit 0
-            review_state="$(printf '%s' "$selected" | jq -r '.state // empty' | tr '[:upper:]' '[:lower:]')"
-            review_body="$(printf '%s' "$selected" | jq -r '.body // ""')"
-            blocking_comments="$(jq --argjson id "$review_id" '[.[] | select(.pull_request_review_id == $id) | (.body // "") | select(test("(^|[^A-Za-z0-9])P[0-2]([^A-Za-z0-9]|$)"; "i"))]' "$review_comments")"
-            review_feedback="$(jq -nr --arg state "$review_state" --arg body "$review_body" --argjson comments "$blocking_comments" '
-              def blocking: test("(^|[^A-Za-z0-9])P[0-2]([^A-Za-z0-9]|$)"; "i");
-              ($comments + (if ($body | blocking) then [$body] else [] end)) as $findings |
-              if ($state == "changes_requested" or ($findings | length) > 0)
-              then ($findings | if length == 0 then ["The trusted review requested changes."] else . end | join("\n\n"))
-              else empty end')"
-            [ -n "$review_feedback" ] || exit 0
             kind="review"
             source="review-$review_id"
+            review_feedback="$(printf '%s' "$selected" | jq -r '.blockingFindings | join("\n\n")')"
             reason="$(printf 'The trusted independent review reported blocking P0/P1/P2 findings on commit %s. Inspect all review comments and address only confirmed findings.\n\n%s' "$head" "$review_feedback")"
           else
             exit 0
