@@ -22,13 +22,17 @@ Owners can assign contractors to sites. An assignment may override the contracto
 
 An owner records a contractor, site, date, and paid duration. Paid duration is entered either as hours after unpaid breaks, or as start time, finish time, and unpaid break. Finish must be after start and paid time must remain positive. Overnight shifts are out of scope.
 
-The contractor must be actively assigned to the site. The owner may assign the contractor to another active site from the same entry flow, with an optional site rate.
+The contractor must be actively assigned to the site. The owner may assign the contractor to another active site from the same entry flow, with an optional site rate. Inline assign-another-site remains create-only.
 
-Only one entry per contractor/site/date is allowed in MVP. Duplicate attempts return a specific error and do not create a second entry. Entries may be replaced by editing in a future version.
+An owner can inspect a recorded shift and correct contractor, site, date, entry mode, duration or clock times, unpaid break, and notes. Only one entry per owner/contractor/site/date is allowed. Duplicate create or update returns `duplicate_entry` and does not write a second row.
+
+Edit requires an active same-owner assignment only when contractor or site changes. Duration, date, mode, and notes-only corrections keep the original rate snapshot.
 
 ### CT-005 Historical rate integrity
 
 The effective hourly rate is copied onto every new time entry. Changing a contractor or assignment rate never changes historical pay.
+
+Correcting an entry without changing contractor or site keeps the original snapshotted rate. Changing contractor or site snapshots the current assignment effective rate as a reclassification.
 
 ### CT-006 Weekly payroll
 
