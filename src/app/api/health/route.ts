@@ -1,6 +1,8 @@
 import { env } from "cloudflare:workers";
+import { securityResponseHeaders } from "../../../lib/security-headers";
 
 const responseHeaders = {
+  ...securityResponseHeaders,
   "Cache-Control": "no-store",
 };
 
