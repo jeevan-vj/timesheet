@@ -10,6 +10,7 @@ import {
   contractorsListUrl,
   createContractorArchiveFlow,
   emptyContractorForm,
+  emptyContractorsCopy,
   firstInvalidField,
   idleContractorArchive,
   rateDollarsFromCents,
@@ -116,6 +117,8 @@ describe("contractor list helper", () => {
   it("requests includeArchived only when the toggle is on", () => {
     expect(contractorsListUrl(false)).toBe("/api/contractors");
     expect(contractorsListUrl(true)).toBe("/api/contractors?includeArchived=true");
+    expect(emptyContractorsCopy(false)).toBe("No contractors yet");
+    expect(emptyContractorsCopy(true)).toBe("No archived contractors.");
   });
 });
 
