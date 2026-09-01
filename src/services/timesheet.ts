@@ -4,22 +4,15 @@ import { assignments, contractors, sites, timeEntries } from "@/db/schema";
 import { isUniqueConstraintError } from "@/lib/db-errors";
 import { calculatePaidMinutes, summarizeWeek, weekEnd } from "@/lib/payroll";
 import type { z } from "zod";
-import type { assignmentInput, contractorInput, siteInput, timeEntryInput } from "@/lib/validation";
+import type { assignmentInput, contractorInput, timeEntryInput } from "@/lib/validation";
 
 type Database = typeof db;
-type SiteInput = z.infer<typeof siteInput>;
 type ContractorInput = z.infer<typeof contractorInput>;
 type AssignmentInput = z.infer<typeof assignmentInput>;
 type TimeEntryInput = z.infer<typeof timeEntryInput>;
 
 const now = () => new Date();
 const id = () => crypto.randomUUID();
-
-export async function createSite(database: Database, ownerUserId: string, input: SiteInput) {
-  const row = { id: id(), ownerUserId, ...input, active: true, createdAt: now(), updatedAt: now() };
-  await database.insert(sites).values(row);
-  return row;
-}
 
 export async function createContractor(database: Database, ownerUserId: string, input: ContractorInput) {
   const row = { id: id(), ownerUserId, ...input, currency: "NZD", active: true, createdAt: now(), updatedAt: now() };
