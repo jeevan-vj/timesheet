@@ -12,7 +12,7 @@ jobs:
   evaluate:
     if: github.event.workflow_run.conclusion == 'success'
     permissions:
-      contents: read
+      contents: write
       checks: read
       issues: write
       pull-requests: write
@@ -108,13 +108,9 @@ jobs:
             if [ "$existing" -eq 0 ]; then gh pr comment "$pr" --repo "$REPOSITORY" --body "Factory verification passed, but **$risk-risk** changes require human approval.\n\n$marker"; fi
             exit 0
           fi
-          latest="$current_review"
-          review_id="$(printf '%s' "$latest" | jq -r '.id // empty')"
-          review_head="$(printf '%s' "$latest" | jq -r '.commit_id // empty')"
-          review_state="$(printf '%s' "$latest" | jq -r '.state // empty')"
-          [ -n "$review_id" ] && [ "$review_head" = "$head" ] && [[ "${review_state,,}" =~ ^(approved|commented)$ ]] || exit 0
-          comments="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr/comments?per_page=100" | jq -s --argjson id "$review_id" '[.[][] | select(.pull_request_review_id == $id)] | length')"
-          [ "$comments" -eq 0 ] || exit 0
+          mergeable_review="$(node --input-type=module -e 'import fs from "node:fs"; import {selectMergeableFactoryReview} from "./.factory/review-bots.mjs"; const reviews=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const comments=JSON.parse(fs.readFileSync(process.argv[2],"utf8")); process.stdout.write(JSON.stringify(selectMergeableFactoryReview(reviews,comments,process.argv[3])||{}));' "$reviews" "$review_comments" "$head")"
+          mergeable_review_id="$(printf '%s' "$mergeable_review" | jq -r '.id // empty')"
+          [ -n "$mergeable_review_id" ] || exit 0
           final_head="$(gh api "repos/$REPOSITORY/pulls/$pr" --jq .head.sha)"
           [ "$final_head" = "$head" ] || exit 0
           gh pr merge "$pr" --repo "$REPOSITORY" --auto --squash --delete-branch --match-head-commit "$head"

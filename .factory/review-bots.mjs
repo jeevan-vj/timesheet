@@ -43,6 +43,18 @@ export function selectActionableFactoryReview(reviews, comments, headSha, policy
   };
 }
 
+export function selectMergeableFactoryReview(reviews, comments, headSha, policy = loadReviewBots()) {
+  const review = (Array.isArray(reviews) ? reviews : [])
+    .filter((item) => item?.commit_id === headSha)
+    .filter((item) => isFactoryReviewBot(item?.user?.login, item?.user?.type, policy))
+    .sort((a, b) => String(a.submitted_at ?? '').localeCompare(String(b.submitted_at ?? '')))
+    .at(-1);
+  if (!review) return null;
+  if (!['approved', 'commented'].includes(String(review.state ?? '').toLowerCase())) return null;
+  if (selectActionableFactoryReview([review], comments, headSha, policy)) return null;
+  return review;
+}
+
 export function blockingFactoryReviewCommentIds(reviews, comments, policy = loadReviewBots()) {
   const trustedReviewIds = new Set(
     (Array.isArray(reviews) ? reviews : [])
