@@ -5,10 +5,10 @@ import { eq } from "drizzle-orm";
 import initSqlJs, { type Database as SqlJsDatabase } from "sql.js";
 import { describe, expect, it } from "vitest";
 import { assignments, contractors, timeEntries } from "../src/db/schema";
+import { createSite } from "../src/services/sites";
 import {
   createAssignment,
   createContractor,
-  createSite,
   createTimeEntry,
   deleteTimeEntry,
   getTimeEntry,

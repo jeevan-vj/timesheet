@@ -48,6 +48,55 @@ jobs:
           [ "$delegated" = true ] || exit 0
           gate="$(gh api "repos/$REPOSITORY/commits/$head/check-runs?per_page=100" --jq '[.check_runs[] | select(.name == "Factory deterministic gate" and .app.slug == "github-actions")] | sort_by(.started_at) | last | .conclusion // ""')"
           [ "$gate" = success ] || exit 0
+
+          reviews="$RUNNER_TEMP/reviews.json"
+          review_comments="$RUNNER_TEMP/review-comments.json"
+          issue_comments="$RUNNER_TEMP/issue-comments.json"
+          gh api --paginate "repos/$REPOSITORY/pulls/$pr/reviews?per_page=100" | jq -s '[.[][]]' > "$reviews"
+          gh api --paginate "repos/$REPOSITORY/pulls/$pr/comments?per_page=100" | jq -s '[.[][]]' > "$review_comments"
+          gh api --paginate "repos/$REPOSITORY/issues/$issue/comments?per_page=100" | jq -s '[.[][]]' > "$issue_comments"
+
+          current_review="$(node --input-type=module -e 'import fs from "node:fs"; import {selectLatestFactoryReview} from "./.factory/review-bots.mjs"; const reviews=JSON.parse(fs.readFileSync(process.argv[1],"utf8")).filter((review)=>review.commit_id===process.argv[2]); process.stdout.write(JSON.stringify(selectLatestFactoryReview(reviews)||{}));' "$reviews" "$head")"
+          current_review_id="$(printf '%s' "$current_review" | jq -r '.id // empty')"
+          current_actionable="$(node --input-type=module -e 'import fs from "node:fs"; import {selectActionableFactoryReview} from "./.factory/review-bots.mjs"; const reviews=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const comments=JSON.parse(fs.readFileSync(process.argv[2],"utf8")); process.stdout.write(JSON.stringify(selectActionableFactoryReview(reviews,comments,process.argv[3])||{}));' "$reviews" "$review_comments" "$head")"
+          current_actionable_id="$(printf '%s' "$current_actionable" | jq -r '.id // empty')"
+          repaired_head="$(jq -r '[.[] | select(.user.login == "github-actions[bot]" and .user.type == "Bot") | select((.body // "") | startswith("Automated repair cycle ") and contains(" dispatched.")) | (.body // "") | try capture("factory-repair:(?<head>[0-9a-fA-F]{40}):").head catch empty] | last // empty' "$issue_comments")"
+
+          if [ -n "$repaired_head" ] && [ "$repaired_head" != "$head" ]; then
+            if [ -z "$current_review_id" ]; then
+              marker="<!-- factory-review-request:$head -->"
+              pr_comments="$RUNNER_TEMP/pr-comments.json"
+              gh api --paginate "repos/$REPOSITORY/issues/$pr/comments?per_page=100" | jq -s '[.[][]]' > "$pr_comments"
+              requested="$(jq --arg marker "$marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | length' "$pr_comments")"
+              if [ "$requested" -eq 0 ]; then
+                blocking_ids="$(node --input-type=module -e 'import fs from "node:fs"; import {blockingFactoryReviewCommentIds} from "./.factory/review-bots.mjs"; const reviews=JSON.parse(fs.readFileSync(process.argv[1],"utf8")).filter((review)=>review.commit_id===process.argv[3]); const comments=JSON.parse(fs.readFileSync(process.argv[2],"utf8")); process.stdout.write(blockingFactoryReviewCommentIds(reviews,comments).join("\n"));' "$reviews" "$review_comments" "$repaired_head")"
+                while IFS= read -r comment_id; do
+                  [ -n "$comment_id" ] || continue
+                  reply_marker="<!-- factory-review-thread:$head:$comment_id -->"
+                  replied="$(jq --argjson id "$comment_id" --arg marker "$reply_marker" '[.[] | select(.in_reply_to_id == $id and ((.body // "") | contains($marker)))] | length' "$review_comments")"
+                  if [ "$replied" -eq 0 ]; then
+                    gh api --method POST "repos/$REPOSITORY/pulls/$pr/comments/$comment_id/replies" -f body="Factory repair produced commit $head, and the deterministic gate passed. A fresh independent review has been requested before this thread is resolved.\n\n$reply_marker" >/dev/null
+                  fi
+                done <<< "$blocking_ids"
+                printf -v review_request '@codex review\n\nFactory repair produced commit %s and the deterministic gate passed. Please independently re-review the current head before the factory proceeds.\n\n%s' "$head" "$marker"
+                gh pr comment "$pr" --repo "$REPOSITORY" --body "$review_request"
+              fi
+              exit 0
+            fi
+
+            [ -z "$current_actionable_id" ] || exit 0
+            blocking_ids_json="$(node --input-type=module -e 'import fs from "node:fs"; import {blockingFactoryReviewCommentIds} from "./.factory/review-bots.mjs"; const reviews=JSON.parse(fs.readFileSync(process.argv[1],"utf8")).filter((review)=>review.commit_id===process.argv[3]); const comments=JSON.parse(fs.readFileSync(process.argv[2],"utf8")); process.stdout.write(JSON.stringify(blockingFactoryReviewCommentIds(reviews,comments)));' "$reviews" "$review_comments" "$repaired_head")"
+            owner="${REPOSITORY%%/*}"
+            repo_name="${REPOSITORY#*/}"
+            threads="$RUNNER_TEMP/review-threads.json"
+            gh api graphql --paginate -f query='query($owner:String!,$name:String!,$pr:Int!,$endCursor:String){repository(owner:$owner,name:$name){pullRequest(number:$pr){reviewThreads(first:100,after:$endCursor){nodes{id isResolved comments(first:1){nodes{databaseId}}} pageInfo{hasNextPage endCursor}}}}}' -f owner="$owner" -f name="$repo_name" -F pr="$pr" | jq -s '[.[].data.repository.pullRequest.reviewThreads.nodes[]]' > "$threads"
+            jq -r --argjson ids "$blocking_ids_json" '.[] | select(.isResolved == false) | select((.comments.nodes[0].databaseId // 0) as $id | $ids | index($id)) | .id' "$threads" | while IFS= read -r thread_id; do
+              [ -n "$thread_id" ] || continue
+              gh api graphql -f query='mutation($thread:ID!){resolveReviewThread(input:{threadId:$thread}){thread{id isResolved}}}' -f thread="$thread_id" >/dev/null
+            done
+            gh issue edit "$issue" --repo "$REPOSITORY" --remove-label factory:needs-human >/dev/null 2>&1 || true
+          fi
+
           files="$RUNNER_TEMP/files.txt"; gh api --paginate "repos/$REPOSITORY/pulls/$pr/files?per_page=100" --jq '.[].filename' > "$files"
           risk="$(node .factory/classify-risk.mjs < "$files")"
           if [ "$risk" != low ]; then
@@ -59,12 +108,11 @@ jobs:
             if [ "$existing" -eq 0 ]; then gh pr comment "$pr" --repo "$REPOSITORY" --body "Factory verification passed, but **$risk-risk** changes require human approval.\n\n$marker"; fi
             exit 0
           fi
-          reviews="$RUNNER_TEMP/reviews.json"; gh api --paginate "repos/$REPOSITORY/pulls/$pr/reviews?per_page=100" | jq -s '[.[][]]' > "$reviews"
-          latest="$(node --input-type=module -e 'import fs from "node:fs"; import {selectLatestFactoryReview} from "./.factory/review-bots.mjs"; process.stdout.write(JSON.stringify(selectLatestFactoryReview(JSON.parse(fs.readFileSync(process.argv[1],"utf8")))||{}));' "$reviews")"
+          latest="$current_review"
           review_id="$(printf '%s' "$latest" | jq -r '.id // empty')"
           review_head="$(printf '%s' "$latest" | jq -r '.commit_id // empty')"
           review_state="$(printf '%s' "$latest" | jq -r '.state // empty')"
-          [ -n "$review_id" ] && [ "$review_head" = "$head" ] && [ "${review_state,,}" = approved ] || exit 0
+          [ -n "$review_id" ] && [ "$review_head" = "$head" ] && [[ "${review_state,,}" =~ ^(approved|commented)$ ]] || exit 0
           comments="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr/comments?per_page=100" | jq -s --argjson id "$review_id" '[.[][] | select(.pull_request_review_id == $id)] | length')"
           [ "$comments" -eq 0 ] || exit 0
           final_head="$(gh api "repos/$REPOSITORY/pulls/$pr" --jq .head.sha)"
