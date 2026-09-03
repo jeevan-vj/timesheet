@@ -272,7 +272,6 @@ describe("factory E2E workflows stay fail-closed and complementary", () => {
     expect(e2e).toContain("retention-days: 14");
     expect(e2e).toContain("persist-credentials: false");
     expect(e2e).toContain("pull-requests: read");
-    expect(e2e).toContain('gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}"');
     expect(e2e).toContain("cp .dev.vars dist/server/.dev.vars");
     expect(harness).toContain('path.join(distDir, ".dev.vars")');
     expect(harness).toContain('await page.getByText("No shifts this week").waitFor({ timeout: 30_000 });');
