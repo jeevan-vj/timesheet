@@ -6,6 +6,16 @@ import { authClient } from "@/lib/auth-client";
 import { ContractorsPanel } from "@/components/contractors";
 import { ShiftEntrySheet } from "@/components/shift-entry";
 import { SiteSetup } from "@/components/site-setup";
+import { remittanceFilename } from "@/lib/remittance";
+import {
+  createRemittanceDownloadFlow,
+  idleRemittanceDownload,
+  parseContentDispositionFilename,
+  remittanceDownloadPrompt,
+  remittanceErrorMessage,
+  type RemittanceDownloadSession,
+  type RemittanceDownloadTarget,
+} from "@/lib/remittance-download";
 import { createShiftDeleteFlow, idleShiftDelete, shiftDeletePrompt, type ShiftDeleteSession, type ShiftDeleteTarget } from "@/lib/shift-delete";
 import { visibleShiftNote } from "@/lib/shift-note";
 import { ShiftTableNote } from "@/components/shift-note";
@@ -52,6 +62,23 @@ function mutateErrorMessage(error: unknown) {
 async function send(url: string, body?: unknown, method = "POST") {
   const response = await fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
   if (!response.ok) { const data = await response.json().catch(() => ({})) as { error?: string }; throw new Error(data.error ?? "request_failed"); }
+}
+
+async function saveRemittancePdf(url: string, target: RemittanceDownloadTarget) {
+  const response = await fetch(url, { cache: "no-store" });
+  if (response.status === 401) { window.location.assign("/sign-in"); return false; }
+  if (!response.ok) { const data = await response.json().catch(() => ({})) as { error?: string }; throw new Error(data.error ?? "request_failed"); }
+  const blob = await response.blob();
+  const filename = parseContentDispositionFilename(response.headers.get("Content-Disposition")) ?? remittanceFilename(target.contractorName, target.weekEnd);
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+  return true;
 }
 
 export function Dashboard() {
@@ -108,6 +135,22 @@ export function Dashboard() {
     : data && pendingKind === "reopen"
       ? weekReopenPrompt({ weekRangeLabel })
       : null;
+  const [remittanceSession, setRemittanceSession] = useState(idleRemittanceDownload);
+  const remittanceSessionRef = useRef(idleRemittanceDownload);
+  const remittanceFlow = useRef(createRemittanceDownloadFlow(async (request) => {
+    const target = remittanceSessionRef.current.target;
+    if (!target) return;
+    try {
+      setMessage("");
+      const saved = await saveRemittancePdf(request.url, target);
+      if (saved) setMessage("Remittance downloaded.");
+    } catch (error) {
+      setMessage(remittanceErrorMessage(error instanceof Error ? error.message : ""));
+    }
+  }, (session) => {
+    remittanceSessionRef.current = session;
+    setRemittanceSession(session);
+  })).current;
 
   return <main className="app-shell">
     <header className="app-header"><a className="brand" href="/"><span className="brand-mark">C</span> CleanTrack</a><nav><a href="#team">Team & sites</a><button className="link-button" onClick={() => void authClient.signOut().then(() => window.location.assign("/"))}>Sign out</button></nav></header>
@@ -119,13 +162,14 @@ export function Dashboard() {
         <section className="panel"><div className="panel-title"><div><p className="eyebrow">Monday – Sunday</p><h2>{readableDate(data.weekStart)} – {readableDate(data.weekEnd)}</h2></div><ShiftEntrySheet data={data} locked={weekLocked} onSave={async (body) => { await send("/api/time-entries", body); await load(true); setMessage("Shift added."); }} /></div>
           {data.entries.length ? <div className="table-wrap"><table><thead><tr><th>Date</th><th>Contractor</th><th>Site</th><th>Shift</th><th>Paid</th><th>Pay</th><th></th></tr></thead><tbody>{data.entries.map((entry) => <ShiftRow key={entry.id} entry={entry} locked={weekLocked} onEdit={() => setEditing(entry)} onDelete={(target) => deleteFlow.request(target)} />)}</tbody></table></div> : <EmptyState title="No shifts this week" body="Record the first shift after adding a contractor and assigning them to a site." />}
         </section>
-        <aside className="panel summary-panel"><p className="eyebrow">Payment summary</p><h2>What to pay</h2>{data.summary.length ? <>{data.summary.map((row) => <div className="summary-row" key={row.contractorId}><div><strong>{row.contractorName}</strong><small>{duration(row.paidMinutes)}</small></div><b>{money(row.payCents)}</b></div>)}<div className="summary-total"><span>Total</span><strong>{money(totalPay)}</strong></div></> : <p className="muted roomy">Payment totals appear as shifts are added.</p>}</aside>
+        <aside className="panel summary-panel"><p className="eyebrow">Payment summary</p><h2>What to pay</h2>{data.summary.length ? <>{data.summary.map((row) => <div className="summary-row" key={row.contractorId}><div><strong>{row.contractorName}</strong><small>{duration(row.paidMinutes)}</small><button type="button" className="button small secondary" aria-label={`Download remittance for ${row.contractorName}`} onClick={() => remittanceFlow.request({ contractorId: row.contractorId, contractorName: row.contractorName, weekStart: data.weekStart, weekEnd: data.weekEnd })}>Remittance</button></div><b>{money(row.payCents)}</b></div>)}<div className="summary-total"><span>Total</span><strong>{money(totalPay)}</strong></div></> : <p className="muted roomy">Payment totals appear as shifts are added.</p>}</aside>
       </section>
       <SetupPanel data={data} onReload={() => load(true)} onAnnounce={setMessage} />
     </>}
     {editing && data && !weekLocked ? <ShiftEntrySheet key={editing.id} data={data} entry={editing} onDismiss={() => setEditing(null)} onSave={async (body) => { await send(`/api/time-entries/${editing.id}`, body, "PATCH"); await load(true); setMessage("Shift updated."); }} /> : null}
     <DeleteShiftDialog session={deleteSession} onCancel={() => deleteFlow.cancel()} onConfirm={() => void deleteFlow.confirm()} />
     <WeekApprovalDialog session={approvalSession} prompt={approvalPrompt} onCancel={() => approvalFlow.cancel()} onConfirm={() => { if (!data) return; void approvalFlow.confirm({ weekStart: data.weekStart, ...expectedWeekTotals(data.summary) }); }} />
+    <RemittanceDownloadDialog session={remittanceSession} onCancel={() => remittanceFlow.cancel()} onConfirm={() => void remittanceFlow.confirm()} />
   </main>;
 }
 
@@ -186,6 +230,23 @@ function WeekApprovalDialog({ session, prompt, onCancel, onConfirm }: { session:
   }, [open]);
   return <dialog ref={dialogRef} className="modal week-approval-dialog" aria-labelledby="week-approval-title" aria-describedby="week-approval-copy" onCancel={(event) => { if (busy) event.preventDefault(); else onCancel(); }} onClick={(event) => { if (event.target === event.currentTarget && !busy) onCancel(); }}>
     {prompt ? <><div className="modal-title"><div><p className="eyebrow">{kind === "reopen" ? "Unlock this week" : "Lock this week"}</p><h2 id="week-approval-title">{prompt.title}</h2></div><button type="button" className="icon-button" aria-label={prompt.closeLabel} onClick={onCancel} disabled={busy}>×</button></div><p id="week-approval-copy">{prompt.description}</p><div className="form-actions"><button type="button" className="button secondary" autoFocus onClick={onCancel} disabled={busy}>{prompt.cancelLabel}</button><button type="button" className="button" onClick={onConfirm} disabled={busy} aria-busy={busy}>{prompt.confirmLabel}</button></div></> : null}
+  </dialog>;
+}
+
+function RemittanceDownloadDialog({ session, onCancel, onConfirm }: { session: RemittanceDownloadSession; onCancel: () => void; onConfirm: () => void }) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const busy = session.phase === "submitting";
+  const target = session.target;
+  const prompt = target ? remittanceDownloadPrompt(target, `${readableDate(target.weekStart)} – ${readableDate(target.weekEnd)}`) : null;
+  useEffect(() => {
+    const node = dialogRef.current;
+    if (!node) return;
+    if (target && !node.open) node.showModal();
+    if (!target && node.open) node.close();
+    return () => { if (node.open) node.close(); };
+  }, [target]);
+  return <dialog ref={dialogRef} className="modal delete-shift-dialog" aria-labelledby="remittance-download-title" aria-describedby="remittance-download-copy" onCancel={(event) => { if (busy) event.preventDefault(); else onCancel(); }} onClick={(event) => { if (event.target === event.currentTarget && !busy) onCancel(); }}>
+    {prompt ? <><div className="modal-title"><div><p className="eyebrow">Weekly remittance</p><h2 id="remittance-download-title">{prompt.title}</h2></div><button type="button" className="icon-button" aria-label={prompt.closeLabel} onClick={onCancel} disabled={busy}>×</button></div><p id="remittance-download-copy">{prompt.description}</p><div className="form-actions"><button type="button" className="button secondary" autoFocus onClick={onCancel} disabled={busy}>{prompt.cancelLabel}</button><button type="button" className="button" onClick={onConfirm} disabled={busy} aria-busy={busy}>{prompt.confirmLabel}</button></div></> : null}
   </dialog>;
 }
 
