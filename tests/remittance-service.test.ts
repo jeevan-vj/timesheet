@@ -14,6 +14,7 @@ import {
   createTimeEntry,
   deleteTimeEntry,
 } from "../src/services/timesheet";
+import { approveWeek } from "../src/services/week-approval";
 
 type RemittanceDb = Parameters<typeof getContractorWeekRemittance>[0];
 
@@ -24,6 +25,7 @@ async function openMemoryDb() {
   const sqlite = new SQL.Database();
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0000_initial.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0001_entry_mode.sql"), "utf8"));
+  sqlite.exec(fs.readFileSync(path.resolve("drizzle/0002_week_approval.sql"), "utf8"));
   const database = drizzle(sqlite) as unknown as RemittanceDb;
   return { sqlite, database };
 }
@@ -168,5 +170,34 @@ describe("contractor week remittance query", () => {
       notes: "",
     });
     await expect(getContractorWeekRemittance(database, "owner-a", owner.contractor.id, weekStart)).rejects.toThrow("no_entries");
+  });
+
+  it("still loads remittance after the week is approved", async () => {
+    const { sqlite, database } = await openMemoryDb();
+    const owner = await seedOwner(database, sqlite, "owner-a");
+    await createTimeEntry(database, "owner-a", {
+      entryMode: "paid_hours",
+      contractorId: owner.contractor.id,
+      siteId: owner.harbour.id,
+      workDate: weekStart,
+      paidMinutes: 480,
+      notes: "",
+    });
+    await approveWeek(database as Parameters<typeof approveWeek>[0], "owner-a", {
+      weekStart,
+      expectedPaidMinutes: 480,
+      expectedPayCents: calculateEntryPayCents(480, 3_200),
+    });
+    await expect(createTimeEntry(database, "owner-a", {
+      entryMode: "paid_hours",
+      contractorId: owner.contractor.id,
+      siteId: owner.warehouse.id,
+      workDate: "2026-09-01",
+      paidMinutes: 60,
+      notes: "",
+    })).rejects.toThrow("week_locked");
+    const remittance = await getContractorWeekRemittance(database, "owner-a", owner.contractor.id, weekStart);
+    expect(remittance.entries).toHaveLength(1);
+    expect(remittance.entries[0]).toMatchObject({ paidMinutes: 480, rateCents: 3_200 });
   });
 });

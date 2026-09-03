@@ -153,4 +153,11 @@ describe("weekly dashboard remittance controls", () => {
     expect(dashboard).toContain("Payment totals appear as shifts are added.");
     expect(dashboard).toMatch(/data\.summary\.length \?[\s\S]*Remittance[\s\S]*: <p className="muted roomy">Payment totals appear as shifts are added\.<\/p>/);
   });
+
+  it("keeps remittance available on approved weeks", () => {
+    expect(dashboard).toContain("WeekApprovalBar");
+    expect(dashboard).toContain("weekLocked");
+    expect(dashboard).toMatch(/aria-label={`Download remittance for \$\{row\.contractorName\}`}/);
+    expect(dashboard).not.toMatch(/disabled=\{weekLocked\}[\s\S]*Download remittance for/);
+  });
 });

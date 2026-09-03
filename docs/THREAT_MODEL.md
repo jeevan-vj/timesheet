@@ -32,6 +32,7 @@ Contractor identity/contact data, site locations, rates, work notes, time record
 | Approve commits stale hours or pay | Compare-and-set on current owner-scoped minutes and entry-snapshot pay; mismatch returns `stale_week` with no insert or timestamp bump |
 | Money/time rounding drift | Integer cents and minutes; per-entry cent rounding is specified and tested |
 | Owner downloads another owner's remittance PDF | Session-derived owner plus owner predicates on contractor, time entry, and contractor/site joins; missing and cross-owner ids return identical `not_found` |
+| Remittance generation mutates a locked week | Remittance is generate-on-read and does not write `time_entry` or `week_approval`; `week_locked` applies to time-entry writes only |
 | Remittance PDF is cached or mixed with error JSON | Generate-on-read; success is `application/pdf` with `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`; empty weeks and other failures return JSON only |
 | Sensitive data reaches logs | No request-body, site name/address, PDF bytes, contractor, rate, or pay logging; automated boundary test |
 | Cloud agent reaches production | Cursor receives no production secrets; trusted GitHub workflows own merge/deploy gates |
