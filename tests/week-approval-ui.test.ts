@@ -125,7 +125,7 @@ describe("week approval confirmation flow", () => {
         expectedPayCents: 25_600,
       },
     });
-    expect(JSON.stringify(send.mock.calls[0]?.[0])).not.toMatch(/owner_user_id|ownerUserId/);
+    expect(JSON.stringify(send.mock.calls)).not.toMatch(/owner_user_id|ownerUserId/);
     expect(flow.getSession()).toEqual(idleWeekApproval);
   });
 
@@ -142,7 +142,7 @@ describe("week approval confirmation flow", () => {
       url: "/api/weeks/reopen",
       body: { weekStart: "2026-08-31" },
     });
-    expect(JSON.stringify(send.mock.calls[0]?.[0])).not.toMatch(/owner_user_id|ownerUserId/);
+    expect(JSON.stringify(send.mock.calls)).not.toMatch(/owner_user_id|ownerUserId/);
   });
 
   it("ignores a second confirm while the first request is in flight", async () => {
