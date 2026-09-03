@@ -8,6 +8,8 @@
 
 `BETTER_AUTH_SECRET` is a Worker runtime secret. Keep it in Cloudflare and never copy it into GitHub. `BETTER_AUTH_URL`, `AUTH_TRUSTED_ORIGINS`, and `RELEASE_SHA` are non-secret deployment variables supplied by the release workflow.
 
+Weekly remittance advice is generated on read in the Worker with `pdf-lib`. Remittance itself adds no D1 migration, secrets, or bindings. Weekly approval still requires `0002_week_approval.sql` as in the existing release notes below.
+
 ## Manual release
 
 1. Run `pnpm install --frozen-lockfile`, `pnpm test`, `pnpm typecheck`, and `pnpm build`.

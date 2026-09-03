@@ -44,8 +44,11 @@ The unique index `contractor_owner_name_uq` on `(owner_user_id, name)` includes 
 | PATCH | `/api/contractors/[id]` | yes | `200 ContractorResource` |
 | POST | `/api/contractors/[id]/archive` | yes | `200 ContractorResource` `active: false` |
 | POST | `/api/contractors/[id]/restore` | yes | `200 ContractorResource` `active: true` |
+| GET | `/api/contractors/[id]/remittance` | no | `200` PDF (`?week=YYYY-MM-DD` Monday) |
 
 There is no DELETE on contractors. Cookie-authenticated mutations use `authorize(request, true)`. Errors: `401 unauthorized`, `403 forbidden`, `404 not_found`, `409 duplicate_contractor`, `413 payload_too_large`, `400 invalid_request` (optional `fields` on create/patch Zod failures only).
+
+`GET /api/contractors/[id]/remittance?week=YYYY-MM-DD` is a cookie read (`authorize(request)` without mutation CSRF). Ownership comes from the session. The handler loads the contractor with `id` plus `owner_user_id`, then that owner's time entries for the Monday–Sunday week, inner-joining contractor and site by id and owner only (no `active` filter). The PDF is generated on read with `pdf-lib`; nothing is stored. Success headers: `Content-Type: application/pdf`, `Content-Disposition: attachment; filename="remittance-<slug>-<weekEnd>.pdf"`, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`. Empty weeks return `400 { error: "no_entries" }` JSON, not a PDF. Cross-owner ids return `404 { error: "not_found" }`. Approved weeks stay readable: remittance does not call `assertUnlockedWeek`.
 
 ## Runtime
 

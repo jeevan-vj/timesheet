@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: factory-e2e-${{ github.event.pull_request.number }}
@@ -38,6 +39,7 @@ jobs:
           set -euo pipefail
           printf 'BETTER_AUTH_SECRET=local-development-secret-change-me-123456789\nBETTER_AUTH_URL=%s\nAUTH_TRUSTED_ORIGINS=%s\n' \
             "$FACTORY_E2E_BASE_URL" "$FACTORY_E2E_BASE_URL" > .dev.vars
+          cp .dev.vars dist/server/.dev.vars
           pnpm exec wrangler d1 migrations apply cleantrack-timesheet --local --config wrangler.jsonc --persist-to .wrangler/e2e-state
       - name: Start PR-head app
         run: |
