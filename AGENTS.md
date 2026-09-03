@@ -31,7 +31,7 @@ For non-trivial work:
 
 ## Pull requests
 
-Factory PRs must include `Closes #<issue-number>`, the plan, verification results, security/payroll impact, and migration/deployment notes. Factory workers are Cursor Cloud Agents (preferred, `@cursor`) or Codex Cloud (`@codex`). Protected control-plane changes are never autonomously merged.
+Factory PRs must include `Closes #<issue-number>`, the plan, verification results, security/payroll impact, and migration/deployment notes. Factory workers are Cursor Cloud Agents started by the `factory:ready` label via Actions (preferred) or Codex Cloud (`@codex`). Do not put `@cursor` in factory issue bodies when GitHub↔Cursor mentions are live; use `@cursor` on PRs only for human refine. Protected control-plane changes are never autonomously merged.
 
 ## Review severity
 
