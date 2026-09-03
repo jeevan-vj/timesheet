@@ -119,11 +119,14 @@ describe("week grid presenters", () => {
 });
 
 describe("apply then GET", () => {
-  it("skips apply when the week is already approved", () => {
-    expect(shouldApplySchedule("approved")).toBe(false);
-    expect(shouldApplySchedule("open")).toBe(true);
-    expect(shouldApplySchedule("reopened")).toBe(true);
-    expect(shouldApplySchedule(undefined)).toBe(true);
+  it("skips apply when the week is already approved or no assignment has a schedule", () => {
+    const scheduled = [{ schedule: { id: "sv1" } }];
+    expect(shouldApplySchedule("approved", scheduled)).toBe(false);
+    expect(shouldApplySchedule("open", [])).toBe(false);
+    expect(shouldApplySchedule("open", [{ schedule: null }])).toBe(false);
+    expect(shouldApplySchedule("open", scheduled)).toBe(true);
+    expect(shouldApplySchedule("reopened", scheduled)).toBe(true);
+    expect(shouldApplySchedule(undefined, scheduled)).toBe(true);
     expect(applyThenDashboardUrls(WEEK_START)).toEqual({
       dashboard: `/api/dashboard?week=${WEEK_START}`,
       apply: "/api/weeks/apply-schedule",
@@ -136,7 +139,7 @@ describe("apply then GET", () => {
     expect(dashboard).toContain("/api/weeks/apply-schedule");
     expect(dashboard).toContain("shouldApplySchedule");
     expect(dashboard).toContain("applyThenDashboardUrls");
-    expect(dashboard).toMatch(/shouldApplySchedule\([^)]*\)/);
+    expect(dashboard).toMatch(/shouldApplySchedule\(next\.approval\.status, next\.assignments\)/);
     expect(dashboard).toMatch(/send\("\/api\/weeks\/apply-schedule"/);
     const loadStart = dashboard.indexOf("const load = useCallback");
     const load = dashboard.slice(loadStart, dashboard.indexOf("useEffect(() => { void load(); }"));

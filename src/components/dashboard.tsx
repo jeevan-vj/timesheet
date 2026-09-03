@@ -78,8 +78,8 @@ function mutateErrorMessage(error: unknown) {
   return "That could not be saved. Check for a duplicate or missing assignment.";
 }
 
-async function send(url: string, body?: unknown, method = "POST") {
-  const response = await fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
+async function send(url: string, body?: unknown, method = "POST", signal?: AbortSignal) {
+  const response = await fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined, signal });
   if (!response.ok) { const data = await response.json().catch(() => ({})) as { error?: string }; throw new Error(data.error ?? "request_failed"); }
 }
 
@@ -105,36 +105,48 @@ export function Dashboard() {
   const [loading, setLoading] = useState(true); const [message, setMessage] = useState("");
   const [editing, setEditing] = useState<ManualEntry | null>(null);
   const loadGeneration = useRef(0);
+  const loadAbort = useRef<AbortController | null>(null);
   const load = useCallback(async (quiet = false) => {
     const generation = loadGeneration.current + 1;
     loadGeneration.current = generation;
+    loadAbort.current?.abort();
+    const controller = new AbortController();
+    loadAbort.current = controller;
     if (!quiet) { setLoading(true); setMessage(""); }
     const urls = applyThenDashboardUrls(week);
-    const response = await fetch(urls.dashboard, { cache: "no-store" });
-    if (response.status === 401) { window.location.assign("/sign-in"); return; }
-    if (generation !== loadGeneration.current) return;
-    if (!response.ok) {
+    try {
+      const response = await fetch(urls.dashboard, { cache: "no-store", signal: controller.signal });
+      if (response.status === 401) { window.location.assign("/sign-in"); return; }
+      if (generation !== loadGeneration.current) return;
+      if (!response.ok) {
+        if (!quiet) setMessage("Could not load this week. Please try again.");
+        setLoading(false);
+        return;
+      }
+      let next = await response.json() as DashboardData;
+      let applyNotice = "";
+      if (shouldApplySchedule(next.approval.status, next.assignments)) {
+        try {
+          await send("/api/weeks/apply-schedule", { weekStart: week }, "POST", controller.signal);
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          applyNotice = mutateErrorMessage(error);
+        }
+        const refreshed = await fetch(urls.dashboard, { cache: "no-store", signal: controller.signal });
+        if (refreshed.status === 401) { window.location.assign("/sign-in"); return; }
+        if (generation !== loadGeneration.current) return;
+        if (refreshed.ok) next = await refreshed.json() as DashboardData;
+      }
+      if (generation !== loadGeneration.current) return;
+      setData(next);
+      setLoading(false);
+      if (applyNotice) setMessage(applyNotice);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      if (generation !== loadGeneration.current) return;
       if (!quiet) setMessage("Could not load this week. Please try again.");
       setLoading(false);
-      return;
     }
-    let next = await response.json() as DashboardData;
-    let applyNotice = "";
-    if (shouldApplySchedule(next.approval.status)) {
-      try {
-        await send("/api/weeks/apply-schedule", { weekStart: week });
-      } catch (error) {
-        applyNotice = mutateErrorMessage(error);
-      }
-      const refreshed = await fetch(urls.dashboard, { cache: "no-store" });
-      if (refreshed.status === 401) { window.location.assign("/sign-in"); return; }
-      if (generation !== loadGeneration.current) return;
-      if (refreshed.ok) next = await refreshed.json() as DashboardData;
-    }
-    if (generation !== loadGeneration.current) return;
-    setData(next);
-    setLoading(false);
-    if (applyNotice) setMessage(applyNotice);
   }, [week]);
   useEffect(() => { void load(); }, [load]);
   const totalMinutes = data?.summary.reduce((sum, row) => sum + row.paidMinutes, 0) ?? 0;

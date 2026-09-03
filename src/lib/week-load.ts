@@ -1,5 +1,9 @@
-export function shouldApplySchedule(approvalStatus: string | undefined | null): boolean {
-  return approvalStatus !== "approved";
+export function shouldApplySchedule(
+  approvalStatus: string | undefined | null,
+  assignments: ReadonlyArray<{ schedule: unknown }> = [],
+): boolean {
+  if (approvalStatus === "approved") return false;
+  return assignments.some((row) => row.schedule);
 }
 
 export function applyThenDashboardUrls(weekStart: string) {
