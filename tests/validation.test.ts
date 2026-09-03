@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contractorInput, invalidRequestFromZod, parseIncludeArchived, siteInput, timeEntryInput, timeEntryUpdateInput } from "../src/lib/validation";
+import { assignmentInput, assignmentRateInput, contractorInput, invalidRequestFromZod, parseIncludeArchived, siteInput, timeEntryInput, timeEntryUpdateInput } from "../src/lib/validation";
 
 describe("API validation", () => {
   it("accepts an integer-cent contractor rate", () => {

@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AssignmentManager } from "@/components/assignments";
 import { authClient } from "@/lib/auth-client";
 import { ContractorsPanel } from "@/components/contractors";
 import { ShiftEntrySheet } from "@/components/shift-entry";
@@ -77,7 +78,7 @@ export function Dashboard() {
         </section>
         <aside className="panel summary-panel"><p className="eyebrow">Payment summary</p><h2>What to pay</h2>{data.summary.length ? <>{data.summary.map((row) => <div className="summary-row" key={row.contractorId}><div><strong>{row.contractorName}</strong><small>{duration(row.paidMinutes)}</small></div><b>{money(row.payCents)}</b></div>)}<div className="summary-total"><span>Total</span><strong>{money(totalPay)}</strong></div></> : <p className="muted roomy">Payment totals appear as shifts are added.</p>}</aside>
       </section>
-      <SetupPanel data={data} mutate={mutate} onReload={() => load(true)} onAnnounce={setMessage} />
+      <SetupPanel data={data} onReload={() => load(true)} onAnnounce={setMessage} />
     </>}
     {editing && data ? <ShiftEntrySheet key={editing.id} data={data} entry={editing} onDismiss={() => setEditing(null)} onSave={async (body) => { await send(`/api/time-entries/${editing.id}`, body, "PATCH"); await load(); setMessage("Shift updated."); }} /> : null}
     <DeleteShiftDialog session={deleteSession} onCancel={() => deleteFlow.cancel()} onConfirm={() => void deleteFlow.confirm()} />
@@ -122,9 +123,8 @@ function WeekPicker({ week, onChange }: { week: string; onChange: (value: string
   return <div className="week-picker"><button onClick={() => onChange(shiftWeek(week, -7))} aria-label="Previous week">←</button><label>Week of<input type="date" value={week} onChange={(e) => onChange(mondayFor(new Date(`${e.target.value}T12:00:00`)))} /></label><button onClick={() => onChange(shiftWeek(week, 7))} aria-label="Next week">→</button></div>;
 }
 
-function SetupPanel({ data, mutate, onReload, onAnnounce }: { data: DashboardData; mutate: (action: () => Promise<void>, success: string) => Promise<void>; onReload: () => Promise<void>; onAnnounce: (message: string) => void }) {
-  return <section className="setup" id="team"><div><p className="eyebrow">Workspace setup</p><h2>Team & cleaning sites</h2><p className="muted">Add each contractor and site once, then connect them with the right rate.</p></div><div className="setup-grid"><SetupCard title="Sites" count={data.sites.length}><SiteSetup onReload={onReload} onAnnounce={onAnnounce} /></SetupCard><ContractorsPanel onNotice={onAnnounce} onChanged={onReload} /><SetupCard title="Assignments" count={data.assignments.length}>{data.assignments.map((assignment) => { const contractor = data.contractors.find((c) => c.id === assignment.contractorId); const site = data.sites.find((s) => s.id === assignment.siteId); return <div className="compact-row" key={assignment.id}><strong>{contractor?.name} → {site?.name}</strong><small>{assignment.rateCents ? `${money(assignment.rateCents)}/hr override` : "Default rate"}</small></div>; })}<AssignmentForm data={data} onSave={(body) => mutate(() => send("/api/assignments", body), "Assignment added.")} /></SetupCard></div></section>;
+function SetupPanel({ data, onReload, onAnnounce }: { data: DashboardData; onReload: () => Promise<void>; onAnnounce: (message: string) => void }) {
+  return <section className="setup" id="team"><div><p className="eyebrow">Workspace setup</p><h2>Team & cleaning sites</h2><p className="muted">Add each contractor and site once, then connect them with the right rate.</p></div><div className="setup-grid"><SetupCard title="Sites" count={data.sites.length}><SiteSetup onReload={onReload} onAnnounce={onAnnounce} /></SetupCard><ContractorsPanel onNotice={onAnnounce} onChanged={onReload} /><AssignmentManager contractors={data.contractors} sites={data.sites} onWeekRefresh={onReload} /></div></section>;
 }
 function SetupCard({ title, count, children }: { title: string; count: number; children: React.ReactNode }) { return <article className="setup-card"><div className="setup-title"><h3>{title}</h3><span>{count}</span></div><div className="compact-list">{children}</div></article>; }
-function AssignmentForm({ data, onSave }: { data: DashboardData; onSave: (body: unknown) => Promise<void> }) { async function submit(e: FormEvent<HTMLFormElement>) { e.preventDefault(); const f = new FormData(e.currentTarget); const value = String(f.get("rate")); await onSave({ contractorId: f.get("contractorId"), siteId: f.get("siteId"), rateCents: value ? Math.round(Number(value) * 100) : null }); e.currentTarget.reset(); } return <details><summary>+ Assign to site</summary><form className="mini-form" onSubmit={submit}><select name="contractorId" required><option value="">Choose contractor</option>{data.contractors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select><select name="siteId" required><option value="">Choose site</option>{data.sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select><label>Rate override (optional)<input name="rate" type="number" min="15" max="250" step="0.01" placeholder="Use default rate"/></label><button className="button small" disabled={!data.contractors.length || !data.sites.length}>Save assignment</button></form></details>; }
 function EmptyState({ title, body }: { title: string; body: string }) { return <div className="empty"><span>◷</span><h3>{title}</h3><p>{body}</p></div>; }

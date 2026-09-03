@@ -18,7 +18,13 @@ Owners can list, create, read, update, archive, and restore contractors. A contr
 
 ### CT-003 Site assignments
 
-Owners can assign contractors to sites. An assignment may override the contractor's default hourly rate. Cross-owner references are rejected.
+Owners can list, read, create, update the rate override, unassign (archive), and restore contractor-to-site assignments. An assignment may override the contractor's default hourly rate. The effective hourly rate is the assignment override, or the contractor default when the override is null (`rateInherited`).
+
+The owner/contractor/site pair is unique. Creating an assignment for a pair that is already active returns `duplicate_assignment` and does not insert a second row, but only when both the contractor and site are still active and owned. Missing, inactive, or cross-owner contractor/site references return `not_found` with no writes, even if an assignment row already exists. Creating for an archived pair reuses the same row: sets `active=true`, applies the submitted `rateCents` (including null), and keeps `id` and `createdAt`.
+
+Unassign sets `active=false` and does not delete the row or historical time entries. Restore-by-id reactivates an archived pair only when both contractor and site are still active and owned; it does not change `rateCents`. Restore-by-pair (POST create on an archived row) applies the submitted rate.
+
+Missing, inactive, or cross-owner contractor/site references return `not_found` with no writes. Inline `assignSite` on time-entry create is an explicit restore/create for that pair: it inserts a missing assignment, restores an archived pair (applying `assignSite.rateCents`), and does not rewrite an already-active override. Paid duration and duplicate-date checks run before that assignment write, so an `invalid_shift` or `duplicate_entry` failure does not restore an archived pair. Without `assignSite`, an archived or missing pair is `not_found` and no entry is created. Changing an assignment override never updates historical `time_entry.rate_cents` snapshots.
 
 ### CT-004 Daily time entries
 

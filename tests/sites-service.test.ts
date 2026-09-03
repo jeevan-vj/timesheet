@@ -111,7 +111,7 @@ function createMemoryDb() {
     }
   }
 
-  function select(fields: Record<string, Column>) {
+  function select(fields?: Record<string, Column>) {
     const state: { from?: unknown; joins: { table: unknown; on: unknown }[]; where?: unknown; orderBy: unknown[]; limit: number } = {
       joins: [],
       orderBy: [],
@@ -169,6 +169,9 @@ function createMemoryDb() {
           });
         }
         return rows.slice(0, state.limit).map((bundle) => {
+          if (!fields || Object.keys(fields).length === 0) {
+            return { ...(bundle[fromName] ?? {}) };
+          }
           const projected: Row = {};
           for (const [alias, column] of Object.entries(fields)) {
             const ref = columnRef(column);
