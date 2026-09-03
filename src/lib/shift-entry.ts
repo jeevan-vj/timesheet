@@ -1,4 +1,5 @@
 import { calculateEntryPayCents, calculatePaidMinutes, MAX_SAME_DAY_MINUTES, paidMinutesFromParts } from "@/lib/payroll";
+import { weekApprovalErrorMessage } from "@/lib/week-approval";
 
 export const ASSIGN_ANOTHER_SITE = "__assign__";
 
@@ -261,6 +262,7 @@ export function shiftUpdatePayload(draft: ShiftEntryDraft) {
 
 export function shiftSaveErrorMessage(error: unknown, intent: "create" | "edit" = "create"): string {
   const code = error instanceof Error ? error.message : "";
+  if (code === "week_locked") return weekApprovalErrorMessage("week_locked");
   if (code === "duplicate_entry") return "A shift for this contractor, site, and date is already recorded. Change the date or site, or delete the existing shift first.";
   if (code === "invalid_shift") return "Finish time and break must leave a positive paid shift.";
   if (code === "not_found") {

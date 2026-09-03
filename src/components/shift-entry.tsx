@@ -60,11 +60,13 @@ export function ShiftEntrySheet({
   entry,
   onSave,
   onDismiss,
+  locked = false,
 }: {
   data: ShiftEntryData;
   entry?: RecordedTimeEntry;
   onSave: (body: unknown) => Promise<void>;
   onDismiss?: () => void;
+  locked?: boolean;
 }) {
   const editing = Boolean(entry);
   const blocker = editing ? null : shiftEntryBlocker(data);
@@ -153,6 +155,10 @@ export function ShiftEntrySheet({
         setBusy(false);
       }
     });
+  }
+
+  if (locked && !editing) {
+    return <p className="muted week-locked-hint">This week is approved and locked. Reopen it to add a shift.</p>;
   }
 
   if (blocker) {
