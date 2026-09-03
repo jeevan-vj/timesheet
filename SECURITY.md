@@ -16,6 +16,7 @@ Non-negotiable rules:
 8. Cookie-authenticated mutations must enforce trusted-origin checks.
 9. Do not weaken authentication, authorization, validation, migrations, headers, or tests to make a change pass.
 10. `AGENTS.md`, `.github/**`, and `.factory/**` are protected control-plane code and require human merge approval.
+11. Weekly remittance PDFs are owner-only downloads of pay data. Serve them `Cache-Control: no-store`. Cross-owner contractor ids return identical `404 { error: "not_found" }`. Do not log PDF bytes, contractor details, rates, notes, or pay totals.
 
 ## Secrets
 

@@ -68,6 +68,10 @@ States:
 
 Approve is compare-and-set: if current totals do not match `expectedPaidMinutes` / `expectedPayCents`, the API returns `stale_week` and writes nothing. Matching 0/0 is allowed for an empty week. A second approve of an already-approved week with matching totals is idempotent and does not rewrite timestamps. Changing a contractor default or assignment rate after approve never rewrites historical `time_entry.rate_cents`.
 
+### CT-009 Weekly remittance
+
+An owner can download a weekly remittance advice PDF for one contractor. The PDF is generated on read from that owner's time entries for the requested Monday–Sunday week; there is no remittance table and no stored PDF. `GET /api/contractors/:id/remittance?week=YYYY-MM-DD` is a cookie-authenticated read. A missing contractor or cross-owner id is `not_found`. An empty week fails closed with `no_entries` and no PDF. The document is gross contractor pay only (before tax, GST, expenses, or adjustments) and uses canonical `summarizeWeek` / `calculateEntryPayCents` math on snapshotted entry rates and paid minutes. Archived contractors remain readable for historical weeks.
+
 ## Non-goals
 
 - tax, holiday pay, GST, expenses, invoicing, or bank payments;
