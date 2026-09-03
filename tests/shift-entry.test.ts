@@ -192,6 +192,15 @@ describe("save payload and errors", () => {
     expect(shiftSaveErrorMessage(new Error("invalid_shift"))).toContain("positive paid");
   });
 
+  it("explains week_locked with specific copy instead of a generic save failure", () => {
+    const message = shiftSaveErrorMessage(new Error("week_locked"));
+    expect(message).toMatch(/locked/i);
+    expect(message).toMatch(/reopen/i);
+    expect(message).not.toContain("already recorded");
+    expect(message).not.toContain("Could not save this shift");
+    expect(shiftSaveErrorMessage(new Error("week_locked"), "edit")).toMatch(/locked/i);
+  });
+
   it("points the owner to setup when contractors or sites are missing", () => {
     expect(shiftEntryBlocker({ contractors: [], sites: [{ id: "s1" }] })).toEqual({
       href: "#team",
@@ -453,6 +462,8 @@ describe("edit sheet wiring", () => {
     expect(sheet).toContain("Add a completed shift");
     expect(sheet).toContain("ASSIGN_ANOTHER_SITE");
     expect(sheet).toContain("shiftSaveErrorMessage(cause, \"edit\")");
+    expect(sheet).toContain("locked");
+    expect(sheet).toContain("+ Add shift");
     expect(sheet).not.toContain("owner_user_id");
   });
 });

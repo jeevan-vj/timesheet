@@ -60,14 +60,16 @@ export function ShiftEntrySheet({
   entry,
   onSave,
   onDismiss,
+  locked = false,
 }: {
   data: ShiftEntryData;
   entry?: RecordedTimeEntry;
   onSave: (body: unknown) => Promise<void>;
   onDismiss?: () => void;
+  locked?: boolean;
 }) {
   const editing = Boolean(entry);
-  const blocker = editing ? null : shiftEntryBlocker(data);
+  const blocker = editing || locked ? null : shiftEntryBlocker(data);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const guard = useRef(createShiftSaveGuard()).current;
   const [open, setOpen] = useState(editing);
@@ -123,6 +125,7 @@ export function ShiftEntrySheet({
   const dateBounds = shiftDateBounds(editing, data.weekStart, data.weekEnd);
 
   function openSheet() {
+    if (locked) return;
     setDraft(startingDraft(data));
     setError("");
     setBusy(false);
@@ -138,6 +141,7 @@ export function ShiftEntrySheet({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (locked) return;
     const problem = draftSaveError(draft, editing ? { allowAssignSite: false } : undefined);
     if (problem) { setError(problem); return; }
     await guard.run(async () => {
@@ -155,12 +159,16 @@ export function ShiftEntrySheet({
     });
   }
 
+  if (!editing && locked) {
+    return null;
+  }
+
   if (blocker) {
     return <div className="shift-setup-action"><p className="muted">{blocker.message}</p><a className="button small" href={blocker.href}>{blocker.label}</a></div>;
   }
 
   return <div className="dialog-wrap">
-    {editing ? null : <button type="button" className="button small" onClick={openSheet}>+ Add shift</button>}
+    {editing || locked ? null : <button type="button" className="button small" onClick={openSheet}>+ Add shift</button>}
     <dialog
       ref={dialogRef}
       className="modal shift-sheet"

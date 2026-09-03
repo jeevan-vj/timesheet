@@ -29,5 +29,8 @@ describe("weekly dashboard empty-state copy", () => {
     expect(dashboard).toContain("<p>{body}</p>");
     expect(dashboard).toContain("Payment totals appear as shifts are added.");
     expect(dashboard).not.toContain("owner_user_id");
+    expect(dashboard).toContain("Approve week");
+    expect(dashboard).toContain("Reopen week");
+    expect(dashboard).toContain("Approved / locked");
   });
 });
