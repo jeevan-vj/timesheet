@@ -21,11 +21,15 @@ export function loadCustomSubagents() {
   }));
 }
 
-export function buildImplementPrompt({ issueNumber, title, body, repository }) {
+export function buildImplementPrompt({ issueNumber, title, body, repository, factoryRunId }) {
+  const runLine = factoryRunId
+    ? [`Factory-Run-ID: ${factoryRunId}`, 'Propagate this Factory Run ID through orchestration, events, verification, repair, review, evidence metadata, and the PR body. Do not treat Cursor or GitHub run ids as the Factory Run ID.', '']
+    : [];
   return [
     `You are the Cursor factory orchestrator for ${repository}.`,
     `Own GitHub issue #${issueNumber}: ${title}`,
     '',
+    ...runLine,
     'Read and obey AGENTS.md, .factory/agents/orchestrator.md, and the relevant specialist instructions.',
     'Read SPEC.md, SECURITY.md, docs/ARCHITECTURE.md, docs/THREAT_MODEL.md, the issue, and relevant tests.',
     'Ask the spec subagent for a task contract before editing. Delegate only the necessary editing specialists, sequentially, in this shared checkout.',
@@ -39,10 +43,10 @@ export function buildImplementPrompt({ issueNumber, title, body, repository }) {
   ].join('\n');
 }
 
-export function buildAgentPayload({ repository, issueNumber, title, body, startingRef = 'main' }) {
+export function buildAgentPayload({ repository, issueNumber, title, body, startingRef = 'main', factoryRunId }) {
   return {
     name: `factory #${issueNumber}`.slice(0, 100),
-    prompt: { text: buildImplementPrompt({ issueNumber, title, body, repository }) },
+    prompt: { text: buildImplementPrompt({ issueNumber, title, body, repository, factoryRunId }) },
     repos: [{ url: repository.startsWith('http') ? repository : `https://github.com/${repository}`, startingRef }],
     customSubagents: loadCustomSubagents(),
     autoCreatePR: true,
@@ -107,15 +111,15 @@ export async function dispatchCursorAgent(payload, { apiKey, apiUrl = API_URL, f
 }
 
 function parseArgs(argv) {
-  const out = { dryRun:false, repo:'', issue:'', title:'', body:'', bodyFile:'', ref:'main' };
-  for (let i=0;i<argv.length;i+=1) { const arg=argv[i]; const next=argv[i+1]; if (arg==='--dry-run') out.dryRun=true; else if (arg==='--repo') {out.repo=next;i+=1;} else if (arg==='--issue') {out.issue=next;i+=1;} else if (arg==='--title') {out.title=next;i+=1;} else if (arg==='--body') {out.body=next;i+=1;} else if (arg==='--body-file') {out.bodyFile=next;i+=1;} else if (arg==='--ref') {out.ref=next;i+=1;} }
+  const out = { dryRun:false, repo:'', issue:'', title:'', body:'', bodyFile:'', ref:'main', factoryRunId:'' };
+  for (let i=0;i<argv.length;i+=1) { const arg=argv[i]; const next=argv[i+1]; if (arg==='--dry-run') out.dryRun=true; else if (arg==='--repo') {out.repo=next;i+=1;} else if (arg==='--issue') {out.issue=next;i+=1;} else if (arg==='--title') {out.title=next;i+=1;} else if (arg==='--body') {out.body=next;i+=1;} else if (arg==='--body-file') {out.bodyFile=next;i+=1;} else if (arg==='--ref') {out.ref=next;i+=1;} else if (arg==='--factory-run-id') {out.factoryRunId=next;i+=1;} }
   return out;
 }
 async function main() {
   const args=parseArgs(process.argv.slice(2));
   if (!args.repo || !args.issue || !args.title) throw new Error('Missing --repo, --issue, or --title');
   const body=args.bodyFile ? fs.readFileSync(args.bodyFile,'utf8') : args.body;
-  const payload=buildAgentPayload({repository:args.repo,issueNumber:Number(args.issue),title:args.title,body,startingRef:args.ref});
+  const payload=buildAgentPayload({repository:args.repo,issueNumber:Number(args.issue),title:args.title,body,startingRef:args.ref,factoryRunId:args.factoryRunId||undefined});
   const result=args.dryRun ? payload : await dispatchCursorAgent(payload,{apiKey:process.env.CURSOR_API_KEY});
   process.stdout.write(`${JSON.stringify(result,null,2)}\n`);
 }

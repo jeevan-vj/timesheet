@@ -301,7 +301,10 @@ describe("factory E2E workflows stay fail-closed and complementary", () => {
     expect(repair).toContain("Factory E2E Evidence");
     expect(repair).toContain('kind="e2e"');
     expect(repair).toContain("if [ \"$attempts\" -ge 2 ]");
-    expect(repair).not.toContain("actions/checkout");
+    expect(repair).toContain("actions/checkout");
+    expect(repair).toContain("ref: ${{ github.event.repository.default_branch }}");
+    expect(repair).toContain("sparse-checkout: .factory");
+    expect(repair).toContain("persist-credentials: false");
     expect(repair).toContain("[ \"$head\" = \"$RUN_HEAD_SHA\" ]");
     expect(repair).toContain("Do not reuse");
     expect(smoke).toContain("/api/health");

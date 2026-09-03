@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cleantrack.local/factory/factory-recovery.schema.json",
+  "title": "Factory Recovery Decision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "action",
+    "retryable",
+    "nextState",
+    "policy",
+    "reason"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "action": {
+      "type": "string",
+      "enum": [
+        "REPAIR",
+        "RERUN_VERIFICATION",
+        "WAIT_AND_RETRY",
+        "REBASE_REPAIR",
+        "BLOCK_FOR_HUMAN",
+        "REQUEST_HUMAN_APPROVAL",
+        "FAIL_CLOSED"
+      ]
+    },
+    "retryable": { "type": "boolean" },
+    "nextState": { "type": ["string", "null"] },
+    "consumeRepairAttempt": { "type": "boolean" },
+    "invalidateEvidence": { "type": "boolean" },
+    "policy": { "type": "string", "minLength": 1 },
+    "reason": { "type": "string", "minLength": 1 }
+  }
+}

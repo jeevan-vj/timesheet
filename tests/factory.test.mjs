@@ -38,6 +38,10 @@ describe('Cursor factory', () => {
     expect(workflow).toContain('Skipping dispatch; durable factory agent already recorded');
     expect(workflow).toContain('Cursor Cloud Agent API-verified');
     expect(workflow).toContain('--body-file "$comment_file"');
+    expect(workflow).toContain('node .factory/control-plane.mjs intake');
+    expect(workflow).toContain('previous_status_markdown');
+    expect(workflow).toContain('--factory-run-id "$FACTORY_RUN_ID"');
+    expect(workflow).toContain('<!-- factory-run-id:%s -->');
     expect(workflow).not.toContain('Cursor Cloud Agent dispatched${url:+: $url}\\n\\n');
   });
   it('creates an auto-PR Cursor Agents payload', () => {
@@ -48,6 +52,16 @@ describe('Cursor factory', () => {
     expect(payload.prompt.text).toContain('spec subagent');
     expect(payload.customSubagents.map(({name})=>name)).toEqual(['spec','frontend','api','database','verifier']);
     expect(payload.customSubagents.every(({prompt})=>prompt.length>100)).toBe(true);
+  });
+  it('propagates Factory-Run-ID through implement and repair prompts without treating Cursor run ids as factory ids', () => {
+    const factoryRunId = 'frun-00000000-0000-4000-8000-000000000001';
+    const payload = buildAgentPayload({ repository: 'jeevan-vj/timesheet', issueNumber: 40, title: 'Factory control plane', body: 'Observability', factoryRunId });
+    expect(payload.prompt.text).toContain(`Factory-Run-ID: ${factoryRunId}`);
+    expect(payload.prompt.text).toContain('Do not treat Cursor or GitHub run ids as the Factory Run ID');
+    const repair = buildRepairPrompt({ repository: 'jeevan-vj/timesheet', issueNumber: 40, pullRequest: 41, headSha: 'a'.repeat(40), reason: 'CI failed', factoryRunId });
+    expect(repair).toContain(`Factory-Run-ID: ${factoryRunId}`);
+    expect(repair).toContain('Reuse this Factory Run ID');
+    expect(repair).not.toContain('test-key');
   });
   it('uses bearer authentication and verifies the durable agent after creation', async () => {
     const fetchImpl=vi.fn()
@@ -133,9 +147,17 @@ describe('Cursor factory', () => {
     const controller=fs.readFileSync(new URL('../.github/workflows/factory-controller.yml',import.meta.url),'utf8');
     const repair=fs.readFileSync(new URL('../.github/workflows/factory-repair.yml',import.meta.url),'utf8');
     expect(controller).toContain('if [ "$risk" != low ]');
+    expect(controller).toContain('control-plane.mjs controller-signal');
+    expect(controller).toContain('control-plane.mjs advance');
+    expect(controller).toContain('phase:"verifying"');
+    expect(controller).toContain('phase:"reviewing"');
     expect(repair).toContain('if [ "$attempts" -ge 2 ]');
     expect(repair).toContain('https://api.cursor.com/v1/agents/$agent_id/runs');
-    expect(repair).not.toContain('actions/checkout');
+    expect(repair).toContain('actions/checkout');
+    expect(repair).toContain('ref: ${{ github.event.repository.default_branch }}');
+    expect(repair).toContain('sparse-checkout: .factory');
+    expect(repair).toContain('control-plane.mjs repair-signal');
+    expect(repair).toContain('Factory-Run-ID: ${factory_run_id}');
     expect(repair).toContain('.user.login == "github-actions[bot]"');
     expect(repair).toContain('[ "$head" = "$RUN_HEAD_SHA" ]');
     expect(repair).toContain('/runs?limit=1');

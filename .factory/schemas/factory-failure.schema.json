@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cleantrack.local/factory/factory-failure.schema.json",
+  "title": "Factory Failure",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "category",
+    "code",
+    "message",
+    "retryable",
+    "source",
+    "factory_run_id",
+    "correlation_id",
+    "timestamp",
+    "references"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "category": {
+      "type": "string",
+      "enum": [
+        "PLANNING_FAILURE",
+        "IMPLEMENTATION_FAILURE",
+        "BUILD_FAILURE",
+        "TEST_FAILURE",
+        "VERIFICATION_FAILURE",
+        "EVIDENCE_MISSING",
+        "EVIDENCE_STALE",
+        "REVIEW_FAILURE",
+        "MERGE_CONFLICT",
+        "INFRASTRUCTURE_FAILURE",
+        "HARNESS_FAILURE",
+        "AUTH_OR_PERMISSION_FAILURE",
+        "RATE_LIMIT_OR_QUOTA",
+        "TIMEOUT",
+        "POLICY_OR_GUARDRAIL_FAILURE",
+        "UNKNOWN_FAILURE"
+      ]
+    },
+    "code": { "type": "string", "minLength": 1 },
+    "message": { "type": "string", "minLength": 1 },
+    "retryable": { "type": "boolean" },
+    "source": { "type": "string", "minLength": 1 },
+    "factory_run_id": { "type": "string", "pattern": "^frun-" },
+    "correlation_id": { "type": "string", "pattern": "^fcor-" },
+    "timestamp": { "type": "string", "minLength": 1 },
+    "references": { "type": "array", "items": { "type": "string" } }
+  }
+}

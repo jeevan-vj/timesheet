@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cleantrack.local/factory/factory-event.schema.json",
+  "title": "Factory Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "factory_run_id",
+    "correlation_id",
+    "causation_id",
+    "timestamp",
+    "event_type",
+    "state",
+    "actor",
+    "github",
+    "metadata"
+  ],
+  "$defs": {
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "name", "harness"],
+      "properties": {
+        "type": { "type": "string", "enum": ["agent", "workflow", "human", "system"] },
+        "name": { "type": "string", "minLength": 1 },
+        "harness": { "type": "string", "enum": ["codex", "cursor", "claude", "other"] }
+      }
+    },
+    "github": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "issue", "pull_request", "commit_sha"],
+      "properties": {
+        "repository": { "type": "string", "pattern": "^[^/\\s]+/[^/\\s]+$" },
+        "issue": { "type": ["integer", "null"], "minimum": 1 },
+        "pull_request": { "type": ["integer", "null"], "minimum": 1 },
+        "commit_sha": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$" }
+      }
+    }
+  },
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "event_id": { "type": "string", "pattern": "^fevt-" },
+    "factory_run_id": { "type": "string", "pattern": "^frun-" },
+    "correlation_id": { "type": "string", "pattern": "^fcor-" },
+    "causation_id": { "type": ["string", "null"], "pattern": "^fevt-" },
+    "timestamp": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{3})?Z$" },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "run.created",
+        "planning.started",
+        "planning.completed",
+        "implementation.started",
+        "implementation.completed",
+        "agent.selected",
+        "agent.attempt.started",
+        "agent.attempt.completed",
+        "state.transitioned",
+        "verification.started",
+        "verification.completed",
+        "evidence.produced",
+        "evidence.invalidated",
+        "review.started",
+        "review.completed",
+        "failure.detected",
+        "recovery.decided",
+        "retry.started",
+        "repair.started",
+        "human.approval.requested",
+        "human.approval.received",
+        "human.approval.rejected",
+        "run.completed",
+        "run.cancelled",
+        "run.blocked",
+        "github.associated",
+        "status.updated"
+      ]
+    },
+    "state": { "type": "string" },
+    "actor": { "$ref": "#/$defs/actor" },
+    "github": { "$ref": "#/$defs/github" },
+    "metadata": { "type": "object" }
+  }
+}

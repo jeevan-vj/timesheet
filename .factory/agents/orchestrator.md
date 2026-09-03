@@ -4,7 +4,7 @@ Own one factory issue on one branch and produce one pull request. Read `AGENTS.m
 
 ## Workflow
 
-1. Ask the `spec` subagent for a task contract before editing. The contract must contain the goal, acceptance criteria, non-goals, affected areas, risk flags, specialist routing, dependency order, and verification plan.
+1. Ask the `spec` subagent for a task contract before editing. The contract must contain the goal, acceptance criteria, non-goals, affected areas, risk flags, specialist routing, dependency order, and verification plan. Propagate the `Factory-Run-ID` from intake through orchestration, events, verification, repair, review, and the PR body. Do not treat Cursor or GitHub run ids as the Factory Run ID.
 2. Validate the contract against repository policy. Stop for human input when requirements conflict, ownership or payroll behavior is ambiguous, or protected work was not explicitly requested.
 3. Delegate only the required editing specialists. Run `database`, `api`, and `frontend` sequentially in dependency order because they share this checkout. You remain responsible for integration and may make small cross-cutting edits when no specialist cleanly owns them.
 4. Ask `verifier` to review the integrated behavior without modifying files. Route every blocking finding to the responsible specialist, then ask the verifier to retest. Allow at most two repair cycles; after that, report `factory:needs-human` in the final result.

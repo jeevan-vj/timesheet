@@ -103,8 +103,58 @@ jobs:
           fi
           echo "delegated=$delegated" >> "$GITHUB_OUTPUT"
           echo "provider=$provider" >> "$GITHUB_OUTPUT"
+      - name: Canonical factory run
+        id: plane
+        if: steps.gate.outputs.delegated == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ISSUE: ${{ steps.issue.outputs.number }}
+          PROVIDER: ${{ steps.gate.outputs.provider }}
+          FORCE: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          set -euo pipefail
+          comments="$RUNNER_TEMP/issue-comments.json"
+          gh api --paginate "repos/$REPOSITORY/issues/$ISSUE/comments?per_page=100" | jq -s '[.[][]]' > "$comments"
+          payload="$RUNNER_TEMP/factory-intake.json"
+          jq -n --slurpfile comments "$comments" --arg repo "$REPOSITORY" --arg issue "$ISSUE" --arg provider "$PROVIDER" --argjson force "$( [ "$FORCE" = true ] && echo true || echo false )" \
+            '{comments:($comments[0] // []), repository:$repo, issue:($issue|tonumber), provider:$provider, force:$force, actor:{type:"workflow",name:"Factory Intake",harness:(if $provider == "codex" then "codex" else "cursor" end)}}' > "$payload"
+          result="$RUNNER_TEMP/factory-plane.json"
+          node .factory/control-plane.mjs intake "$payload" > "$result"
+          ok="$(jq -r '.ok' "$result")"
+          action="$(jq -r '.action // empty' "$result")"
+          run_id="$(jq -r '.factory_run_id // empty' "$result")"
+          echo "ok=$ok" >> "$GITHUB_OUTPUT"
+          echo "action=$action" >> "$GITHUB_OUTPUT"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          if [ "$ok" != true ]; then
+            gh issue edit "$ISSUE" --repo "$REPOSITORY" --add-label factory:needs-human || true
+            gh issue comment "$ISSUE" --repo "$REPOSITORY" --body "Factory intake failed closed (\`$(jq -r '.code // "unknown"' "$result")\`). Canonical factory state is missing or invalid; GitHub labels are not the source of truth."
+            exit 0
+          fi
+          if [ "$action" = cancel_and_recreate ]; then
+            prev_file="$RUNNER_TEMP/factory-status-previous.md"
+            jq -r '.previous_status_markdown' "$result" > "$prev_file"
+            prev_id="$(jq -r '.previous_status_comment_id // empty' "$result")"
+            if [ -n "$prev_id" ] && [ "$prev_id" != null ]; then
+              jq -n --rawfile body "$prev_file" '{body:$body}' | gh api --method PATCH "repos/$REPOSITORY/issues/comments/$prev_id" --input - >/dev/null
+            fi
+          fi
+          body_file="$RUNNER_TEMP/factory-status.md"
+          jq -r '.status_markdown' "$result" > "$body_file"
+          comment_id="$(jq -r '.status_comment_id // empty' "$result")"
+          if [ -n "$comment_id" ] && [ "$comment_id" != null ]; then
+            jq -n --rawfile body "$body_file" '{body:$body}' | gh api --method PATCH "repos/$REPOSITORY/issues/comments/$comment_id" --input - >/dev/null
+          else
+            jq -n --rawfile body "$body_file" '{body:$body}' | gh api --method POST "repos/$REPOSITORY/issues/$ISSUE/comments" --input - >/dev/null
+          fi
+          add_labels="$(jq -r '.labels.add | join(",")' "$result")"
+          [ -n "$add_labels" ] && gh issue edit "$ISSUE" --repo "$REPOSITORY" --add-label "$add_labels" || true
+          jq -r '.labels.remove[]' "$result" | while IFS= read -r label; do
+            [ -n "$label" ] && gh issue edit "$ISSUE" --repo "$REPOSITORY" --remove-label "$label" || true
+          done
       - name: Dispatch Cursor Cloud Agent
-        if: steps.gate.outputs.delegated == 'true' && steps.gate.outputs.provider == 'cursor'
+        if: steps.gate.outputs.delegated == 'true' && steps.gate.outputs.provider == 'cursor' && steps.plane.outputs.ok == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -113,6 +163,8 @@ jobs:
           BODY: ${{ steps.issue.outputs.body }}
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
           FORCE: ${{ github.event_name == 'workflow_dispatch' }}
+          FACTORY_RUN_ID: ${{ steps.plane.outputs.run_id }}
+          PLANE_ACTION: ${{ steps.plane.outputs.action }}
         run: |
           set -euo pipefail
           for spec in 'factory:ready|0E8A16' 'factory:delegated|1D76DB' 'factory:implementing|5319E7' 'factory:needs-human|D93F0B' 'factory:complete|2DA44E'; do IFS='|' read -r name color <<< "$spec"; gh label create "$name" --repo "$REPOSITORY" --color "$color" --force >/dev/null; done
@@ -120,14 +172,35 @@ jobs:
           comments="$RUNNER_TEMP/issue-comments.json"
           gh api --paginate "repos/$REPOSITORY/issues/$ISSUE/comments?per_page=100" | jq -s '[.[][]]' > "$comments"
           existing_agent="$(jq -r '[.[] | select(.user.login == "github-actions[bot]" and .user.type == "Bot") | (.body // "") | try capture("factory-agent-id:(?<id>bc-[A-Za-z0-9-]+)").id catch empty] | last // empty' "$comments")"
+          if [ "$PLANE_ACTION" = skip ]; then
+            echo "Skipping dispatch; durable factory agent already recorded (${existing_agent:-$FACTORY_RUN_ID})."
+            gh issue edit "$ISSUE" --repo "$REPOSITORY" --remove-label factory:ready || true
+            exit 0
+          fi
           if [ "$FORCE" != true ] && [ -n "$existing_agent" ]; then
             echo "Skipping dispatch; durable factory agent already recorded ($existing_agent)."
             gh issue edit "$ISSUE" --repo "$REPOSITORY" --remove-label factory:ready || true
             exit 0
           fi
 
+          record_plane_failure() {
+            local kind="$1"
+            gh api --paginate "repos/$REPOSITORY/issues/$ISSUE/comments?per_page=100" | jq -s '[.[][]]' > "$comments"
+            jq -n --slurpfile comments "$comments" --arg kind "$kind" '{comments:($comments[0] // []), kind:$kind, actor:{type:"workflow",name:"Factory Intake",harness:"cursor"}}' > "$RUNNER_TEMP/factory-intake-failure.json"
+            if node .factory/control-plane.mjs intake-failure "$RUNNER_TEMP/factory-intake-failure.json" > "$RUNNER_TEMP/factory-intake-failure-result.json"; then
+              if [ "$(jq -r .ok "$RUNNER_TEMP/factory-intake-failure-result.json")" = true ]; then
+                jq -r .status_markdown "$RUNNER_TEMP/factory-intake-failure-result.json" > "$RUNNER_TEMP/factory-status.md"
+                cid="$(jq -r '.status_comment_id // empty' "$RUNNER_TEMP/factory-intake-failure-result.json")"
+                if [ -n "$cid" ] && [ "$cid" != null ]; then
+                  jq -n --rawfile body "$RUNNER_TEMP/factory-status.md" '{body:$body}' | gh api --method PATCH "repos/$REPOSITORY/issues/comments/$cid" --input - >/dev/null
+                fi
+              fi
+            fi
+          }
+
           gh issue edit "$ISSUE" --repo "$REPOSITORY" --add-label factory:delegated --remove-label factory:ready || true
           if [ -z "${CURSOR_API_KEY:-}" ]; then
+            record_plane_failure dispatch_auth
             gh issue edit "$ISSUE" --repo "$REPOSITORY" --remove-label factory:implementing || true
             gh issue edit "$ISSUE" --repo "$REPOSITORY" --add-label factory:needs-human
             gh issue comment "$ISSUE" --repo "$REPOSITORY" --body 'Factory intake accepted (`factory:ready`), but `CURSOR_API_KEY` is not configured. Add it in repository Actions secrets and re-apply the `factory:ready` label.'
@@ -135,7 +208,8 @@ jobs:
           fi
           body_file="$RUNNER_TEMP/issue.md"; printf '%s' "$BODY" > "$body_file"
           gh issue edit "$ISSUE" --repo "$REPOSITORY" --add-label factory:implementing
-          if ! output="$(node .factory/dispatch-cursor.mjs --repo "$REPOSITORY" --issue "$ISSUE" --title "$TITLE" --body-file "$body_file" --ref "${{ github.event.repository.default_branch }}")"; then
+          if ! output="$(node .factory/dispatch-cursor.mjs --repo "$REPOSITORY" --issue "$ISSUE" --title "$TITLE" --body-file "$body_file" --ref "${{ github.event.repository.default_branch }}" --factory-run-id "$FACTORY_RUN_ID")"; then
+            record_plane_failure dispatch_verify
             gh issue edit "$ISSUE" --repo "$REPOSITORY" --remove-label factory:implementing || true
             gh issue edit "$ISSUE" --repo "$REPOSITORY" --add-label factory:needs-human
             gh issue comment "$ISSUE" --repo "$REPOSITORY" --body 'Cursor dispatch was accepted or attempted, but the factory could not verify the durable agent through the Cursor Agents API. No durable agent was recorded. Re-apply `factory:ready` or use workflow_dispatch after investigating the Cursor API/account configuration.'
@@ -144,27 +218,41 @@ jobs:
           agent_id="$(printf '%s' "$output" | jq -r '.agent.id // .id // .run.agentId // empty')"
           verified_id="$(printf '%s' "$output" | jq -r '.factoryVerification.id // empty')"
           verified_url="$(printf '%s' "$output" | jq -r '.factoryVerification.url // empty')"
-          run_id="$(printf '%s' "$output" | jq -r '.factoryVerification.runId // empty')"
+          cursor_run_id="$(printf '%s' "$output" | jq -r '.factoryVerification.runId // empty')"
           run_status="$(printf '%s' "$output" | jq -r '.factoryVerification.runStatus // empty')"
           if [ -z "$agent_id" ] || [ "$verified_id" != "$agent_id" ]; then
+            record_plane_failure dispatch_verify
             gh issue edit "$ISSUE" --repo "$REPOSITORY" --remove-label factory:implementing || true
             gh issue edit "$ISSUE" --repo "$REPOSITORY" --add-label factory:needs-human
             gh issue comment "$ISSUE" --repo "$REPOSITORY" --body 'Cursor returned an agent response, but the factory could not verify the same durable agent ID through `GET /v1/agents/{id}`. Automated repair follow-ups are disabled until intake is retried.'
             exit 0
+          fi
+          gh api --paginate "repos/$REPOSITORY/issues/$ISSUE/comments?per_page=100" | jq -s '[.[][]]' > "$comments"
+          jq -n --slurpfile comments "$comments" --arg agent "$agent_id" --arg cursor_run "$cursor_run_id" '{comments:($comments[0] // []), agent_id:$agent, cursor_run_id:$cursor_run}' > "$RUNNER_TEMP/factory-associate.json"
+          if node .factory/control-plane.mjs associate "$RUNNER_TEMP/factory-associate.json" > "$RUNNER_TEMP/factory-associate-result.json"; then
+            if [ "$(jq -r .ok "$RUNNER_TEMP/factory-associate-result.json")" = true ]; then
+              jq -r .status_markdown "$RUNNER_TEMP/factory-associate-result.json" > "$RUNNER_TEMP/factory-status.md"
+              cid="$(jq -r '.status_comment_id // empty' "$RUNNER_TEMP/factory-associate-result.json")"
+              if [ -n "$cid" ] && [ "$cid" != null ]; then
+                jq -n --rawfile body "$RUNNER_TEMP/factory-status.md" '{body:$body}' | gh api --method PATCH "repos/$REPOSITORY/issues/comments/$cid" --input - >/dev/null
+              fi
+            fi
           fi
           canonical_url="https://cursor.com/agents/$agent_id"
           comment_file="$RUNNER_TEMP/factory-agent-comment.md"
           {
             printf 'Cursor Cloud Agent API-verified: %s\n\n' "$canonical_url"
             printf 'Factory intake used the `factory:ready` label via Actions (Agents API).'
-            if [ -n "$run_id" ]; then printf ' Initial run: `%s`' "$run_id"; fi
+            if [ -n "$FACTORY_RUN_ID" ]; then printf ' Factory-Run-ID: `%s`.' "$FACTORY_RUN_ID"; fi
+            if [ -n "$cursor_run_id" ]; then printf ' Cursor run: `%s`' "$cursor_run_id"; fi
             if [ -n "$run_status" ]; then printf ' (`%s`)' "$run_status"; fi
-            printf '\n\nThe API key may belong to a service account, so whether this URL is visible in your personal Cursor dashboard depends on Cursor account access. Factory repair follows the API-verified agent ID, not browser visibility.\n\n'
+            printf '\n\nThe API key may belong to a service account, so whether this URL is visible in your personal Cursor dashboard depends on Cursor account access. Factory repair follows the API-verified agent ID, not browser visibility. Cursor run ids are not Factory Run IDs.\n\n'
             printf '<!-- factory-agent-id:%s -->\n' "$agent_id"
+            if [ -n "$FACTORY_RUN_ID" ]; then printf '<!-- factory-run-id:%s -->\n' "$FACTORY_RUN_ID"; fi
           } > "$comment_file"
           gh issue comment "$ISSUE" --repo "$REPOSITORY" --body-file "$comment_file"
       - name: Record Codex handoff
-        if: steps.gate.outputs.delegated == 'true' && steps.gate.outputs.provider == 'codex'
+        if: steps.gate.outputs.delegated == 'true' && steps.gate.outputs.provider == 'codex' && steps.plane.outputs.ok == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}

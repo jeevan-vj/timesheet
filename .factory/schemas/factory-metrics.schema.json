@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cleantrack.local/factory/factory-metrics.schema.json",
+  "title": "Factory Derived Metrics",
+  "description": "Derived counters for future observability. Phase 1 does not ship a dashboard.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "factory_run_id",
+    "run_duration_ms",
+    "state_durations_ms",
+    "retry_count",
+    "repair_loop_count",
+    "failures_by_category",
+    "harness_outcomes",
+    "human_approval_wait_ms",
+    "verification_failure_count"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "factory_run_id": { "type": "string", "pattern": "^frun-" },
+    "run_duration_ms": { "type": "integer", "minimum": 0 },
+    "state_durations_ms": { "type": "object", "additionalProperties": { "type": "number" } },
+    "retry_count": { "type": "integer", "minimum": 0 },
+    "repair_loop_count": { "type": "integer", "minimum": 0 },
+    "failures_by_category": { "type": "object", "additionalProperties": { "type": "integer" } },
+    "harness_outcomes": { "type": "object" },
+    "human_approval_wait_ms": { "type": "integer", "minimum": 0 },
+    "verification_failure_count": { "type": "integer", "minimum": 0 }
+  }
+}

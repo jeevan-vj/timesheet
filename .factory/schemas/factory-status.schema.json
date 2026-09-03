@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cleantrack.local/factory/factory-status.schema.json",
+  "title": "Factory Status Comment Projection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "factory_run_id", "state", "markdown", "marker"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "factory_run_id": { "type": "string", "pattern": "^frun-" },
+    "state": { "type": "string" },
+    "markdown": { "type": "string", "minLength": 1 },
+    "marker": { "type": "string", "pattern": "^<!-- factory-status:" }
+  }
+}

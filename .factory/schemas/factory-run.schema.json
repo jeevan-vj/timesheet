@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cleantrack.local/factory/factory-run.schema.json",
+  "title": "Factory Run",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "factory_run_id",
+    "correlation_id",
+    "created_at",
+    "updated_at",
+    "state",
+    "github",
+    "actor_harness",
+    "repair_attempts",
+    "events"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1" },
+    "factory_run_id": { "type": "string", "pattern": "^frun-" },
+    "correlation_id": { "type": "string", "pattern": "^fcor-" },
+    "created_at": { "type": "string", "minLength": 1 },
+    "updated_at": { "type": "string", "minLength": 1 },
+    "state": {
+      "type": "string",
+      "enum": [
+        "CREATED",
+        "PLANNING",
+        "IMPLEMENTING",
+        "VERIFYING",
+        "REVIEWING",
+        "READY_FOR_HUMAN_APPROVAL",
+        "COMPLETED",
+        "FAILED",
+        "REPAIR_REQUIRED",
+        "BLOCKED",
+        "CANCELLED"
+      ]
+    },
+    "github": { "$ref": "factory-event.schema.json#/$defs/github" },
+    "actor": { "$ref": "factory-event.schema.json#/$defs/actor" },
+    "actor_harness": { "type": "string", "enum": ["codex", "cursor", "claude", "other"] },
+    "agent_id": { "type": ["string", "null"] },
+    "repair_attempts": { "type": "integer", "minimum": 0 },
+    "latest_failure": { "type": ["object", "null"] },
+    "latest_recovery": { "type": ["object", "null"] },
+    "events": { "type": "array", "minItems": 1 }
+  }
+}
