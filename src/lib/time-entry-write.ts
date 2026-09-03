@@ -6,9 +6,19 @@ export function paidHoursClockFields(paidMinutes: number) {
 
 export type TimeEntryClockWrite =
   | { entryMode: "clock"; startMinutes: number; endMinutes: number; breakMinutes: number }
-  | { entryMode: "paid_hours"; paidMinutes: number };
+  | { entryMode: "paid_hours"; paidMinutes: number }
+  | { entryMode: "absent" };
 
 export function clockFieldsForWrite(input: TimeEntryClockWrite) {
+  if (input.entryMode === "absent") {
+    return {
+      entryMode: "absent" as const,
+      paidMinutes: 0,
+      startMinutes: 0,
+      endMinutes: 0,
+      breakMinutes: 0,
+    };
+  }
   if (input.entryMode === "paid_hours") {
     return {
       entryMode: "paid_hours" as const,

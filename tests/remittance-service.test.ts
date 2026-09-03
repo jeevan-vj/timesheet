@@ -4,8 +4,9 @@ import { drizzle } from "drizzle-orm/sql-js";
 import { eq } from "drizzle-orm";
 import initSqlJs, { type Database as SqlJsDatabase } from "sql.js";
 import { describe, expect, it } from "vitest";
-import { contractors } from "../src/db/schema";
+import { contractors, timeEntries } from "../src/db/schema";
 import { calculateEntryPayCents } from "../src/lib/payroll";
+import { clockFieldsForWrite } from "../src/lib/time-entry-write";
 import { getContractorWeekRemittance } from "../src/services/remittance";
 import { createSite } from "../src/services/sites";
 import {
@@ -200,5 +201,29 @@ describe("contractor week remittance query", () => {
     const remittance = await getContractorWeekRemittance(database, "owner-a", owner.contractor.id, weekStart);
     expect(remittance.entries).toHaveLength(1);
     expect(remittance.entries[0]).toMatchObject({ paidMinutes: 480, rateCents: 3_200 });
+  });
+
+  it("treats an absence-only week as entries at $0, not no_entries", async () => {
+    const { sqlite, database } = await openMemoryDb();
+    const owner = await seedOwner(database, sqlite, "owner-a");
+    const createdAt = new Date();
+    await database.insert(timeEntries).values({
+      id: crypto.randomUUID(),
+      ownerUserId: "owner-a",
+      contractorId: owner.contractor.id,
+      siteId: owner.harbour.id,
+      workDate: weekStart,
+      notes: "",
+      ...clockFieldsForWrite({ entryMode: "absent" }),
+      rateCents: 3_200,
+      occurrenceKind: "absent",
+      scheduleVersionId: null,
+      createdAt,
+      updatedAt: createdAt,
+    });
+    const remittance = await getContractorWeekRemittance(database, "owner-a", owner.contractor.id, weekStart);
+    expect(remittance.entries).toHaveLength(1);
+    expect(remittance.entries[0]).toMatchObject({ paidMinutes: 0, rateCents: 3_200 });
+    expect(remittance.entries[0]?.paidMinutes).toBe(0);
   });
 });

@@ -1,6 +1,6 @@
 import { and, asc, eq, gte, lte, ne } from "drizzle-orm";
 import type { db } from "@/db/client";
-import { assignments, contractors, sites, timeEntries } from "@/db/schema";
+import { assignmentScheduleVersions, assignments, contractors, sites, timeEntries } from "@/db/schema";
 import {
   applyInlineAssignSiteAfterPrecheck,
   runCreateAssignment,
@@ -21,6 +21,7 @@ import {
 } from "@/lib/contractor-lifecycle";
 import { isUniqueConstraintError } from "@/lib/db-errors";
 import { summarizeWeek, weekEnd } from "@/lib/payroll";
+import { decodeWeekdays } from "@/lib/schedule";
 import { clockFieldsForWrite, hasDuplicateTimeEntry, rateCentsForUpdate, shouldResnapshotRate } from "@/lib/time-entry-write";
 import { findWeekApproval } from "@/lib/week-approval-query";
 import { assertUnlockedWeek, toDashboardApproval } from "@/services/week-approval";
@@ -191,12 +192,57 @@ export async function createAssignment(database: Database, ownerUserId: string, 
   return runCreateAssignment(assignmentRepo(database), ownerUserId, input, assignmentClock);
 }
 
+export type AssignmentScheduleCurrentView = {
+  id: string;
+  weekdays: number[];
+  paidMinutes: number;
+  effectiveFrom: string;
+};
+
+function toCurrentScheduleView(row: {
+  id: string;
+  weekdaysMask: number;
+  paidMinutes: number;
+  effectiveFrom: string;
+}): AssignmentScheduleCurrentView {
+  return {
+    id: row.id,
+    weekdays: decodeWeekdays(row.weekdaysMask),
+    paidMinutes: row.paidMinutes,
+    effectiveFrom: row.effectiveFrom,
+  };
+}
+
+async function loadOpenSchedulesByAssignment(database: Database, ownerUserId: string) {
+  const rows = await database
+    .select({
+      id: assignmentScheduleVersions.id,
+      assignmentId: assignmentScheduleVersions.assignmentId,
+      weekdaysMask: assignmentScheduleVersions.weekdaysMask,
+      paidMinutes: assignmentScheduleVersions.paidMinutes,
+      effectiveFrom: assignmentScheduleVersions.effectiveFrom,
+      effectiveTo: assignmentScheduleVersions.effectiveTo,
+    })
+    .from(assignmentScheduleVersions)
+    .where(eq(assignmentScheduleVersions.ownerUserId, ownerUserId));
+  const map = new Map<string, AssignmentScheduleCurrentView>();
+  for (const row of rows) {
+    if (row.effectiveTo != null) continue;
+    map.set(row.assignmentId, toCurrentScheduleView(row));
+  }
+  return map;
+}
+
 export async function listAssignments(database: Database, ownerUserId: string) {
-  return runListAssignments(assignmentRepo(database), ownerUserId);
+  const rows = await runListAssignments(assignmentRepo(database), ownerUserId);
+  const schedules = await loadOpenSchedulesByAssignment(database, ownerUserId);
+  return rows.map((row) => ({ ...row, schedule: schedules.get(row.id) ?? null }));
 }
 
 export async function getAssignment(database: Database, ownerUserId: string, assignmentId: string) {
-  return runGetAssignment(assignmentRepo(database), ownerUserId, assignmentId);
+  const row = await runGetAssignment(assignmentRepo(database), ownerUserId, assignmentId);
+  const schedules = await loadOpenSchedulesByAssignment(database, ownerUserId);
+  return { ...row, schedule: schedules.get(row.id) ?? null };
 }
 
 export async function updateAssignmentRate(database: Database, ownerUserId: string, assignmentId: string, input: AssignmentRateInput) {
@@ -248,6 +294,8 @@ export async function createTimeEntry(database: Database, ownerUserId: string, i
     notes: input.notes,
     ...clock,
     rateCents: match.assignmentRate ?? match.defaultRate,
+    occurrenceKind: "manual" as const,
+    scheduleVersionId: null,
     createdAt: now(),
     updatedAt: now(),
   };
@@ -267,6 +315,7 @@ export async function getTimeEntry(database: Database, ownerUserId: string, entr
     startMinutes: timeEntries.startMinutes, endMinutes: timeEntries.endMinutes,
     breakMinutes: timeEntries.breakMinutes, paidMinutes: timeEntries.paidMinutes,
     rateCents: timeEntries.rateCents, notes: timeEntries.notes, entryMode: timeEntries.entryMode,
+    occurrenceKind: timeEntries.occurrenceKind, scheduleVersionId: timeEntries.scheduleVersionId,
   }).from(timeEntries)
     .innerJoin(contractors, and(eq(contractors.id, timeEntries.contractorId), eq(contractors.ownerUserId, ownerUserId)))
     .innerJoin(sites, and(eq(sites.id, timeEntries.siteId), eq(sites.ownerUserId, ownerUserId)))
@@ -304,6 +353,15 @@ export async function updateTimeEntry(database: Database, ownerUserId: string, e
     resnapshot,
     assignmentEffectiveRate,
   });
+  const scheduledKind = existing.occurrenceKind === "scheduled"
+    || existing.occurrenceKind === "absent"
+    || existing.occurrenceKind === "hours_override";
+  const occurrenceKind = resnapshot
+    ? "manual" as const
+    : scheduledKind
+      ? "hours_override" as const
+      : existing.occurrenceKind;
+  const scheduleVersionId = resnapshot ? null : existing.scheduleVersionId;
 
   const [duplicate] = await database
     .select({ id: timeEntries.id })
@@ -329,6 +387,8 @@ export async function updateTimeEntry(database: Database, ownerUserId: string, e
         notes: input.notes,
         ...clock,
         rateCents,
+        occurrenceKind,
+        scheduleVersionId,
         updatedAt,
       })
       .where(and(eq(timeEntries.id, entryId), eq(timeEntries.ownerUserId, ownerUserId)))
@@ -356,7 +416,7 @@ export async function deleteTimeEntry(database: Database, ownerUserId: string, e
 
 export async function getDashboard(database: Database, ownerUserId: string, weekStart: string) {
   const end = weekEnd(weekStart);
-  const [siteRows, contractorRows, assignmentRows, entryRows, approvalRow] = await Promise.all([
+  const [siteRows, contractorRows, assignmentRows, entryRows, approvalRow, scheduleRows] = await Promise.all([
     database.select({ id: sites.id, name: sites.name, address: sites.address }).from(sites).where(and(eq(sites.ownerUserId, ownerUserId), eq(sites.active, true))).orderBy(asc(sites.name)),
     database.select({ id: contractors.id, name: contractors.name, email: contractors.email, phone: contractors.phone, defaultRateCents: contractors.defaultRateCents, currency: contractors.currency }).from(contractors).where(and(eq(contractors.ownerUserId, ownerUserId), eq(contractors.active, true))).orderBy(asc(contractors.name)),
     database.select({ id: assignments.id, contractorId: assignments.contractorId, siteId: assignments.siteId, rateCents: assignments.rateCents }).from(assignments)
@@ -369,15 +429,30 @@ export async function getDashboard(database: Database, ownerUserId: string, week
       startMinutes: timeEntries.startMinutes, endMinutes: timeEntries.endMinutes,
       breakMinutes: timeEntries.breakMinutes, paidMinutes: timeEntries.paidMinutes,
       rateCents: timeEntries.rateCents, notes: timeEntries.notes, entryMode: timeEntries.entryMode,
+      occurrenceKind: timeEntries.occurrenceKind, scheduleVersionId: timeEntries.scheduleVersionId,
     }).from(timeEntries)
       .innerJoin(contractors, and(eq(contractors.id, timeEntries.contractorId), eq(contractors.ownerUserId, ownerUserId)))
       .innerJoin(sites, and(eq(sites.id, timeEntries.siteId), eq(sites.ownerUserId, ownerUserId)))
       .where(and(eq(timeEntries.ownerUserId, ownerUserId), gte(timeEntries.workDate, weekStart), lte(timeEntries.workDate, end)))
       .orderBy(asc(timeEntries.workDate), asc(contractors.name)),
     findWeekApproval(database, ownerUserId, weekStart),
+    database.select({
+      id: assignmentScheduleVersions.id,
+      assignmentId: assignmentScheduleVersions.assignmentId,
+      weekdaysMask: assignmentScheduleVersions.weekdaysMask,
+      paidMinutes: assignmentScheduleVersions.paidMinutes,
+      effectiveFrom: assignmentScheduleVersions.effectiveFrom,
+      effectiveTo: assignmentScheduleVersions.effectiveTo,
+    }).from(assignmentScheduleVersions).where(eq(assignmentScheduleVersions.ownerUserId, ownerUserId)),
   ]);
+  const openSchedules = new Map<string, AssignmentScheduleCurrentView>();
+  for (const row of scheduleRows) {
+    if (row.effectiveTo != null) continue;
+    openSchedules.set(row.assignmentId, toCurrentScheduleView(row));
+  }
   return {
-    weekStart, weekEnd: end, sites: siteRows, contractors: contractorRows, assignments: assignmentRows,
+    weekStart, weekEnd: end, sites: siteRows, contractors: contractorRows,
+    assignments: assignmentRows.map((row) => ({ ...row, schedule: openSchedules.get(row.id) ?? null })),
     entries: entryRows,
     summary: summarizeWeek(entryRows.map((entry) => ({ contractorId: entry.contractorId, contractorName: entry.contractorName, paidMinutes: entry.paidMinutes, rateCents: entry.rateCents }))),
     approval: toDashboardApproval(approvalRow),

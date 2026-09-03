@@ -2,7 +2,7 @@
 
 ## Product slice
 
-`owner -> contractors + sites -> assignments -> daily time entries -> weekly summary`
+`owner -> contractors + sites -> assignments (+ optional schedule versions) -> daily time entries -> weekly summary`
 
 An assignment connects a contractor to a site and may provide a rate override. Assignment CRUD is owner-scoped: list and get return active and archived rows joined to the same-owner contractor and site; create inserts or reuses the unique pair; PATCH updates only `rateCents`; DELETE archives (`active=false`); restore reactivates when both relations are still active. Unassign confirmation is a UI concern; the API archives in one owner-scoped DELETE and does not delete history.
 
@@ -14,7 +14,13 @@ Paid-hours entries store integer paid minutes directly. Clock columns remain req
 
 The owner can assign a contractor to another site in the same create-entry request (`assignSite`). That inline path creates a missing assignment or restores an archived pair (applying `assignSite.rateCents`), and does not rewrite an already-active override. Shift validation and the duplicate contractor/site/date check run before the assignment write so a failed entry does not leave a restored assignment. Inline assign-another-site remains create-only. Dashboard new-entry options include only assignments whose contractor and site are both active and owned (inner joins); archived assignments and inactive relations are omitted from that list.
 
-The weekly dashboard GET remains the collection read for time entries: Monday–Sunday, owner-scoped joins to contractors and sites, ordered by work date then contractor name. There is no separate collection GET for time entries. The same response includes `approval: { status, approvedAt, reopenedAt }` without `id` or `ownerUserId`. Missing `week_approval` rows map to `{ status: "open", approvedAt: null, reopenedAt: null }`.
+The weekly dashboard GET remains the collection read for time entries: Monday–Sunday, owner-scoped joins to contractors and sites, ordered by work date then contractor name. There is no separate collection GET for time entries. The same response includes `approval: { status, approvedAt, reopenedAt }` without `id` or `ownerUserId`. Missing `week_approval` rows map to `{ status: "open", approvedAt: null, reopenedAt: null }`. Dashboard assignments are `{ id, contractorId, siteId, rateCents, schedule }` where `schedule` is the current open version (`{ id, weekdays, paidMinutes, effectiveFrom }`) or `null`. Entries include `occurrenceKind` and `scheduleVersionId`; `entryMode` may be `absent`. GET dashboard, GET entry, and GET schedule never insert or update `time_entry` or `assignment_schedule_version`.
+
+Pay, remittance, and week-approval totals read only `time_entry`. `summarizeWeek` always adds `paidMinutes` and calls `calculateEntryPayCents` only when `paidMinutes > 0`, so 0-minute absence rows do not throw. `occurrence_kind` is `manual` (owner-entered, the default after migration `0003`), `scheduled` (apply-schedule), `absent` (scheduled day marked absent, `paid_minutes = 0`), or `hours_override` (scheduled day with different paid minutes). Apply-schedule copies the current assignment effective rate onto new rows only and never rewrites historical `rate_cents`.
+
+POST `/api/weeks/apply-schedule` materializes scheduled rows for the requested Monday week from each active owned assignment's open version. It is idempotent: existing owner/contractor/site/date rows are skipped, approved dates are skipped, and archived assignments are omitted by an `assignment.active = true` inner join with active owned contractor and site. Apply does not throw `week_locked` when some or all dates are skipped.
+
+PUT `/api/assignments/:id/schedule` creates or replaces (going-forward) an open version and then applies the submitted week. Going-forward rewrites unlocked unexcepted `scheduled` rows from that Monday (paid minutes, paid-hours sentinels, `schedule_version_id`) and does not touch `rate_cents`, absences, overrides, manuals, or approved weeks. DELETE closes the open version and leaves time entries in place. POST `/api/time-entries/:id/exception` writes one-day absences and hours overrides without mutating versions; hours-override going-forward opens a new version.
 
 `week_approval` is unique on `(owner_user_id, week_start)` and stores only status plus `approved_at` / `reopened_at`. It is not a pay copy. Current week totals are computed at approve time from owner-scoped `time_entry` rows in `[weekStart, weekEnd]` and compared to the submitted expected minutes and cents. Approve and reopen never rewrite `time_entry.rate_cents`.
 
@@ -80,3 +86,17 @@ The dashboard continues to load only `sites.active = true` and `assignments.acti
 | POST | `/api/weeks/reopen` | yes | `200 WeekApprovalResource` |
 
 Cookie-authenticated mutations use `authorize(request, true)`. Errors: `401 unauthorized`, `403 forbidden`, `400 invalid_week` (non-Monday), `400 invalid_request` (malformed totals), `409 stale_week`, `409 week_not_approved`. Time-entry POST/PATCH/DELETE map `week_locked` to `409`.
+
+### Recurring schedule HTTP contract
+
+Open schedule view omits `ownerUserId`: `{ id, weekdays, paidMinutes, effectiveFrom }`. Version history adds `effectiveTo`.
+
+| Method | Path | Cookie mutation | Success |
+| --- | --- | --- | --- |
+| GET | `/api/assignments/[id]/schedule` | no | `200 { current, versions }` |
+| PUT | `/api/assignments/[id]/schedule` | yes | `200` current open version |
+| DELETE | `/api/assignments/[id]/schedule` | yes | `200 { ok: true }` |
+| POST | `/api/weeks/apply-schedule` | yes | `200 { weekStart, inserted }` |
+| POST | `/api/time-entries/[id]/exception` | yes | `200` dashboard-shaped entry |
+
+GET `/api/assignments` and GET `/api/assignments/[id]` include `schedule` as the current open version or `null`. PATCH `/api/assignments/[id]` remains rate-only. Cookie-authenticated mutations use `authorize(request, true)`. Errors: `401 unauthorized`, `403 forbidden`, `400 invalid_week` (non-Monday `weekStart`), `400 invalid_request`, `404 not_found` (missing or cross-owner), `409 schedule_exists`, `409 no_schedule`, `409 week_locked`, `409 duplicate_entry`, `413 payload_too_large`.

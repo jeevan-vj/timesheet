@@ -1,6 +1,6 @@
-# Issue 39 — Recurring assignment schedules (schema)
+# Issue 39 — Recurring assignment schedules
 
-Owner-scoped weekday templates for contractor/site assignments. This change lands the D1 table, `time_entry` columns, Drizzle types, and pure date/mask helpers only. Services, HTTP routes, and UI apply/exception writes are out of scope here.
+Owner-scoped weekday templates for contractor/site assignments. Schema (`0003`), Drizzle types, and pure date/mask helpers land with the database slice. This document also records the HTTP and service contract for apply/exception writes.
 
 ## Schema
 
@@ -62,13 +62,42 @@ Mon = 1, Tue = 2, Wed = 4, Thu = 8, Fri = 16, Sat = 32, Sun = 64. Mon–Fri = 31
 | `absent` | Scheduled day marked absent |
 | `hours_override` | Scheduled day with different paid minutes |
 
-`entry_mode` type is `"clock" \| "paid_hours" \| "absent"`. Absent exception rows are a later service concern; this migration does not insert them.
+`entry_mode` type is `"clock" \| "paid_hours" \| "absent"`. Absent exception rows store `paid_minutes = 0` with `occurrence_kind = 'absent'` and do not change schedule versions.
 
-## Apply-schedule skip rules
+## HTTP contract
+
+| Method | Path | CSRF | Body | Success |
+| --- | --- | --- | --- | --- |
+| GET | `/api/assignments/:id/schedule` | no | — | `200 { current, versions }` |
+| PUT | `/api/assignments/:id/schedule` | yes | `schedulePutInput` | `200` current open version |
+| DELETE | `/api/assignments/:id/schedule` | yes | `{ weekStart }` Monday | `200 { ok: true }` |
+| POST | `/api/weeks/apply-schedule` | yes | `{ weekStart }` | `200 { weekStart, inserted }` |
+| POST | `/api/time-entries/:id/exception` | yes | `occurrenceExceptionInput` | `200` dashboard-shaped entry |
+
+Ownership comes only from `authorize` (`ownerUserId` from the session). Cookie mutations use `authorize(request, true)`. Cross-owner ids return identical `404 { error: "not_found" }`. Errors: `invalid_request` 400, `invalid_week` 400, `payload_too_large` 413, `schedule_exists` 409, `no_schedule` 409, `week_locked` 409, `duplicate_entry` 409.
+
+GET `/api/assignments` and GET `/api/assignments/:id` attach the current **open** version only (`effective_to IS NULL`, owner-scoped): `schedule: null | { id, weekdays, paidMinutes, effectiveFrom }`. Dashboard assignments use the same shape. Dashboard entries add `occurrenceKind` and `scheduleVersionId`. GET dashboard is a read: it must not insert or update `time_entry` or `assignment_schedule_version`.
+
+PATCH `/api/assignments/:id` remains rate-only. `timeEntryInput` / `timeEntryUpdateInput` are unchanged: clients cannot POST `occurrenceKind: scheduled`, and `paidMinutes` min stays 1.
+
+## Apply-schedule rules
 
 Owner-scoped unique key remains one row per owner/contractor/site/date. For each expanded work date, if any `time_entry` row already exists for that key, skip that date (`shouldSkipExistingEntry` is true when the lookup returns a row). Do not overwrite manual, locked, or previously applied entries. Skip is per date; other dates in the week still apply.
 
-Apply is an explicit mutation. It must still respect `week_locked` (later service). This change does not write entries.
+`applyScheduleToWeek` is idempotent. It inner-joins active owned assignments with active owned contractor and site, so archived assignments are skipped and old entries remain. If a date's week is approved, skip that date (`inserted` may be 0). Do not throw `week_locked` for the whole apply.
+
+Create mode inserts an open version (`effective_from = fromDate ?? weekStart`) then applies the submitted week. Going-forward closes the open version with `planCloseAndOpenVersions`, inserts a new open version from that Monday, updates unlocked unexcepted `scheduled` rows (`paid_minutes` / paid-hours sentinels / `schedule_version_id` only — never `rate_cents`), deletes unlocked unexcepted scheduled rows whose weekday left the mask, then applies. Approved-week actuals are not rewritten.
+
+## Exception rules
+
+Owner-scoped by entry id. Manual rows return `no_schedule`. If the work date's week is approved and `this_day` would change the row, return `week_locked`. Use `assertUnlockedWeek` for `this_day` writes.
+
+- `absent` + `this_day`: `occurrence_kind=absent`, `entry_mode=absent`, paid/clock zeros. Do not change versions. Idempotent if already absent. Keep `rate_cents`.
+- `worked_as_scheduled` + `this_day`: restore `paid_minutes` from **this row's** `schedule_version_id` version, `occurrence_kind=scheduled`, `entry_mode=paid_hours`. Keep original `rate_cents`.
+- `hours_override` + `this_day`: set `paid_minutes`, `occurrence_kind=hours_override`. Keep `rate_cents`. Do not change versions or other dates.
+- `hours_override` + `going_forward`: Monday of an unlocked week becomes `scheduled` under the new version. Tue–Sun keep this day as `hours_override` and open the new version from next Monday. If this week is approved, do not change this row; still persist a new version from next Monday without rewriting locked actuals.
+
+Apply is an explicit mutation. GET must not write entries.
 
 ## GET does not write
 
@@ -76,7 +105,7 @@ Dashboard GET, entry GET, and any future schedule preview/read must not insert `
 
 ## Not in this change
 
-Timesheet apply-schedule / exception writes, `summarizeWeek` behavior, HTTP routes, React UI, and product text in `SPEC.md` / `SECURITY.md` / `ARCHITECTURE.md` / `THREAT_MODEL.md` / `DEPLOYMENT.md` land with the API specialist and orchestrator after this schema slice.
+React UI / CSS for schedule editors and exception controls land with the frontend specialist after this API slice.
 
 ## Migration / rollback
 

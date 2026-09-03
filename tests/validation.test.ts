@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assignmentInput, assignmentRateInput, contractorInput, invalidRequestFromZod, parseIncludeArchived, siteInput, timeEntryInput, timeEntryUpdateInput, weekApproveInput, weekReopenInput } from "../src/lib/validation";
+import { assignmentInput, assignmentRateInput, contractorInput, invalidRequestFromZod, occurrenceExceptionInput, parseIncludeArchived, scheduleDeleteInput, schedulePutInput, siteInput, timeEntryInput, timeEntryUpdateInput, weekApplyScheduleInput, weekApproveInput, weekReopenInput } from "../src/lib/validation";
 
 describe("API validation", () => {
   it("accepts an integer-cent contractor rate", () => {
@@ -272,5 +272,92 @@ describe("week approval validation", () => {
       expectedPaidMinutes: 60,
       expectedPayCents: 10.25,
     }).success).toBe(false);
+  });
+});
+
+describe("recurring schedule validation", () => {
+  it("accepts a create schedule and strips forged owner fields", () => {
+    expect(schedulePutInput.parse({
+      weekdays: [1, 2, 3, 4, 5],
+      paidMinutes: 90,
+      weekStart: "2026-08-31",
+      mode: "create",
+      ownerUserId: "forged",
+      owner_user_id: "forged",
+    })).toEqual({
+      weekdays: [1, 2, 3, 4, 5],
+      paidMinutes: 90,
+      weekStart: "2026-08-31",
+      mode: "create",
+    });
+    expect(weekApplyScheduleInput.parse({ weekStart: "2026-08-31", ownerUserId: "x" })).toEqual({ weekStart: "2026-08-31" });
+    expect(scheduleDeleteInput.parse({ weekStart: "2026-08-31", owner_user_id: "x" })).toEqual({ weekStart: "2026-08-31" });
+  });
+
+  it("rejects duplicate weekdays, non-Monday weekStart, and zero paid minutes", () => {
+    expect(schedulePutInput.safeParse({
+      weekdays: [1, 1, 2],
+      paidMinutes: 90,
+      weekStart: "2026-08-31",
+      mode: "create",
+    }).success).toBe(false);
+    expect(schedulePutInput.safeParse({
+      weekdays: [1, 2, 3, 4, 5],
+      paidMinutes: 90,
+      weekStart: "2026-09-01",
+      mode: "create",
+    }).success).toBe(false);
+    expect(schedulePutInput.safeParse({
+      weekdays: [1, 2, 3, 4, 5],
+      paidMinutes: 0,
+      weekStart: "2026-08-31",
+      mode: "create",
+    }).success).toBe(false);
+    expect(weekApplyScheduleInput.safeParse({ weekStart: "2026-09-01" }).success).toBe(false);
+  });
+
+  it("requires this_day for absent/worked_as_scheduled and paidMinutes for hours_override", () => {
+    expect(occurrenceExceptionInput.parse({ kind: "absent", scope: "this_day" })).toEqual({
+      kind: "absent",
+      scope: "this_day",
+    });
+    expect(occurrenceExceptionInput.safeParse({ kind: "absent", scope: "going_forward" }).success).toBe(false);
+    expect(occurrenceExceptionInput.safeParse({ kind: "worked_as_scheduled", scope: "going_forward" }).success).toBe(false);
+    expect(occurrenceExceptionInput.safeParse({ kind: "hours_override", scope: "this_day" }).success).toBe(false);
+    expect(occurrenceExceptionInput.parse({
+      kind: "hours_override",
+      scope: "going_forward",
+      paidMinutes: 60,
+    })).toEqual({
+      kind: "hours_override",
+      scope: "going_forward",
+      paidMinutes: 60,
+    });
+  });
+
+  it("does not weaken timeEntryInput paidMinutes min 1 and rejects client scheduled kind", () => {
+    expect(timeEntryInput.safeParse({
+      entryMode: "paid_hours",
+      contractorId: "c",
+      siteId: "s",
+      workDate: "2026-08-31",
+      paidMinutes: 0,
+    }).success).toBe(false);
+    expect(timeEntryInput.parse({
+      entryMode: "paid_hours",
+      contractorId: "c",
+      siteId: "s",
+      workDate: "2026-08-31",
+      paidMinutes: 1,
+      occurrenceKind: "scheduled",
+    })).toMatchObject({ entryMode: "paid_hours", paidMinutes: 1 });
+    expect(timeEntryInput.parse({
+      entryMode: "paid_hours",
+      contractorId: "c",
+      siteId: "s",
+      workDate: "2026-08-31",
+      paidMinutes: 1,
+      occurrenceKind: "scheduled",
+    })).not.toHaveProperty("occurrenceKind");
   });
 });

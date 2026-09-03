@@ -48,7 +48,9 @@ export function summarizeWeek(entries: PayrollEntry[]): ContractorWeek[] {
       payCents: 0,
     };
     current.paidMinutes += entry.paidMinutes;
-    current.payCents += calculateEntryPayCents(entry.paidMinutes, entry.rateCents);
+    if (entry.paidMinutes > 0) {
+      current.payCents += calculateEntryPayCents(entry.paidMinutes, entry.rateCents);
+    }
     totals.set(entry.contractorId, current);
   }
   return [...totals.values()].sort((a, b) => a.contractorName.localeCompare(b.contractorName));
