@@ -93,6 +93,9 @@ async function startLocalApp({ cwd, port }) {
     "--ip", "127.0.0.1",
     "--port", String(port),
     "--persist-to", persist,
+    "--var", `BETTER_AUTH_URL:${baseUrl}`,
+    "--var", `AUTH_TRUSTED_ORIGINS:${baseUrl}`,
+    "--var", "RELEASE_SHA:factory-e2e",
   ], { cwd });
   try {
     await waitForHealth(baseUrl);

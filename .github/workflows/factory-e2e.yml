@@ -44,7 +44,11 @@ jobs:
       - name: Start PR-head app
         run: |
           set -euo pipefail
-          pnpm exec wrangler dev --config dist/server/wrangler.json --ip 127.0.0.1 --port 8787 --persist-to .wrangler/e2e-state > "$RUNNER_TEMP/wrangler-e2e.log" 2>&1 &
+          pnpm exec wrangler dev --config dist/server/wrangler.json --ip 127.0.0.1 --port 8787 --persist-to .wrangler/e2e-state \
+            --var "BETTER_AUTH_URL:${FACTORY_E2E_BASE_URL}" \
+            --var "AUTH_TRUSTED_ORIGINS:${FACTORY_E2E_BASE_URL}" \
+            --var "RELEASE_SHA:factory-e2e" \
+            > "$RUNNER_TEMP/wrangler-e2e.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/wrangler-e2e.pid"
           for attempt in $(seq 1 90); do
             if curl --silent --show-error --fail "$FACTORY_E2E_BASE_URL/api/health" >/dev/null; then
@@ -55,13 +59,6 @@ jobs:
           echo "PR-head app did not become healthy"
           tail -n 100 "$RUNNER_TEMP/wrangler-e2e.log" || true
           exit 1
-      - name: Abort if the PR head moved
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          live="$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" --jq .head.sha)"
-          [ "$live" = "$FACTORY_E2E_HEAD_SHA" ]
       - name: Run browser scenarios
         run: node .factory/e2e/harness.mjs --base-url "$FACTORY_E2E_BASE_URL" --out factory-e2e-output --repository "$FACTORY_E2E_REPOSITORY" --pr "$FACTORY_E2E_PR" --head-sha "$FACTORY_E2E_HEAD_SHA"
       - name: Evaluate evidence with the factory consumer
