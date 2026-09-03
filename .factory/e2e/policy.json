@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "console": {
+    "failOn": ["error", "warning"],
+    "allowlist": []
+  },
+  "network": {
+    "failOnFailedRequests": true,
+    "failOnStatusFrom": 400,
+    "allowlist": []
+  },
+  "artifacts": {
+    "retentionDays": 14,
+    "traceMustLookLikeZip": true,
+    "screenshotMustLookLikePng": true
+  }
+}

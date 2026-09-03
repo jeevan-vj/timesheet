@@ -1,7 +1,7 @@
 name: Factory Trusted Controller
 on:
   workflow_run:
-    workflows: [Factory PR Gate, Factory Review Signal]
+    workflows: [Factory PR Gate, Factory Review Signal, Factory E2E Evidence]
     types: [completed]
 permissions:
   contents: read
@@ -14,6 +14,7 @@ jobs:
     permissions:
       contents: write
       checks: read
+      actions: read
       issues: write
       pull-requests: write
     runs-on: ubuntu-latest
@@ -48,6 +49,29 @@ jobs:
           [ "$delegated" = true ] || exit 0
           gate="$(gh api "repos/$REPOSITORY/commits/$head/check-runs?per_page=100" --jq '[.check_runs[] | select(.name == "Factory deterministic gate" and .app.slug == "github-actions")] | sort_by(.started_at) | last | .conclusion // ""')"
           [ "$gate" = success ] || exit 0
+          e2e_check="$(gh api "repos/$REPOSITORY/commits/$head/check-runs?per_page=100" --jq '[.check_runs[] | select(.name == "Factory E2E evidence" and .app.slug == "github-actions")] | sort_by(.started_at) | last')"
+          e2e="$(printf '%s' "$e2e_check" | jq -r '.conclusion // empty')"
+          [ "$e2e" = success ] || exit 0
+          e2e_run_id="$(printf '%s' "$e2e_check" | jq -r '.html_url' | sed -nE 's#.*/actions/runs/([0-9]+).*#\1#p')"
+          [ -n "$e2e_run_id" ] || exit 0
+          evidence_dir="$RUNNER_TEMP/factory-e2e-evidence"
+          rm -rf "$evidence_dir"
+          if ! gh run download "$e2e_run_id" --repo "$REPOSITORY" --name "factory-e2e-evidence-$head" --dir "$evidence_dir"; then
+            exit 0
+          fi
+          evidence_json="$RUNNER_TEMP/factory-e2e-eval.json"
+          if ! node .factory/evaluate-e2e-evidence.mjs --repository "$REPOSITORY" --pr "$pr" --head-sha "$head" --artifact-dir "$evidence_dir" --run-conclusion success --run-head-sha "$head" --run-event pull_request --run-id "$e2e_run_id" > "$evidence_json"; then
+            reasons="$(jq -r '.reasonCodes | join(", ")' "$evidence_json" 2>/dev/null || echo unknown_state)"
+            gh issue edit "$issue" --repo "$REPOSITORY" --add-label factory:needs-human || true
+            marker="<!-- factory-e2e-eval:$head -->"
+            pr_comments="$RUNNER_TEMP/pr-comments.json"
+            gh api --paginate "repos/$REPOSITORY/issues/$pr/comments?per_page=100" | jq -s '[.[][]]' > "$pr_comments"
+            existing="$(jq --arg marker "$marker" '[.[] | select((.body // "") | contains($marker))] | length' "$pr_comments")"
+            if [ "$existing" -eq 0 ]; then
+              gh pr comment "$pr" --repo "$REPOSITORY" --body "Trusted E2E evidence evaluation failed for commit $head ($reasons). The PR is not verified. Human investigation is required because the producer check succeeded but the default-branch consumer rejected the artifacts.\n\n$marker"
+            fi
+            exit 0
+          fi
 
           reviews="$RUNNER_TEMP/reviews.json"
           review_comments="$RUNNER_TEMP/review-comments.json"
@@ -75,10 +99,10 @@ jobs:
                   reply_marker="<!-- factory-review-thread:$head:$comment_id -->"
                   replied="$(jq --argjson id "$comment_id" --arg marker "$reply_marker" '[.[] | select(.in_reply_to_id == $id and ((.body // "") | contains($marker)))] | length' "$review_comments")"
                   if [ "$replied" -eq 0 ]; then
-                    gh api --method POST "repos/$REPOSITORY/pulls/$pr/comments/$comment_id/replies" -f body="Factory repair produced commit $head, and the deterministic gate passed. A fresh independent review has been requested before this thread is resolved.\n\n$reply_marker" >/dev/null
+                    gh api --method POST "repos/$REPOSITORY/pulls/$pr/comments/$comment_id/replies" -f body="Factory repair produced commit $head, and the deterministic gate plus E2E evidence passed. A fresh independent review has been requested before this thread is resolved.\n\n$reply_marker" >/dev/null
                   fi
                 done <<< "$blocking_ids"
-                printf -v review_request '@codex review\n\nFactory repair produced commit %s and the deterministic gate passed. Please independently re-review the current head before the factory proceeds.\n\n%s' "$head" "$marker"
+                printf -v review_request '@codex review\n\nFactory repair produced commit %s and the deterministic gate plus E2E evidence passed. Please independently re-review the current head before the factory proceeds.\n\n%s' "$head" "$marker"
                 gh pr comment "$pr" --repo "$REPOSITORY" --body "$review_request"
               fi
               exit 0
@@ -105,7 +129,7 @@ jobs:
             pr_comments="$RUNNER_TEMP/pr-comments.json"
             gh api --paginate "repos/$REPOSITORY/issues/$pr/comments?per_page=100" | jq -s '[.[][]]' > "$pr_comments"
             existing="$(jq --arg marker "$marker" '[.[] | select((.body // "") | contains($marker))] | length' "$pr_comments")"
-            if [ "$existing" -eq 0 ]; then gh pr comment "$pr" --repo "$REPOSITORY" --body "Factory verification passed, but **$risk-risk** changes require human approval.\n\n$marker"; fi
+            if [ "$existing" -eq 0 ]; then gh pr comment "$pr" --repo "$REPOSITORY" --body "Factory verification passed, but **$risk-risk** changes require human approval. Passing E2E evidence does not waive this gate.\n\n$marker"; fi
             exit 0
           fi
           mergeable_review="$(node --input-type=module -e 'import fs from "node:fs"; import {selectMergeableFactoryReview} from "./.factory/review-bots.mjs"; const reviews=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const comments=JSON.parse(fs.readFileSync(process.argv[2],"utf8")); process.stdout.write(JSON.stringify(selectMergeableFactoryReview(reviews,comments,process.argv[3])||{}));' "$reviews" "$review_comments" "$head")"

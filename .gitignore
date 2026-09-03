@@ -9,5 +9,7 @@ dist/
 .env.*
 !.env.example
 coverage/
+factory-e2e-output/
+*.log
 *.log
 .DS_Store

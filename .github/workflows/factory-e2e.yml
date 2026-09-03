@@ -1,0 +1,89 @@
+name: Factory E2E Evidence
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: factory-e2e-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  evidence:
+    if: github.event.pull_request.draft == false
+    name: Factory E2E evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      FACTORY_E2E_REPOSITORY: ${{ github.repository }}
+      FACTORY_E2E_PR: ${{ github.event.pull_request.number }}
+      FACTORY_E2E_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      FACTORY_E2E_BASE_URL: http://127.0.0.1:8787
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: { node-version: 22 }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm build
+      - name: Configure isolated local app
+        run: |
+          set -euo pipefail
+          printf 'BETTER_AUTH_SECRET=local-development-secret-change-me-123456789\nBETTER_AUTH_URL=%s\nAUTH_TRUSTED_ORIGINS=%s\n' \
+            "$FACTORY_E2E_BASE_URL" "$FACTORY_E2E_BASE_URL" > .dev.vars
+          pnpm exec wrangler d1 migrations apply cleantrack-timesheet --local --config wrangler.jsonc --persist-to .wrangler/e2e-state
+      - name: Start PR-head app
+        run: |
+          set -euo pipefail
+          pnpm exec wrangler dev --config dist/server/wrangler.json --ip 127.0.0.1 --port 8787 --persist-to .wrangler/e2e-state > "$RUNNER_TEMP/wrangler-e2e.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/wrangler-e2e.pid"
+          for attempt in $(seq 1 90); do
+            if curl --silent --show-error --fail "$FACTORY_E2E_BASE_URL/api/health" >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "PR-head app did not become healthy"
+          tail -n 100 "$RUNNER_TEMP/wrangler-e2e.log" || true
+          exit 1
+      - name: Abort if the PR head moved
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          live="$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" --jq .head.sha)"
+          [ "$live" = "$FACTORY_E2E_HEAD_SHA" ]
+      - name: Run browser scenarios
+        run: node .factory/e2e/harness.mjs --base-url "$FACTORY_E2E_BASE_URL" --out factory-e2e-output --repository "$FACTORY_E2E_REPOSITORY" --pr "$FACTORY_E2E_PR" --head-sha "$FACTORY_E2E_HEAD_SHA"
+      - name: Evaluate evidence with the factory consumer
+        run: |
+          node .factory/evaluate-e2e-evidence.mjs \
+            --repository "$FACTORY_E2E_REPOSITORY" \
+            --pr "$FACTORY_E2E_PR" \
+            --head-sha "$FACTORY_E2E_HEAD_SHA" \
+            --artifact-dir factory-e2e-output \
+            --run-conclusion success \
+            --run-head-sha "$FACTORY_E2E_HEAD_SHA" \
+            --run-event "${{ github.event_name }}" \
+            --run-id "${{ github.run_id }}"
+      - name: Upload evidence artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: factory-e2e-evidence-${{ github.event.pull_request.head.sha }}
+          path: factory-e2e-output
+          if-no-files-found: error
+          retention-days: 14
+      - name: Stop PR-head app
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/wrangler-e2e.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/wrangler-e2e.pid")" 2>/dev/null || true
+          fi
