@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "id": "factory-default",
+  "description": "Required owner-path verification against a running PR-head app. Homepage-only smoke is not sufficient.",
+  "scenarios": [
+    {
+      "id": "health-ok",
+      "title": "Local app health",
+      "path": "/api/health",
+      "acceptance": "GET /api/health returns 200 JSON with status ok and database ok"
+    },
+    {
+      "id": "owner-signup",
+      "title": "Create owner account",
+      "path": "/sign-up",
+      "acceptance": "Synthetic owner can create an account and is sent to /dashboard"
+    },
+    {
+      "id": "empty-week-dashboard",
+      "title": "Empty week workspace",
+      "path": "/dashboard",
+      "acceptance": "Authenticated dashboard shows No shifts this week"
+    }
+  ]
+}

@@ -31,4 +31,4 @@ pnpm typecheck
 pnpm build
 ```
 
-See [SPEC.md](SPEC.md), [SECURITY.md](SECURITY.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and [.factory/SETUP.md](.factory/SETUP.md).
+See [SPEC.md](SPEC.md), [SECURITY.md](SECURITY.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [.factory/SETUP.md](.factory/SETUP.md), and [.factory/e2e-evidence.md](.factory/e2e-evidence.md).

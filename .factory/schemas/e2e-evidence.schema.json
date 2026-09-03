@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cleantrack.local/factory/e2e-evidence.schema.json",
+  "title": "Factory E2E Evidence Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "repository",
+    "prNumber",
+    "headSha",
+    "run",
+    "timestamp",
+    "app",
+    "scenarios",
+    "artifacts",
+    "console",
+    "network",
+    "checks",
+    "overallVerdict",
+    "reasonCodes"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "1" },
+    "repository": { "type": "string", "minLength": 3, "pattern": "^[^/\\s]+/[^/\\s]+$" },
+    "prNumber": { "type": "integer", "minimum": 1 },
+    "headSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workflow", "workflowRunId", "job", "event"],
+      "properties": {
+        "workflow": { "type": "string", "minLength": 1 },
+        "workflowRunId": { "type": "string", "minLength": 1 },
+        "job": { "type": "string", "minLength": 1 },
+        "event": { "type": "string", "minLength": 1 }
+      }
+    },
+    "timestamp": { "type": "string", "minLength": 1 },
+    "app": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseUrl", "environment"],
+      "properties": {
+        "baseUrl": { "type": "string", "minLength": 1 },
+        "environment": { "type": "string", "minLength": 1 }
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status", "screenshots"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "status": { "type": "string", "enum": ["pass", "fail"] },
+          "screenshots": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "error": { "type": "string" }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trace", "console", "network", "screenshots"],
+      "properties": {
+        "trace": { "type": "string", "minLength": 1 },
+        "console": { "type": "string", "minLength": 1 },
+        "network": { "type": "string", "minLength": 1 },
+        "screenshots": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "console": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["errors", "warnings"],
+      "properties": {
+        "errors": { "type": "array" },
+        "warnings": { "type": "array" }
+      }
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["failures"],
+      "properties": {
+        "failures": { "type": "array" }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status"],
+        "properties": {
+          "id": { "type": "string" },
+          "status": { "type": "string", "enum": ["pass", "fail"] },
+          "detail": { "type": "string" }
+        }
+      }
+    },
+    "overallVerdict": { "type": "string", "enum": ["pass", "fail"] },
+    "reasonCodes": { "type": "array", "items": { "type": "string" } }
+  }
+}

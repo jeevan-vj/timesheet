@@ -2,7 +2,7 @@ name: Factory Repair Loop
 
 on:
   workflow_run:
-    workflows: [Factory PR Gate, Factory Review Signal]
+    workflows: [Factory PR Gate, Factory Review Signal, Factory E2E Evidence]
     types: [completed]
 
 permissions:
@@ -56,6 +56,11 @@ jobs:
             kind="ci"
             source="gate"
             reason="The deterministic PR gate concluded $RUN_CONCLUSION for commit $head. Inspect the failing checks at $RUN_URL and fix only failures caused by this PR."
+          elif [ "$RUN_NAME" = "Factory E2E Evidence" ] && [ "$RUN_CONCLUSION" != success ]; then
+            [ "$head" = "$RUN_HEAD_SHA" ] || exit 0
+            kind="e2e"
+            source="e2e"
+            reason="The E2E evidence gate concluded $RUN_CONCLUSION for commit $head. Inspect structured evidence (screenshots, traces, console, and network) at $RUN_URL. Do not reuse screenshots, traces, reports, statuses, or artifacts from an older head. After the fix, push so browser verification reruns against the new exact head."
           elif [ "$RUN_NAME" = "Factory Review Signal" ] && [ "$RUN_CONCLUSION" = success ]; then
             reviews="$RUNNER_TEMP/reviews.json"
             review_comments="$RUNNER_TEMP/review-comments.json"
