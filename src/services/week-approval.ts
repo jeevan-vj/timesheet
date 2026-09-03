@@ -21,7 +21,7 @@ export type DashboardApproval = {
   reopenedAt: string | null;
 };
 
-const now = () => new Date();
+const now = () => new Date(Math.floor(Date.now() / 1000) * 1000);
 const id = () => crypto.randomUUID();
 
 function toIso(value: Date | null | undefined): string | null {
@@ -111,8 +111,8 @@ export async function approveWeek(
     updatedAt: approvedAt,
   };
   try {
-    await database.insert(weekApprovals).values(row);
-    return toWeekApprovalResource(row);
+    const [inserted] = await database.insert(weekApprovals).values(row).returning();
+    return toWeekApprovalResource(inserted ?? row);
   } catch (error) {
     if (!isUniqueConstraintError(error)) throw error;
     const raced = await findWeekApproval(database, ownerUserId, input.weekStart);

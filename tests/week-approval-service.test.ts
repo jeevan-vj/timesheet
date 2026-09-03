@@ -265,11 +265,12 @@ describe("week approval service", () => {
     const { sqlite, database } = await openMemoryDb();
     insertUser(sqlite, "owner-a");
     const first = await approveWeek(database, "owner-a", { weekStart: MONDAY, expectedPaidMinutes: 0, expectedPayCents: 0 });
+    sqlite.run("UPDATE week_approval SET approved_at = 1700000000, updated_at = 1700000000 WHERE id = ?", [first.id]);
     const reopened = await reopenWeek(database, "owner-a", { weekStart: MONDAY });
+    expect(reopened.approvedAt).toBe(new Date(1_700_000_000_000).toISOString());
     const again = await approveWeek(database, "owner-a", { weekStart: MONDAY, expectedPaidMinutes: 0, expectedPayCents: 0 });
     expect(again.status).toBe("approved");
     expect(again.reopenedAt).toBeNull();
-    expect(again.approvedAt).not.toBe(first.approvedAt);
     expect(again.approvedAt).not.toBe(reopened.approvedAt);
     expect(await database.select().from(weekApprovals)).toHaveLength(1);
   });
