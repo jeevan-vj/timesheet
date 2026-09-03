@@ -53,7 +53,7 @@ describe("contractor mutations preserve snapshotted pay", () => {
 
   it("still requires an active contractor when creating assignments and time entries", () => {
     expect(functionBody(timesheetSource, "createAssignment")).toMatch(/runCreateAssignment/);
-    expect(assignmentSource).toMatch(/contractor !== "active"/);
+    expect(assignmentSource).toMatch(/function planAssignmentWrite[\s\S]*contractor !== "active"/);
     expect(functionBody(timesheetSource, "createTimeEntry")).toMatch(/eq\(\s*contractors\.active,\s*true\s*\)/);
     expect(timesheetSource).not.toMatch(/contractor_archived/);
   });

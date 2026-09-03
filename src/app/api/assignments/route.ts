@@ -15,8 +15,8 @@ export async function POST(request: Request) {
   if ("response" in access) return access.response;
   try {
     const input = assignmentInput.parse(await readJson(request));
-    const result = await createAssignment(db, access.user.id, input);
-    return noStoreJson(result.assignment, result.created ? 201 : 200);
+    const { created, ...assignment } = await createAssignment(db, access.user.id, input);
+    return noStoreJson(assignment, created ? 201 : 200);
   } catch (error) {
     if (error instanceof Error && error.message === "not_found") return noStoreJson({ error: "not_found" }, 404);
     if (error instanceof Error && error.message === "duplicate_assignment") return noStoreJson({ error: "duplicate_assignment" }, 409);

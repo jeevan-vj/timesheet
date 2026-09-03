@@ -10,7 +10,6 @@ import {
   runUnassignAssignment,
   runUpdateAssignmentRate,
   type AssignmentPatch,
-  type AssignmentRecord,
   type AssignmentRepository,
   type JoinedAssignment,
 } from "@/lib/assignment";
@@ -38,6 +37,17 @@ type TimeEntryUpdateInput = z.infer<typeof timeEntryUpdateInput>;
 const now = () => new Date();
 const id = () => crypto.randomUUID();
 const assignmentClock = { id, now };
+
+const assignmentRecordColumns = {
+  id: assignments.id,
+  ownerUserId: assignments.ownerUserId,
+  contractorId: assignments.contractorId,
+  siteId: assignments.siteId,
+  rateCents: assignments.rateCents,
+  active: assignments.active,
+  createdAt: assignments.createdAt,
+  updatedAt: assignments.updatedAt,
+};
 
 const assignmentViewColumns = {
   id: assignments.id,
@@ -76,19 +86,19 @@ function assignmentRepo(database: Database): AssignmentRepository {
       return row;
     },
     async getAssignmentByPair(ownerUserId, contractorId, siteId) {
-      const [row] = await database.select().from(assignments).where(and(
+      const [row] = await database.select(assignmentRecordColumns).from(assignments).where(and(
         eq(assignments.ownerUserId, ownerUserId),
         eq(assignments.contractorId, contractorId),
         eq(assignments.siteId, siteId),
       )).limit(1);
-      return row as AssignmentRecord | undefined;
+      return row;
     },
     async getAssignmentById(ownerUserId, assignmentId) {
-      const [row] = await database.select().from(assignments).where(and(
+      const [row] = await database.select(assignmentRecordColumns).from(assignments).where(and(
         eq(assignments.id, assignmentId),
         eq(assignments.ownerUserId, ownerUserId),
       )).limit(1);
-      return row as AssignmentRecord | undefined;
+      return row;
     },
     async insertAssignment(row) {
       await database.insert(assignments).values(row);

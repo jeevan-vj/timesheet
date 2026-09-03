@@ -226,7 +226,7 @@ describe("assignment service lifecycle", () => {
     seedActivePair(store);
     const result = await runCreateAssignment(store, OWNER, { contractorId: "c1", siteId: "s1", rateCents: 3_500 }, testClock());
     expect(result.created).toBe(true);
-    expect(result.assignment).toMatchObject({
+    expect(result).toMatchObject({
       contractorId: "c1",
       contractorName: "Aroha",
       siteId: "s1",
@@ -285,7 +285,7 @@ describe("assignment service lifecycle", () => {
     archivedAssignment(store, 4_000);
     const result = await runCreateAssignment(store, OWNER, { contractorId: "c1", siteId: "s1", rateCents: null }, testClock());
     expect(result.created).toBe(false);
-    expect(result.assignment).toMatchObject({
+    expect(result).toMatchObject({
       id: "a1",
       rateCents: null,
       effectiveRateCents: 3_200,

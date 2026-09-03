@@ -68,6 +68,8 @@ export type AssignmentView = {
   updatedAt: Date;
 };
 
+export type CreatedAssignment = AssignmentView & { created: boolean };
+
 export type AssignmentRepository = {
   getContractor(ownerUserId: string, contractorId: string): Promise<ContractorRecord | undefined>;
   getSite(ownerUserId: string, siteId: string): Promise<SiteRecord | undefined>;
@@ -186,7 +188,7 @@ export async function runCreateAssignment(
   ownerUserId: string,
   input: { contractorId: string; siteId: string; rateCents: number | null },
   clock: AssignmentClock,
-): Promise<{ created: boolean; assignment: AssignmentView }> {
+): Promise<CreatedAssignment> {
   const contractor = await repo.getContractor(ownerUserId, input.contractorId);
   const site = await repo.getSite(ownerUserId, input.siteId);
   const existing = await repo.getAssignmentByPair(ownerUserId, input.contractorId, input.siteId);
@@ -226,7 +228,7 @@ export async function runCreateAssignment(
     }
   }
 
-  return { created: plan.type === "insert", assignment: await runGetAssignment(repo, ownerUserId, assignmentId) };
+  return { ...(await runGetAssignment(repo, ownerUserId, assignmentId)), created: plan.type === "insert" };
 }
 
 export async function runUpdateAssignmentRate(
