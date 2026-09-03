@@ -65,4 +65,18 @@ describe("payroll calculations", () => {
       currentPayCents: calculateEntryPayCents(120, 3_000) + calculateEntryPayCents(90, 3_200),
     });
   });
+
+  it("adds 0-minute rows to summarizeWeek minutes without calling pay math", () => {
+    expect(summarizeWeek([
+      { contractorId: "c1", contractorName: "Aroha", paidMinutes: 0, rateCents: 2_000 },
+      { contractorId: "c1", contractorName: "Aroha", paidMinutes: 90, rateCents: 2_000 },
+    ])).toEqual([
+      { contractorId: "c1", contractorName: "Aroha", paidMinutes: 90, payCents: calculateEntryPayCents(90, 2_000) },
+    ]);
+    expect(summarizeWeek([
+      { contractorId: "c1", contractorName: "Aroha", paidMinutes: 0, rateCents: 2_000 },
+    ])).toEqual([
+      { contractorId: "c1", contractorName: "Aroha", paidMinutes: 0, payCents: 0 },
+    ]);
+  });
 });

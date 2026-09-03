@@ -439,10 +439,11 @@ describe("edit option lists", () => {
 describe("edit sheet wiring", () => {
   it("opens edit from the weekly row, PATCHes without assignSite, and leaves create/delete in place", () => {
     const dashboard = fs.readFileSync(path.resolve("src/components/dashboard.tsx"), "utf8");
+    const grid = fs.readFileSync(path.resolve("src/components/week-grid.tsx"), "utf8");
     const sheet = fs.readFileSync(path.resolve("src/components/shift-entry.tsx"), "utf8");
 
-    expect(dashboard).toContain("Edit ${entry.contractorName} shift");
-    expect(dashboard).toContain("Delete ${entry.contractorName} shift");
+    expect(grid).toContain("Edit ${entry.contractorName} shift");
+    expect(grid).toContain("Delete ${entry.contractorName} shift");
     expect(dashboard).toContain("send(\"/api/time-entries\", body)");
     expect(dashboard).toMatch(/send\(`\/api\/time-entries\/\$\{.*\}`, body, "PATCH"\)/);
     expect(dashboard).toContain("Shift updated.");

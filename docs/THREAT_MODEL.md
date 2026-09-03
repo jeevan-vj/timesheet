@@ -34,6 +34,13 @@ Contractor identity/contact data, site locations, rates, work notes, time record
 | Owner downloads another owner's remittance PDF | Session-derived owner plus owner predicates on contractor, time entry, and contractor/site joins; missing and cross-owner ids return identical `not_found` |
 | Remittance generation mutates a locked week | Remittance is generate-on-read and does not write `time_entry` or `week_approval`; `week_locked` applies to time-entry writes only |
 | Remittance PDF is cached or mixed with error JSON | Generate-on-read; success is `application/pdf` with `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`; empty weeks and other failures return JSON only |
+| Cross-owner schedule get, put, delete, apply, or exception | Session owner plus owner predicates on assignment, `assignment_schedule_version`, and time entry; missing and cross-owner ids return identical `not_found` and do not write |
+| CSRF creates or replaces a schedule, applies a week, or posts an exception | Cookie-authenticated PUT/DELETE `/api/assignments/:id/schedule`, POST `/api/weeks/apply-schedule`, and POST `/api/time-entries/:id/exception` require a configured trusted Origin |
+| GET dashboard materializes scheduled actuals | Dashboard GET, entry GET, and schedule GET are reads; they do not insert or update `time_entry` or `assignment_schedule_version`. Apply is an explicit mutation |
+| Going-forward rewrite changes an approved week or historical rates | Unexcepted `scheduled` rewrites skip approved weeks and never set `rate_cents`. Locked actuals stay in place while later open weeks can still receive a new version |
+| Absence counted as paid time | Absent rows store `paid_minutes = 0` and `occurrence_kind = absent`. `summarizeWeek` / remittance line pay skip `calculateEntryPayCents` when minutes are 0 |
+| Duplicate daily entry from apply-schedule | Unique owner/contractor/site/date index; apply skips any existing row for that key and does not throw `duplicate_entry` |
+| Apply restores an archived assignment | Apply inner-joins `assignment.active = true` with active owned contractor and site; archived assignments are skipped and historical entries remain |
 | Sensitive data reaches logs | No request-body, site name/address, PDF bytes, contractor, rate, or pay logging; automated boundary test |
 | Cloud agent reaches production | Cursor receives no production secrets; trusted GitHub workflows own merge/deploy gates |
 

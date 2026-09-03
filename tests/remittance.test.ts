@@ -141,6 +141,68 @@ describe("remittance model", () => {
     expect(() => assertRemittanceTotals(tampered)).toThrow("invalid_request");
     await expect(renderRemittancePdf(tampered)).rejects.toThrow("invalid_request");
   });
+
+  it("includes absence lines as 0h/$0 and still builds a model", () => {
+    const entries: RemittanceEntryInput[] = [
+      {
+        id: "e-absent",
+        workDate: "2026-08-31",
+        siteName: "Harbour Offices",
+        paidMinutes: 0,
+        rateCents: 2_000,
+        contractorId,
+        contractorName,
+      },
+      {
+        id: "e-worked",
+        workDate: "2026-09-01",
+        siteName: "Harbour Offices",
+        paidMinutes: 90,
+        rateCents: 2_000,
+        contractorId,
+        contractorName,
+      },
+    ];
+    const model = buildRemittanceModel({
+      contractorId,
+      contractorName,
+      weekStart,
+      weekEnd,
+      remitterName: "Owner One",
+      remitterEmail: "owner@example.test",
+      entries,
+    });
+    expect(model.lines[0]).toMatchObject({ paidMinutes: 0, payCents: 0, rateCents: 2_000 });
+    expect(model.lines[1]?.payCents).toBe(calculateEntryPayCents(90, 2_000));
+    expect(model.paidMinutes).toBe(90);
+    expect(model.payCents).toBe(calculateEntryPayCents(90, 2_000));
+  });
+
+  it("builds a PDF for an absence-only week instead of treating it as empty", async () => {
+    const model = buildRemittanceModel({
+      contractorId,
+      contractorName,
+      weekStart,
+      weekEnd,
+      remitterName: "Owner One",
+      remitterEmail: "owner@example.test",
+      entries: [{
+        id: "e-absent",
+        workDate: "2026-08-31",
+        siteName: "Harbour Offices",
+        paidMinutes: 0,
+        rateCents: 2_000,
+        contractorId,
+        contractorName,
+      }],
+    });
+    expect(model.paidMinutes).toBe(0);
+    expect(model.payCents).toBe(0);
+    expect(model.lines).toHaveLength(1);
+    expect(model.lines[0]?.payCents).toBe(0);
+    const pdf = await renderRemittancePdf(model);
+    expect(Buffer.from(pdf.subarray(0, 4)).toString("utf8")).toBe("%PDF");
+  });
 });
 
 describe("remittance PDF", () => {

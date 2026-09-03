@@ -119,7 +119,7 @@ export function buildRemittanceModel(input: RemittanceModelInput): RemittanceMod
     siteName: entry.siteName,
     paidMinutes: entry.paidMinutes,
     rateCents: entry.rateCents,
-    payCents: calculateEntryPayCents(entry.paidMinutes, entry.rateCents),
+    payCents: entry.paidMinutes > 0 ? calculateEntryPayCents(entry.paidMinutes, entry.rateCents) : 0,
   }));
   const model: RemittanceModel = {
     reference: remittanceReference(input.contractorId, input.weekStart),

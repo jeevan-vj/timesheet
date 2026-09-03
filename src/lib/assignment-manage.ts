@@ -1,4 +1,13 @@
+import { scheduleSummaryText } from "@/lib/schedule";
 import { formatNzd, parseRateDollars } from "@/lib/shift-entry";
+import { weekApprovalErrorMessage } from "@/lib/week-approval";
+
+export type AssignmentScheduleDTO = {
+  id: string;
+  weekdays: number[];
+  paidMinutes: number;
+  effectiveFrom: string;
+};
 
 export type AssignmentItemDTO = {
   id: string;
@@ -12,6 +21,7 @@ export type AssignmentItemDTO = {
   active: boolean;
   createdAt: string;
   updatedAt: string;
+  schedule: AssignmentScheduleDTO | null;
 };
 
 export type UnassignAssignmentTarget = {
@@ -113,16 +123,29 @@ export function assignmentRateLabel(input: { rateInherited: boolean; effectiveRa
 }
 
 export function presentAssignment(item: AssignmentItemDTO) {
+  const summary = item.schedule
+    ? scheduleSummaryText({
+      contractorName: item.contractorName,
+      siteName: item.siteName,
+      rateCents: item.effectiveRateCents,
+      weekdays: item.schedule.weekdays,
+      paidMinutes: item.schedule.paidMinutes,
+    })
+    : null;
+  const summaryLines = summary?.split("\n") ?? [];
   return {
     id: item.id,
     contractorName: item.contractorName,
     siteName: item.siteName,
-    heading: `${item.contractorName} → ${item.siteName}`,
+    heading: summaryLines[0] ?? `${item.contractorName} → ${item.siteName}`,
     rateLabel: assignmentRateLabel(item),
     statusLabel: assignmentStatusLabel(item.active),
+    scheduleSummary: summaryLines[1] ?? null,
+    detail: summaryLines[1] ?? `${assignmentRateLabel(item)} · ${assignmentStatusLabel(item.active)}`,
     archived: !item.active,
     unassignLabel: `Unassign ${item.contractorName} from ${item.siteName}`,
     restoreLabel: `Restore ${item.contractorName} at ${item.siteName}`,
+    editScheduleLabel: `Edit schedule for ${item.contractorName} at ${item.siteName}`,
   };
 }
 
@@ -139,6 +162,10 @@ export function assignmentMutationMessage(errorCode: string | undefined): string
   if (errorCode === "duplicate_assignment") return "That contractor is already assigned to this site.";
   if (errorCode === "not_found") return "That contractor or site is missing or inactive.";
   if (errorCode === "invalid_request") return "Check the rate is between NZ$15 and NZ$250.";
+  if (errorCode === "schedule_exists") return "This assignment already has a repeating schedule. Change it going forward instead.";
+  if (errorCode === "no_schedule") return "This assignment does not have a repeating schedule.";
+  if (errorCode === "week_locked") return weekApprovalErrorMessage("week_locked");
+  if (errorCode === "invalid_week") return "That week is invalid. Choose a Monday-start week.";
   return "That assignment could not be saved. Please try again.";
 }
 

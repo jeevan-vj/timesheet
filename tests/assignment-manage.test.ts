@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   assignmentCreateSuccess,
@@ -28,6 +30,7 @@ const activeInherited: AssignmentItemDTO = {
   active: true,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-02T00:00:00.000Z",
+  schedule: null,
 };
 
 const archivedOverride: AssignmentItemDTO = {
@@ -42,6 +45,7 @@ const archivedOverride: AssignmentItemDTO = {
   active: false,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-03-01T00:00:00.000Z",
+  schedule: null,
 };
 
 const target = {
@@ -69,6 +73,20 @@ describe("assignment list presentation", () => {
     expect(archived.archived).toBe(true);
     expect(assignmentStatusLabel(false)).toBe("Archived");
     expect(assignmentRateLabel({ rateInherited: false, effectiveRateCents: 4_000 })).toBe("NZ$40/hr override");
+    expect(inherited.scheduleSummary).toBeNull();
+    expect(inherited.detail).toBe("NZ$32/hr default · Active");
+  });
+
+  it("summarizes an open schedule as rate · weekdays · duration/day", () => {
+    const scheduled = presentAssignment({
+      ...activeInherited,
+      contractorName: "Pasindhu",
+      siteName: "Whitford",
+      schedule: { id: "sv1", weekdays: [1, 2, 3, 4, 5], paidMinutes: 90, effectiveFrom: "2026-08-31" },
+    });
+    expect(scheduled.heading).toBe("Pasindhu — Whitford");
+    expect(scheduled.scheduleSummary).toBe("NZ$32/hr · Mon–Fri · 1h 30m/day");
+    expect(scheduled.detail).toBe("NZ$32/hr · Mon–Fri · 1h 30m/day");
   });
 });
 
@@ -149,6 +167,8 @@ describe("assignment mutation copy", () => {
     expect(assignmentMutationMessage("duplicate_assignment")).toBe("That contractor is already assigned to this site.");
     expect(assignmentMutationMessage("not_found")).toBe("That contractor or site is missing or inactive.");
     expect(assignmentMutationMessage("invalid_request")).toBe("Check the rate is between NZ$15 and NZ$250.");
+    expect(assignmentMutationMessage("schedule_exists")).toMatch(/already has a repeating schedule/i);
+    expect(assignmentMutationMessage("no_schedule")).toMatch(/does not have a repeating schedule/i);
     expect(assignmentMutationMessage("request_failed")).toBe("That assignment could not be saved. Please try again.");
     expect(assignmentMutationMessage(undefined)).toBe("That assignment could not be saved. Please try again.");
   });
@@ -171,5 +191,18 @@ describe("optional assignment override parse", () => {
     expect(parseAssignmentOverride("32")).toBe(3_200);
     expect(parseAssignmentOverride("14.99")).toBe("invalid");
     expect(parseAssignmentOverride("250.01")).toBe("invalid");
+  });
+});
+
+describe("assignment schedule editor wiring", () => {
+  it("offers Edit schedule on active assignments and does not copy the previous week", () => {
+    const assignments = fs.readFileSync(path.resolve("src/components/assignments.tsx"), "utf8");
+    const dashboard = fs.readFileSync(path.resolve("src/components/dashboard.tsx"), "utf8");
+    expect(assignments).toContain("Edit schedule");
+    expect(assignments).toContain("weekStart");
+    expect(assignments).toContain("weekLocked");
+    expect(assignments).toContain("/api/assignments/${");
+    expect(assignments).not.toMatch(/copy previous week/i);
+    expect(dashboard).not.toMatch(/copy previous week/i);
   });
 });

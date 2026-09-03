@@ -93,6 +93,19 @@ export const assignments = sqliteTable("assignment", {
   uniqueIndex("assignment_owner_contractor_site_uq").on(t.ownerUserId, t.contractorId, t.siteId),
 ]);
 
+export const assignmentScheduleVersions = sqliteTable("assignment_schedule_version", {
+  id: text("id").primaryKey(),
+  ...ownedFields,
+  assignmentId: text("assignment_id").notNull().references(() => assignments.id, { onDelete: "restrict" }),
+  weekdaysMask: integer("weekdays_mask").notNull(),
+  paidMinutes: integer("paid_minutes").notNull(),
+  effectiveFrom: text("effective_from").notNull(),
+  effectiveTo: text("effective_to"),
+}, (t) => [
+  index("assignment_schedule_version_owner_idx").on(t.ownerUserId),
+  index("assignment_schedule_version_assignment_idx").on(t.ownerUserId, t.assignmentId, t.effectiveFrom),
+]);
+
 export const timeEntries = sqliteTable("time_entry", {
   id: text("id").primaryKey(),
   ...ownedFields,
@@ -105,7 +118,9 @@ export const timeEntries = sqliteTable("time_entry", {
   paidMinutes: integer("paid_minutes").notNull(),
   rateCents: integer("rate_cents").notNull(),
   notes: text("notes").notNull().default(""),
-  entryMode: text("entry_mode").notNull().default("clock").$type<"clock" | "paid_hours">(),
+  entryMode: text("entry_mode").notNull().default("clock").$type<"clock" | "paid_hours" | "absent">(),
+  occurrenceKind: text("occurrence_kind").notNull().default("manual").$type<"manual" | "scheduled" | "absent" | "hours_override">(),
+  scheduleVersionId: text("schedule_version_id"),
 }, (t) => [
   index("time_entry_owner_week_idx").on(t.ownerUserId, t.workDate),
   index("time_entry_contractor_idx").on(t.contractorId),

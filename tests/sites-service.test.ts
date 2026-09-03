@@ -13,7 +13,7 @@ const ownerA = "owner-a";
 const ownerB = "owner-b";
 
 type Row = Record<string, unknown>;
-type TableName = "site" | "assignment" | "contractor" | "time_entry" | "week_approval";
+type TableName = "site" | "assignment" | "contractor" | "time_entry" | "week_approval" | "assignment_schedule_version";
 type Store = Record<TableName, Row[]>;
 type ColRef = { tableName: string; key: string };
 type Token = { kind: "col"; tableName: string; key: string } | { kind: "val"; value: unknown } | { kind: "op"; op: string };
@@ -24,6 +24,7 @@ const uniqueKeys: Record<TableName, string[]> = {
   time_entry: ["ownerUserId", "contractorId", "siteId", "workDate"],
   contractor: ["ownerUserId", "name"],
   week_approval: ["ownerUserId", "weekStart"],
+  assignment_schedule_version: ["id"],
 };
 
 function columnRef(column: Column): ColRef {
@@ -89,7 +90,7 @@ function thenable<T>(run: () => T) {
 }
 
 function createMemoryDb() {
-  const store: Store = { site: [], assignment: [], contractor: [], time_entry: [], week_approval: [] };
+  const store: Store = { site: [], assignment: [], contractor: [], time_entry: [], week_approval: [], assignment_schedule_version: [] };
 
   function cloneStore(): Store {
     return structuredClone(store);

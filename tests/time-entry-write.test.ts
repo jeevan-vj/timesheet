@@ -48,6 +48,16 @@ describe("clockFieldsForWrite", () => {
       breakMinutes: 0,
     })).toThrow("invalid_shift");
   });
+
+  it("stores absent clock sentinels without calling calculatePaidMinutes", () => {
+    expect(clockFieldsForWrite({ entryMode: "absent" })).toEqual({
+      entryMode: "absent",
+      paidMinutes: 0,
+      startMinutes: 0,
+      endMinutes: 0,
+      breakMinutes: 0,
+    });
+  });
 });
 
 describe("shouldResnapshotRate", () => {

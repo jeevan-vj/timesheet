@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { ScheduleEditor, type ScheduleEditorTarget } from "@/components/schedule-editor";
 import {
   ASSIGNMENT_LIST_LOAD_ERROR,
   assignmentCreateSuccess,
@@ -17,6 +18,7 @@ import {
   type UnassignAssignmentSession,
   type UnassignAssignmentTarget,
 } from "@/lib/assignment-manage";
+import { scheduleEditorMode, scheduleSaveSuccess } from "@/lib/schedule-editor";
 
 type ContractorOption = { id: string; name: string };
 type SiteOption = { id: string; name: string };
@@ -34,10 +36,14 @@ function messageFromError(error: unknown): string {
 export function AssignmentManager({
   contractors,
   sites,
+  weekStart,
+  weekLocked,
   onWeekRefresh,
 }: {
   contractors: ContractorOption[];
   sites: SiteOption[];
+  weekStart: string;
+  weekLocked: boolean;
   onWeekRefresh: () => Promise<void>;
 }) {
   const [rows, setRows] = useState<AssignmentItemDTO[] | null>(null);
@@ -46,6 +52,7 @@ export function AssignmentManager({
   const [noticeKind, setNoticeKind] = useState<"ok" | "error">("ok");
   const [busy, setBusy] = useState(false);
   const [unassignSession, setUnassignSession] = useState<UnassignAssignmentSession>(idleUnassignAssignment);
+  const [scheduleTarget, setScheduleTarget] = useState<ScheduleEditorTarget | null>(null);
   const loadGeneration = useRef(0);
   const busyRef = useRef(false);
   const onWeekRefreshRef = useRef(onWeekRefresh);
@@ -129,11 +136,14 @@ export function AssignmentManager({
           <div className="assignment-row-head">
             <div>
               <strong>{view.heading}</strong>
-              <small>{view.rateLabel} · {view.statusLabel}</small>
+              <small className="assignment-schedule-summary">{view.detail}</small>
             </div>
             <div className="assignment-row-actions">
               {row.active
-                ? <button type="button" className="button tiny secondary" aria-label={view.unassignLabel} disabled={mutating} onClick={() => unassignFlow.request({ id: row.id, contractorName: row.contractorName, siteName: row.siteName })}>Unassign</button>
+                ? <>
+                  <button type="button" className="button tiny secondary" aria-label={view.editScheduleLabel} disabled={mutating} onClick={() => setScheduleTarget({ id: row.id, contractorName: row.contractorName, siteName: row.siteName, schedule: row.schedule })}>Edit schedule</button>
+                  <button type="button" className="button tiny secondary" aria-label={view.unassignLabel} disabled={mutating} onClick={() => unassignFlow.request({ id: row.id, contractorName: row.contractorName, siteName: row.siteName })}>Unassign</button>
+                </>
                 : <button type="button" className="button tiny" aria-label={view.restoreLabel} aria-describedby={restoreEnabled ? undefined : `restore-hint-${row.id}`} disabled={mutating || !restoreEnabled} onClick={() => {
                   if (!restoreEnabled) return;
                   const request = restoreAssignmentRequest(row.id);
@@ -159,6 +169,19 @@ export function AssignmentManager({
       <CreateAssignmentForm contractors={contractors} sites={sites} busy={mutating} onSave={(body) => runMutation(async () => assignmentCreateSuccess((await send("/api/assignments", body)).status), assignmentSuccessMessage.created)} onInvalid={() => { setNoticeKind("error"); setNotice(assignmentMutationMessage("invalid_request")); }} />
     </div>
     <UnassignAssignmentDialog session={unassignSession} onCancel={() => unassignFlow.cancel()} onConfirm={() => void confirmUnassign()} />
+    <ScheduleEditor
+      assignment={scheduleTarget}
+      weekStart={weekStart}
+      weekLocked={weekLocked}
+      onClose={() => setScheduleTarget(null)}
+      onSave={async (body) => {
+        if (!scheduleTarget) return;
+        await send(`/api/assignments/${scheduleTarget.id}/schedule`, body, "PUT");
+        setNoticeKind("ok");
+        setNotice(scheduleSaveSuccess(scheduleEditorMode(Boolean(scheduleTarget.schedule))));
+        await Promise.all([reload(), onWeekRefresh()]);
+      }}
+    />
   </article>;
 }
 

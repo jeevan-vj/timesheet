@@ -46,7 +46,7 @@ Correcting an entry without changing contractor or site keeps the original snaps
 
 ### CT-006 Weekly payroll
 
-Weeks start on Monday in the business timezone. The dashboard groups entries by contractor and shows paid hours and gross contractor pay. Entry pay is `round(paid_minutes × rate_cents / 60)` and weekly pay is the sum of entry pay.
+Weeks start on Monday in the business timezone. The dashboard groups entries by contractor and shows paid hours and gross contractor pay. Entry pay is `round(paid_minutes × rate_cents / 60)` and weekly pay is the sum of entry pay. `summarizeWeek` still uses that formula only when `paid_minutes > 0`; 0-minute rows add 0 minutes and 0 cents and do not throw.
 
 ### CT-007 Money and time correctness
 
@@ -70,7 +70,19 @@ Approve is compare-and-set: if current totals do not match `expectedPaidMinutes`
 
 ### CT-010 Weekly remittance
 
-An owner can download a weekly remittance advice PDF for one contractor. The PDF is generated on read from that owner's time entries for the requested Monday–Sunday week; there is no remittance table and no stored PDF. `GET /api/contractors/:id/remittance?week=YYYY-MM-DD` is a cookie-authenticated read and remains allowed while the week is approved (`week_locked` applies to time-entry writes only). A missing contractor or cross-owner id is `not_found`. An empty week fails closed with `no_entries` and no PDF. The document is gross contractor pay only (before tax, GST, expenses, or adjustments) and uses canonical `summarizeWeek` / `calculateEntryPayCents` math on snapshotted entry rates and paid minutes. Archived contractors remain readable for historical weeks.
+An owner can download a weekly remittance advice PDF for one contractor. The PDF is generated on read from that owner's time entries for the requested Monday–Sunday week; there is no remittance table and no stored PDF. `GET /api/contractors/:id/remittance?week=YYYY-MM-DD` is a cookie-authenticated read and remains allowed while the week is approved (`week_locked` applies to time-entry writes only). A missing contractor or cross-owner id is `not_found`. An empty week fails closed with `no_entries` and no PDF. A week whose only rows are 0-minute absences is not empty; the PDF includes those lines at 0h/$0. The document is gross contractor pay only (before tax, GST, expenses, or adjustments) and uses canonical `summarizeWeek` / `calculateEntryPayCents` math on snapshotted entry rates and paid minutes. `summarizeWeek` still sums integer minutes and per-entry pay; 0-minute rows contribute 0 minutes and 0 cents and do not call `calculateEntryPayCents`. Archived contractors remain readable for historical weeks.
+
+### CT-011 Recurring schedules
+
+An assignment may have an optional weekday template stored as versioned `assignment_schedule_version` rows. Pay, remittance, and approval read only `time_entry` actuals. Applying a schedule materializes `occurrence_kind = scheduled` rows for dates in the requested Monday week; one-day exceptions never mutate schedule versions.
+
+- **Create** writes an open version (`effective_from` may be mid-week) and applies that week. A second create while a version is open returns `schedule_exists`.
+- **Going-forward** closes the open version on the Sunday before a Monday `weekStart`, inserts a new open version, rewrites unlocked unexcepted `scheduled` rows from that Monday (paid minutes and version id only — never `rate_cents`), deletes unlocked unexcepted scheduled rows whose weekday left the mask, then applies that week. Approved weeks are not rewritten.
+- **Delete** closes the open version and does not delete time entries.
+- **Apply** is idempotent and owner-scoped. Existing rows, approved dates, and archived assignments are skipped per date; apply never throws `week_locked` for the whole week.
+- **Exceptions:** `absent` this day stores `paid_minutes = 0` and `occurrence_kind = absent`; `hours_override` this day changes that date only; `worked_as_scheduled` restores paid minutes from that row's historical version. `hours_override` going-forward opens a new version; Monday of an unlocked week becomes scheduled under the new version. Manual entries return `no_schedule`. Clients cannot POST `occurrenceKind: scheduled`; PATCH of a scheduled/absent/override duration becomes `hours_override`. Dashboard GET never inserts `time_entry` or `assignment_schedule_version` rows.
+
+Product slice: `owner -> contractors + sites -> assignments (+ optional schedule versions) -> daily time entries -> weekly summary`.
 
 ## Non-goals
 
