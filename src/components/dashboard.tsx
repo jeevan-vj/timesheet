@@ -78,7 +78,16 @@ export function Dashboard() {
   const totalPay = data?.summary.reduce((sum, row) => sum + row.payCents, 0) ?? 0;
 
   async function mutate(action: () => Promise<void>, success: string) {
-    try { setMessage(""); await action(); setMessage(success); await load(); } catch (error) { setMessage(mutateErrorMessage(error)); }
+    try {
+      setMessage("");
+      await action();
+      await load(true);
+      setMessage(success);
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "";
+      setMessage(mutateErrorMessage(error));
+      if (code === "stale_week") await load(true);
+    }
   }
   const mutateRef = useRef(mutate);
   mutateRef.current = mutate;
@@ -107,14 +116,14 @@ export function Dashboard() {
     {loading || !data ? <section className="loading-card">Loading your week…</section> : <>
       <section className="stats"><article><span>Paid hours</span><strong>{duration(totalMinutes)}</strong><small>{data.entries.length} daily {data.entries.length === 1 ? "entry" : "entries"}</small></article><article><span>Contractor pay</span><strong>{money(totalPay)}</strong><small>{data.summary.length} {data.summary.length === 1 ? "contractor" : "contractors"}</small></article><article><span>Active sites</span><strong>{data.sites.length}</strong><small>{data.assignments.length} team assignments</small></article></section>
       <section className="main-grid">
-        <section className="panel"><div className="panel-title"><div><p className="eyebrow">Monday – Sunday</p><h2>{readableDate(data.weekStart)} – {readableDate(data.weekEnd)}</h2></div><ShiftEntrySheet data={data} locked={data.approval.status === "approved"} onSave={async (body) => { await send("/api/time-entries", body); setMessage("Shift added."); await load(); }} /></div>
-          {data.entries.length ? <div className="table-wrap"><table><thead><tr><th>Date</th><th>Contractor</th><th>Site</th><th>Shift</th><th>Paid</th><th>Pay</th><th></th></tr></thead><tbody>{data.entries.map((entry) => <ShiftRow key={entry.id} entry={entry} locked={data.approval.status === "approved"} onEdit={() => setEditing(entry)} onDelete={(target) => deleteFlow.request(target)} />)}</tbody></table></div> : <EmptyState title="No shifts this week" body="Record the first shift after adding a contractor and assigning them to a site." />}
+        <section className="panel"><div className="panel-title"><div><p className="eyebrow">Monday – Sunday</p><h2>{readableDate(data.weekStart)} – {readableDate(data.weekEnd)}</h2></div><ShiftEntrySheet data={data} locked={weekLocked} onSave={async (body) => { await send("/api/time-entries", body); await load(true); setMessage("Shift added."); }} /></div>
+          {data.entries.length ? <div className="table-wrap"><table><thead><tr><th>Date</th><th>Contractor</th><th>Site</th><th>Shift</th><th>Paid</th><th>Pay</th><th></th></tr></thead><tbody>{data.entries.map((entry) => <ShiftRow key={entry.id} entry={entry} locked={weekLocked} onEdit={() => setEditing(entry)} onDelete={(target) => deleteFlow.request(target)} />)}</tbody></table></div> : <EmptyState title="No shifts this week" body="Record the first shift after adding a contractor and assigning them to a site." />}
         </section>
         <aside className="panel summary-panel"><p className="eyebrow">Payment summary</p><h2>What to pay</h2>{data.summary.length ? <>{data.summary.map((row) => <div className="summary-row" key={row.contractorId}><div><strong>{row.contractorName}</strong><small>{duration(row.paidMinutes)}</small></div><b>{money(row.payCents)}</b></div>)}<div className="summary-total"><span>Total</span><strong>{money(totalPay)}</strong></div></> : <p className="muted roomy">Payment totals appear as shifts are added.</p>}</aside>
       </section>
       <SetupPanel data={data} onReload={() => load(true)} onAnnounce={setMessage} />
     </>}
-    {editing && data ? <ShiftEntrySheet key={editing.id} data={data} entry={editing} locked={weekLocked} onDismiss={() => setEditing(null)} onSave={async (body) => { await send(`/api/time-entries/${editing.id}`, body, "PATCH"); await load(); setMessage("Shift updated."); }} /> : null}
+    {editing && data && !weekLocked ? <ShiftEntrySheet key={editing.id} data={data} entry={editing} onDismiss={() => setEditing(null)} onSave={async (body) => { await send(`/api/time-entries/${editing.id}`, body, "PATCH"); await load(true); setMessage("Shift updated."); }} /> : null}
     <DeleteShiftDialog session={deleteSession} onCancel={() => deleteFlow.cancel()} onConfirm={() => void deleteFlow.confirm()} />
     <WeekApprovalDialog session={approvalSession} prompt={approvalPrompt} onCancel={() => approvalFlow.cancel()} onConfirm={() => { if (!data) return; void approvalFlow.confirm({ weekStart: data.weekStart, ...expectedWeekTotals(data.summary) }); }} />
   </main>;
@@ -142,7 +151,7 @@ function ShiftRow({ entry, locked, onEdit, onDelete }: { entry: Entry; locked: b
     <td>{entry.entryMode === "paid_hours" ? <>Paid hours</> : <>{clock(entry.startMinutes)}–{clock(entry.endMinutes)}<small>{entry.breakMinutes ? `${entry.breakMinutes}m break` : "No break"}</small></>}</td>
     <td>{duration(entry.paidMinutes)}</td>
     <td><strong>{money(Math.round(entry.paidMinutes * entry.rateCents / 60))}</strong><small>{money(entry.rateCents)}/hr</small></td>
-    <td><div className="row-actions"><button type="button" className="button small" aria-label={`Edit ${entry.contractorName} shift`} disabled={locked} onClick={() => { if (locked) return; onEdit(); }}>Edit</button><button className="icon-button" aria-label={`Delete ${entry.contractorName} shift`} disabled={locked} onClick={() => { if (locked) return; onDelete({ id: entry.id, contractorName: entry.contractorName, siteName: entry.siteName, workDate: entry.workDate }); }}>×</button></div></td>
+    <td><div className="row-actions"><button type="button" className="button small" aria-label={locked ? `Edit ${entry.contractorName} shift (week locked)` : `Edit ${entry.contractorName} shift`} disabled={locked} onClick={() => { if (locked) return; onEdit(); }}>Edit</button><button className="icon-button" aria-label={locked ? `Delete ${entry.contractorName} shift (week locked)` : `Delete ${entry.contractorName} shift`} disabled={locked} onClick={() => { if (locked) return; onDelete({ id: entry.id, contractorName: entry.contractorName, siteName: entry.siteName, workDate: entry.workDate }); }}>×</button></div></td>
   </tr>;
 }
 

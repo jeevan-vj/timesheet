@@ -196,7 +196,8 @@ describe("dashboard week approval wiring", () => {
     expect(shiftRow).not.toContain("Reopen week");
     expect(shiftRow).not.toContain("canApproveWeek");
     expect(shiftRow).toContain("disabled={locked}");
-    expect(dashboard).toContain('locked={data.approval.status === "approved"}');
+    expect(dashboard).toContain("locked={weekLocked}");
+    expect(dashboard).toContain('const weekLocked = data?.approval.status === "approved"');
     expect(dashboard).toContain("if (locked) return");
   });
 
