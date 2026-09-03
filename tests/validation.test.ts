@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assignmentInput, assignmentRateInput, contractorInput, invalidRequestFromZod, parseIncludeArchived, siteInput, timeEntryInput, timeEntryUpdateInput } from "../src/lib/validation";
+import { assignmentInput, assignmentRateInput, contractorInput, invalidRequestFromZod, parseIncludeArchived, siteInput, timeEntryInput, timeEntryUpdateInput, weekApproveInput, weekReopenInput } from "../src/lib/validation";
 
 describe("API validation", () => {
   it("accepts an integer-cent contractor rate", () => {
@@ -218,5 +218,59 @@ describe("time entry update validation", () => {
     expect(parsed).not.toHaveProperty("rateCents");
     expect(parsed).not.toHaveProperty("ownerUserId");
     expect(parsed).not.toHaveProperty("owner_user_id");
+  });
+});
+
+describe("week approval validation", () => {
+  it("accepts integer totals and strips forged owner fields", () => {
+    expect(weekApproveInput.parse({
+      weekStart: "2026-08-31",
+      expectedPaidMinutes: 0,
+      expectedPayCents: 0,
+      ownerUserId: "forged",
+      owner_user_id: "forged",
+    })).toEqual({
+      weekStart: "2026-08-31",
+      expectedPaidMinutes: 0,
+      expectedPayCents: 0,
+    });
+    expect(weekReopenInput.parse({
+      weekStart: "2026-08-31",
+      ownerUserId: "forged",
+      owner_user_id: "forged",
+    })).toEqual({ weekStart: "2026-08-31" });
+  });
+
+  it("rejects a non-Monday week start", () => {
+    expect(weekApproveInput.safeParse({
+      weekStart: "2026-09-01",
+      expectedPaidMinutes: 0,
+      expectedPayCents: 0,
+    }).success).toBe(false);
+    expect(weekReopenInput.safeParse({ weekStart: "2026-09-01" }).success).toBe(false);
+    expect(weekReopenInput.safeParse({ weekStart: "31/08/2026" }).success).toBe(false);
+  });
+
+  it("rejects negative totals and fractional minutes", () => {
+    expect(weekApproveInput.safeParse({
+      weekStart: "2026-08-31",
+      expectedPaidMinutes: -1,
+      expectedPayCents: 0,
+    }).success).toBe(false);
+    expect(weekApproveInput.safeParse({
+      weekStart: "2026-08-31",
+      expectedPaidMinutes: 0,
+      expectedPayCents: -1,
+    }).success).toBe(false);
+    expect(weekApproveInput.safeParse({
+      weekStart: "2026-08-31",
+      expectedPaidMinutes: 1.5,
+      expectedPayCents: 0,
+    }).success).toBe(false);
+    expect(weekApproveInput.safeParse({
+      weekStart: "2026-08-31",
+      expectedPaidMinutes: 60,
+      expectedPayCents: 10.25,
+    }).success).toBe(false);
   });
 });

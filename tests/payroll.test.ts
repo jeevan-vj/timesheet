@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateEntryPayCents, calculatePaidMinutes, isMonday, paidMinutesFromParts, summarizeWeek } from "../src/lib/payroll";
+import { calculateEntryPayCents, calculatePaidMinutes, isMonday, paidMinutesFromParts, summarizeWeek, weekPayrollTotals, weekStartFromDate } from "../src/lib/payroll";
 
 describe("payroll calculations", () => {
   it("subtracts an unpaid break from a same-day shift", () => {
@@ -39,5 +39,30 @@ describe("payroll calculations", () => {
   it("recognises ISO Mondays without timezone drift", () => {
     expect(isMonday("2026-08-31")).toBe(true);
     expect(isMonday("2026-09-01")).toBe(false);
+  });
+
+  it("maps any ISO calendar date to that week's Monday in UTC", () => {
+    expect(weekStartFromDate("2026-08-31")).toBe("2026-08-31");
+    expect(weekStartFromDate("2026-09-01")).toBe("2026-08-31");
+    expect(weekStartFromDate("2026-09-06")).toBe("2026-08-31");
+    expect(weekStartFromDate("2026-09-07")).toBe("2026-09-07");
+  });
+
+  it("rejects non-ISO dates for week identity", () => {
+    expect(() => weekStartFromDate("31/08/2026")).toThrow("invalid_week_start");
+    expect(() => weekStartFromDate("2026-13-01")).toThrow("invalid_week_start");
+    expect(() => weekStartFromDate("")).toThrow("invalid_week_start");
+  });
+
+  it("sums owner-week paid minutes and per-entry pay without calling pay math on empty or zero-minute rows", () => {
+    expect(weekPayrollTotals([])).toEqual({ currentPaidMinutes: 0, currentPayCents: 0 });
+    expect(weekPayrollTotals([{ paidMinutes: 0, rateCents: 3_000 }])).toEqual({ currentPaidMinutes: 0, currentPayCents: 0 });
+    expect(weekPayrollTotals([
+      { paidMinutes: 120, rateCents: 3_000 },
+      { paidMinutes: 90, rateCents: 3_200 },
+    ])).toEqual({
+      currentPaidMinutes: 210,
+      currentPayCents: calculateEntryPayCents(120, 3_000) + calculateEntryPayCents(90, 3_200),
+    });
   });
 });

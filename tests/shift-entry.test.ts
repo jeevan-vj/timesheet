@@ -192,6 +192,12 @@ describe("save payload and errors", () => {
     expect(shiftSaveErrorMessage(new Error("invalid_shift"))).toContain("positive paid");
   });
 
+  it("tells the owner the week is locked when save returns week_locked", () => {
+    const locked = "This week is approved and locked. Reopen it before changing shifts.";
+    expect(shiftSaveErrorMessage(new Error("week_locked"))).toBe(locked);
+    expect(shiftSaveErrorMessage(new Error("week_locked"), "edit")).toBe(locked);
+  });
+
   it("points the owner to setup when contractors or sites are missing", () => {
     expect(shiftEntryBlocker({ contractors: [], sites: [{ id: "s1" }] })).toEqual({
       href: "#team",
