@@ -47,8 +47,37 @@ jobs:
           [ -n "$issue" ] || exit 0
           delegated="$(gh api "repos/$REPOSITORY/issues/$issue" --jq '[.labels[].name] | any(. == "factory:delegated")')"
           [ "$delegated" = true ] || exit 0
+          upsert_factory_status() {
+            local plane_file="$1"
+            [ "$(jq -r .ok "$plane_file")" = true ] || return 0
+            jq -r .status_markdown "$plane_file" > "$RUNNER_TEMP/factory-status.md"
+            local cid
+            cid="$(jq -r '.status_comment_id // empty' "$plane_file")"
+            if [ -n "$cid" ] && [ "$cid" != null ]; then
+              jq -n --rawfile body "$RUNNER_TEMP/factory-status.md" '{body:$body}' | gh api --method PATCH "repos/$REPOSITORY/issues/comments/$cid" --input - >/dev/null
+            fi
+          }
+          issue_comments="$RUNNER_TEMP/issue-comments.json"
+          gh api --paginate "repos/$REPOSITORY/issues/$issue/comments?per_page=100" | jq -s '[.[][]]' > "$issue_comments"
+          node .factory/control-plane.mjs parse "$issue_comments" > "$RUNNER_TEMP/factory-parse.json"
+          if [ "$(jq -r .ok "$RUNNER_TEMP/factory-parse.json")" != true ]; then
+            gh issue edit "$issue" --repo "$REPOSITORY" --add-label factory:needs-human || true
+            marker="<!-- factory-missing-run:$head -->"
+            pr_comments="$RUNNER_TEMP/pr-comments.json"
+            gh api --paginate "repos/$REPOSITORY/issues/$pr/comments?per_page=100" | jq -s '[.[][]]' > "$pr_comments"
+            existing="$(jq --arg marker "$marker" '[.[] | select((.body // "") | contains($marker))] | length' "$pr_comments")"
+            if [ "$existing" -eq 0 ]; then gh pr comment "$pr" --repo "$REPOSITORY" --body "Factory controller failed closed: no canonical Factory Run ID is persisted on trusted comments. Labels and workflow status are not the source of truth.\n\n$marker"; fi
+            exit 0
+          fi
           gate="$(gh api "repos/$REPOSITORY/commits/$head/check-runs?per_page=100" --jq '[.check_runs[] | select(.name == "Factory deterministic gate" and .app.slug == "github-actions")] | sort_by(.started_at) | last | .conclusion // ""')"
           [ "$gate" = success ] || exit 0
+          jq -n --slurpfile comments "$issue_comments" --arg head "$head" --argjson pr "$pr" '{comments:($comments[0] // []), phase:"verifying", head_sha:$head, pull_request:$pr, actor:{type:"workflow",name:"Factory Trusted Controller",harness:"other"}}' > "$RUNNER_TEMP/factory-advance-verifying.json"
+          node .factory/control-plane.mjs advance "$RUNNER_TEMP/factory-advance-verifying.json" > "$RUNNER_TEMP/factory-advance-verifying-plane.json"
+          upsert_factory_status "$RUNNER_TEMP/factory-advance-verifying-plane.json"
+          if [ "$(jq -r .ok "$RUNNER_TEMP/factory-advance-verifying-plane.json")" = true ]; then
+            jq -r .status_markdown "$RUNNER_TEMP/factory-advance-verifying-plane.json" > "$RUNNER_TEMP/factory-status-current.md"
+            gh api --paginate "repos/$REPOSITORY/issues/$issue/comments?per_page=100" | jq -s '[.[][]]' > "$issue_comments"
+          fi
           e2e_check="$(gh api "repos/$REPOSITORY/commits/$head/check-runs?per_page=100" --jq '[.check_runs[] | select(.name == "Factory E2E evidence" and .app.slug == "github-actions")] | sort_by(.started_at) | last')"
           e2e="$(printf '%s' "$e2e_check" | jq -r '.conclusion // empty')"
           [ "$e2e" = success ] || exit 0
@@ -62,6 +91,16 @@ jobs:
           evidence_json="$RUNNER_TEMP/factory-e2e-eval.json"
           if ! node .factory/evaluate-e2e-evidence.mjs --repository "$REPOSITORY" --pr "$pr" --head-sha "$head" --artifact-dir "$evidence_dir" --run-conclusion success --run-head-sha "$head" --run-event pull_request --run-id "$e2e_run_id" > "$evidence_json"; then
             reasons="$(jq -r '.reasonCodes | join(", ")' "$evidence_json" 2>/dev/null || echo unknown_state)"
+            gh api --paginate "repos/$REPOSITORY/issues/$issue/comments?per_page=100" | jq -s '[.[][]]' > "$RUNNER_TEMP/issue-comments.json"
+            jq -n --slurpfile comments "$RUNNER_TEMP/issue-comments.json" --arg head "$head" --argjson pr "$pr" --arg message "$reasons" '{comments:($comments[0] // []), kind:"e2e_consumer", head_sha:$head, pull_request:$pr, message:$message, actor:{type:"workflow",name:"Factory Trusted Controller",harness:"other"}}' > "$RUNNER_TEMP/factory-controller-signal.json"
+            node .factory/control-plane.mjs controller-signal "$RUNNER_TEMP/factory-controller-signal.json" > "$RUNNER_TEMP/factory-controller-plane.json" || true
+            if [ "$(jq -r .ok "$RUNNER_TEMP/factory-controller-plane.json" 2>/dev/null)" = true ]; then
+              jq -r .status_markdown "$RUNNER_TEMP/factory-controller-plane.json" > "$RUNNER_TEMP/factory-status.md"
+              cid="$(jq -r '.status_comment_id // empty' "$RUNNER_TEMP/factory-controller-plane.json")"
+              if [ -n "$cid" ] && [ "$cid" != null ]; then
+                jq -n --rawfile body "$RUNNER_TEMP/factory-status.md" '{body:$body}' | gh api --method PATCH "repos/$REPOSITORY/issues/comments/$cid" --input - >/dev/null
+              fi
+            fi
             gh issue edit "$issue" --repo "$REPOSITORY" --add-label factory:needs-human || true
             marker="<!-- factory-e2e-eval:$head -->"
             pr_comments="$RUNNER_TEMP/pr-comments.json"
@@ -78,6 +117,10 @@ jobs:
           issue_comments="$RUNNER_TEMP/issue-comments.json"
           gh api --paginate "repos/$REPOSITORY/pulls/$pr/reviews?per_page=100" | jq -s '[.[][]]' > "$reviews"
           gh api --paginate "repos/$REPOSITORY/pulls/$pr/comments?per_page=100" | jq -s '[.[][]]' > "$review_comments"
+          gh api --paginate "repos/$REPOSITORY/issues/$issue/comments?per_page=100" | jq -s '[.[][]]' > "$issue_comments"
+          jq -n --slurpfile comments "$issue_comments" --arg head "$head" --argjson pr "$pr" '{comments:($comments[0] // []), phase:"reviewing", head_sha:$head, pull_request:$pr, actor:{type:"workflow",name:"Factory Trusted Controller",harness:"other"}}' > "$RUNNER_TEMP/factory-advance-reviewing.json"
+          node .factory/control-plane.mjs advance "$RUNNER_TEMP/factory-advance-reviewing.json" > "$RUNNER_TEMP/factory-advance-reviewing-plane.json"
+          upsert_factory_status "$RUNNER_TEMP/factory-advance-reviewing-plane.json"
           gh api --paginate "repos/$REPOSITORY/issues/$issue/comments?per_page=100" | jq -s '[.[][]]' > "$issue_comments"
 
           current_review="$(node --input-type=module -e 'import fs from "node:fs"; import {selectLatestFactoryReview} from "./.factory/review-bots.mjs"; const reviews=JSON.parse(fs.readFileSync(process.argv[1],"utf8")).filter((review)=>review.commit_id===process.argv[2]); process.stdout.write(JSON.stringify(selectLatestFactoryReview(reviews)||{}));' "$reviews" "$head")"
@@ -124,6 +167,15 @@ jobs:
           files="$RUNNER_TEMP/files.txt"; gh api --paginate "repos/$REPOSITORY/pulls/$pr/files?per_page=100" --jq '.[].filename' > "$files"
           risk="$(node .factory/classify-risk.mjs < "$files")"
           if [ "$risk" != low ]; then
+            jq -n --slurpfile comments "$issue_comments" --arg risk "$risk" --arg head "$head" --argjson pr "$pr" '{comments:($comments[0] // []), risk:$risk, head_sha:$head, pull_request:$pr, actor:{type:"workflow",name:"Factory Trusted Controller",harness:"other"}}' > "$RUNNER_TEMP/factory-controller-signal.json"
+            node .factory/control-plane.mjs controller-signal "$RUNNER_TEMP/factory-controller-signal.json" > "$RUNNER_TEMP/factory-controller-plane.json"
+            if [ "$(jq -r .ok "$RUNNER_TEMP/factory-controller-plane.json")" = true ]; then
+              jq -r .status_markdown "$RUNNER_TEMP/factory-controller-plane.json" > "$RUNNER_TEMP/factory-status.md"
+              cid="$(jq -r '.status_comment_id // empty' "$RUNNER_TEMP/factory-controller-plane.json")"
+              if [ -n "$cid" ] && [ "$cid" != null ]; then
+                jq -n --rawfile body "$RUNNER_TEMP/factory-status.md" '{body:$body}' | gh api --method PATCH "repos/$REPOSITORY/issues/comments/$cid" --input - >/dev/null
+              fi
+            fi
             gh issue edit "$issue" --repo "$REPOSITORY" --add-label factory:needs-human || true
             marker="<!-- factory-human-gate:$head:$risk -->"
             pr_comments="$RUNNER_TEMP/pr-comments.json"
@@ -138,3 +190,12 @@ jobs:
           final_head="$(gh api "repos/$REPOSITORY/pulls/$pr" --jq .head.sha)"
           [ "$final_head" = "$head" ] || exit 0
           gh pr merge "$pr" --repo "$REPOSITORY" --auto --squash --delete-branch --match-head-commit "$head"
+          jq -n --slurpfile comments "$issue_comments" --arg head "$head" --argjson pr "$pr" '{comments:($comments[0] // []), merged:true, risk:"low", head_sha:$head, pull_request:$pr, actor:{type:"workflow",name:"Factory Trusted Controller",harness:"other"}}' > "$RUNNER_TEMP/factory-controller-complete.json"
+          node .factory/control-plane.mjs controller-signal "$RUNNER_TEMP/factory-controller-complete.json" > "$RUNNER_TEMP/factory-controller-complete-plane.json" || true
+          if [ "$(jq -r .ok "$RUNNER_TEMP/factory-controller-complete-plane.json" 2>/dev/null)" = true ]; then
+            jq -r .status_markdown "$RUNNER_TEMP/factory-controller-complete-plane.json" > "$RUNNER_TEMP/factory-status.md"
+            cid="$(jq -r '.status_comment_id // empty' "$RUNNER_TEMP/factory-controller-complete-plane.json")"
+            if [ -n "$cid" ] && [ "$cid" != null ]; then
+              jq -n --rawfile body "$RUNNER_TEMP/factory-status.md" '{body:$body}' | gh api --method PATCH "repos/$REPOSITORY/issues/comments/$cid" --input - >/dev/null
+            fi
+          fi
