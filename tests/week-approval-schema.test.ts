@@ -108,7 +108,8 @@ describe("week approval schema and owner-scoped lookup", () => {
 
     const config = getTableConfig(weekApprovals);
     expect(config.indexes).toHaveLength(1);
-    expect(config.indexes[0]?.name).toBe("week_approval_owner_week_uq");
+    expect(config.indexes[0]?.config.name).toBe("week_approval_owner_week_uq");
+    expect(config.indexes[0]?.config.unique).toBe(true);
     expect(config.checks).toHaveLength(0);
   });
 
