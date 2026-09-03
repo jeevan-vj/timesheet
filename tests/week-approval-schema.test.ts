@@ -18,6 +18,7 @@ async function openMemoryDb() {
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0000_initial.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0001_entry_mode.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0002_week_approval.sql"), "utf8"));
+  sqlite.exec(fs.readFileSync(path.resolve("drizzle/0003_recurring_schedules.sql"), "utf8"));
   const database = drizzle(sqlite) as unknown as WeekApprovalDb;
   return { sqlite, database };
 }
@@ -113,10 +114,24 @@ describe("week approval schema and owner-scoped lookup", () => {
     expect(config.checks).toHaveLength(0);
   });
 
-  it("leaves applied migrations 0000 and 0001 unchanged", () => {
+  it("leaves applied migrations 0000, 0001, and 0002 unchanged", () => {
     expect(fs.readFileSync(path.resolve("drizzle/0000_initial.sql"), "utf8")).toMatch(/^PRAGMA foreign_keys=ON;/);
     expect(fs.readFileSync(path.resolve("drizzle/0001_entry_mode.sql"), "utf8").trim()).toBe(
       "ALTER TABLE `time_entry` ADD `entry_mode` text DEFAULT 'clock' NOT NULL;",
+    );
+    expect(fs.readFileSync(path.resolve("drizzle/0002_week_approval.sql"), "utf8").trim()).toBe(
+      `CREATE TABLE \`week_approval\` (
+  \`id\` text PRIMARY KEY NOT NULL,
+  \`owner_user_id\` text NOT NULL,
+  \`created_at\` integer NOT NULL,
+  \`updated_at\` integer NOT NULL,
+  \`week_start\` text NOT NULL,
+  \`status\` text NOT NULL,
+  \`approved_at\` integer NOT NULL,
+  \`reopened_at\` integer,
+  FOREIGN KEY (\`owner_user_id\`) REFERENCES \`user\`(\`id\`) ON UPDATE no action ON DELETE cascade
+);
+CREATE UNIQUE INDEX \`week_approval_owner_week_uq\` ON \`week_approval\` (\`owner_user_id\`,\`week_start\`);`,
     );
   });
 });
