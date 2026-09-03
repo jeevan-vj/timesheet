@@ -12,7 +12,9 @@ All business data is private to an authenticated owner. Every domain query and m
 
 ### CT-002 Sites and contractors
 
-Owners can create active cleaning sites. Owners can list, create, read, update, archive, and restore contractors. A contractor has a default hourly rate in integer cents and may work at many sites. Contractor names are unique per owner, including archived rows; different owners may share names. Archive deactivates the contractor and that owner's assignments for the contractor; it does not delete rows or time entries. Restore reactivates the same contractor row and those assignments. Dashboard contractor and site selects stay active-only.
+Owners can create, list, view, edit, archive, and restore cleaning sites. Site names are unique per owner; a duplicate create, edit, or restore returns `duplicate_site` and does not write. Archive is a soft-delete of the same row (`active = false`) and, in the same batch, deactivates that site's owner-scoped active assignments. Restore sets the same row `active = true` and reactivates that site's currently-inactive assignments. Archived sites are omitted from the default list and cannot be selected for new assignments or time entries. Historical time entries keep the archived site's identity and snapshotted pay.
+
+Owners can list, create, read, update, archive, and restore contractors. A contractor has a default hourly rate in integer cents and may work at many sites. Contractor names are unique per owner, including archived rows; different owners may share names. Archive deactivates the contractor and that owner's assignments for the contractor; it does not delete rows or time entries. Restore reactivates the same contractor row and those assignments. Dashboard contractor and site selects stay active-only.
 
 ### CT-003 Site assignments
 
@@ -22,13 +24,17 @@ Owners can assign contractors to sites. An assignment may override the contracto
 
 An owner records a contractor, site, date, and paid duration. Paid duration is entered either as hours after unpaid breaks, or as start time, finish time, and unpaid break. Finish must be after start and paid time must remain positive. Overnight shifts are out of scope.
 
-The contractor must be actively assigned to the site. The owner may assign the contractor to another active site from the same entry flow, with an optional site rate.
+The contractor must be actively assigned to the site. The owner may assign the contractor to another active site from the same entry flow, with an optional site rate. Inline assign-another-site remains create-only.
 
-Only one entry per contractor/site/date is allowed in MVP. Duplicate attempts return a specific error and do not create a second entry. Entries may be replaced by editing in a future version.
+An owner can inspect a recorded shift and correct contractor, site, date, entry mode, duration or clock times, unpaid break, and notes. Correcting the work date may move the shift out of the currently displayed week; the week view then refreshes. Only one entry per owner/contractor/site/date is allowed. Duplicate create or update returns `duplicate_entry` and does not write a second row.
+
+Edit requires an active same-owner assignment only when contractor or site changes. Duration, date, mode, and notes-only corrections keep the original rate snapshot.
 
 ### CT-005 Historical rate integrity
 
 The effective hourly rate is copied onto every new time entry. Changing a contractor or assignment rate never rewrites historical `rate_cents`. Archived contractors remain readable by the owner; historical weeks keep the contractor name and snapshotted pay. Contractor update, archive, and restore never update or delete time entries.
+
+Correcting an entry without changing contractor or site keeps the original snapshotted rate. Changing contractor or site snapshots the current assignment effective rate as a reclassification.
 
 ### CT-006 Weekly payroll
 

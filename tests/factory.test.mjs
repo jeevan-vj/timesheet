@@ -4,11 +4,38 @@ import fs from 'node:fs';
 import { buildAgentPayload, dispatchCursorAgent } from '../.factory/dispatch-cursor.mjs';
 import { buildRepairPrompt, createFollowUpRun } from '../.factory/followup-cursor.mjs';
 import { classifyRisk, loadPolicy } from '../.factory/classify-risk.mjs';
+import {
+  blockingFactoryReviewCommentIds,
+  selectActionableFactoryReview,
+  selectMergeableFactoryReview,
+} from '../.factory/review-bots.mjs';
 
 describe('Cursor factory', () => {
-  it('prefers an explicit @cursor handoff', () => {
-    expect(detectFactoryHandoff('@cursor implement this')).toEqual({ delegated:true, provider:'cursor' });
-    expect(detectFactoryHandoff('cursor without mention')).toEqual({ delegated:false, provider:null });
+  it('starts Cursor intake from factory:ready and ignores bare @cursor mentions', () => {
+    expect(detectFactoryHandoff({ labels: ['factory:ready'], text: 'Ship weekly CSV' })).toEqual({
+      delegated: true,
+      provider: 'cursor',
+      reason: 'factory:ready',
+    });
+    expect(detectFactoryHandoff('@cursor implement this')).toEqual({
+      delegated: false,
+      provider: null,
+      reason: null,
+    });
+    expect(detectFactoryHandoff({ labels: [], text: '@codex please take this' })).toEqual({
+      delegated: true,
+      provider: 'codex',
+      reason: 'mention',
+    });
+  });
+  it('keeps the factory issue template free of @cursor mentions', () => {
+    const template = fs.readFileSync(new URL('../.github/ISSUE_TEMPLATE/factory-task.md', import.meta.url), 'utf8');
+    const workflow = fs.readFileSync(new URL('../.github/workflows/factory.yml', import.meta.url), 'utf8');
+    expect(template).toContain('factory:ready');
+    expect(template).not.toMatch(/^@cursor\b/m);
+    expect(workflow).toContain("github.event.label.name == 'factory:ready'");
+    expect(workflow).not.toContain("contains(github.event.comment.body, '@cursor')");
+    expect(workflow).toContain('Skipping dispatch; durable factory agent already recorded');
   });
   it('creates an auto-PR Cursor Agents payload', () => {
     const payload=buildAgentPayload({repository:'jeevan-vj/timesheet',issueNumber:4,title:'Weekly CSV',body:'Export approved totals'});
@@ -30,7 +57,13 @@ describe('Cursor factory', () => {
     const policy=loadPolicy();
     expect(classifyRisk(['.github/workflows/factory.yml'],policy)).toBe('protected');
     expect(classifyRisk(['src/lib/payroll.ts'],policy)).toBe('high');
+    expect(classifyRisk(['src/lib/api.ts'],policy)).toBe('high');
+    expect(classifyRisk(['src/lib/request-session.ts'],policy)).toBe('high');
+    expect(classifyRisk(['src/lib/accounts-config.ts'],policy)).toBe('high');
+    expect(classifyRisk(['src/lib/time-entry-write.ts'],policy)).toBe('high');
     expect(classifyRisk(['drizzle/0001_change.sql'],policy)).toBe('high');
+    expect(classifyRisk(['src/components/empty-state.tsx'],policy)).toBe('low');
+    expect(classifyRisk(['src/lib/new-session-helper.ts'],policy)).not.toBe('low');
   });
   it('continues the durable agent on the existing PR without exposing its key', async () => {
     const fetchImpl=vi.fn(async()=>({ok:true,status:201,text:async()=>JSON.stringify({run:{id:'run-test'}})}));
@@ -42,6 +75,38 @@ describe('Cursor factory', () => {
     expect(init.body).toContain('sequentially');
     expect(init.body).not.toContain('test-key');
   });
+  it('routes trusted COMMENTED P0-P2 findings but ignores advisory or stale reviews', () => {
+    const reviews = [
+      { id: 1, commit_id: 'head-1', state: 'COMMENTED', submitted_at: '2026-09-01T10:00:00Z', user: { login: 'chatgpt-codex-connector[bot]', type: 'Bot' } },
+      { id: 2, commit_id: 'head-1', state: 'COMMENTED', submitted_at: '2026-09-01T10:01:00Z', user: { login: 'unknown-reviewer[bot]', type: 'Bot' } },
+      { id: 3, commit_id: 'old-head', state: 'CHANGES_REQUESTED', submitted_at: '2026-09-01T10:02:00Z', user: { login: 'cursor[bot]', type: 'Bot' } },
+    ];
+    const comments = [
+      { id: 101, pull_request_review_id: 1, body: '[P2] Add behavioral authorization coverage.' },
+      { id: 102, pull_request_review_id: 1, body: '[P3] Consider renaming this helper.' },
+      { id: 103, pull_request_review_id: 2, body: '[P1] Untrusted bot finding.' },
+    ];
+
+    const selected = selectActionableFactoryReview(reviews, comments, 'head-1');
+    expect(selected.id).toBe(1);
+    expect(selected.blockingFindings).toEqual(['[P2] Add behavioral authorization coverage.']);
+    expect(selected.blockingCommentIds).toEqual([101]);
+    expect(blockingFactoryReviewCommentIds(reviews, comments)).toEqual([101]);
+    expect(selectActionableFactoryReview(reviews, comments, 'unreviewed-head')).toBeNull();
+
+    reviews.push({ id: 4, commit_id: 'head-1', state: 'COMMENTED', body: 'No blocking findings.', submitted_at: '2026-09-01T10:03:00Z', user: { login: 'chatgpt-codex-connector[bot]', type: 'Bot' } });
+    expect(selectActionableFactoryReview(reviews, comments, 'head-1')).toBeNull();
+  });
+  it('merges only a current non-blocking trusted review and treats P3 as advisory', () => {
+    const review = { id: 11, commit_id: 'head-1', state: 'COMMENTED', body: 'No blocking findings.', submitted_at: '2026-09-01T10:00:00Z', user: { login: 'chatgpt-codex-connector[bot]', type: 'Bot' } };
+    const advisory = { id: 201, pull_request_review_id: 11, body: '[P3] Consider renaming this helper.' };
+    expect(selectMergeableFactoryReview([review], [advisory], 'head-1')?.id).toBe(11);
+
+    const blockingSummary = { ...review, body: '[P2] Missing authorization regression coverage.' };
+    expect(selectMergeableFactoryReview([blockingSummary], [], 'head-1')).toBeNull();
+    expect(selectMergeableFactoryReview([review], [], 'different-head')).toBeNull();
+    expect(selectMergeableFactoryReview([{ ...review, state: 'CHANGES_REQUESTED' }], [], 'head-1')).toBeNull();
+  });
   it('limits autonomous merge to low-risk changes and repair to two cycles', () => {
     const controller=fs.readFileSync(new URL('../.github/workflows/factory-controller.yml',import.meta.url),'utf8');
     const repair=fs.readFileSync(new URL('../.github/workflows/factory-repair.yml',import.meta.url),'utf8');
@@ -51,5 +116,17 @@ describe('Cursor factory', () => {
     expect(repair).not.toContain('actions/checkout');
     expect(repair).toContain('.user.login == "github-actions[bot]"');
     expect(repair).toContain('[ "$head" = "$RUN_HEAD_SHA" ]');
+    expect(repair).toContain('/runs?limit=1');
+    expect(repair).toContain('CREATING|RUNNING');
+    expect(repair).toContain('current_head=');
+    expect(repair).not.toContain('/cancel');
+    expect(controller).toContain('@codex review');
+    expect(controller).toContain('factory-review-request:');
+    expect(controller).toContain('/replies');
+    expect(controller).toContain('resolveReviewThread');
+    expect(controller).toContain('--remove-label factory:needs-human');
+    expect(controller).toContain('contents: write');
+    expect(controller).toContain('selectMergeableFactoryReview');
+    expect(controller).not.toContain('[ "$comments" -eq 0 ]');
   });
 });

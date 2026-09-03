@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { ContractorsPanel } from "@/components/contractors";
 import { ShiftEntrySheet } from "@/components/shift-entry";
+import { SiteSetup } from "@/components/site-setup";
 import { createShiftDeleteFlow, idleShiftDelete, shiftDeletePrompt, type ShiftDeleteSession, type ShiftDeleteTarget } from "@/lib/shift-delete";
 import { visibleShiftNote } from "@/lib/shift-note";
 import { ShiftTableNote } from "@/components/shift-note";
@@ -34,22 +35,22 @@ async function send(url: string, body?: unknown, method = "POST") {
 export function Dashboard() {
   const [week, setWeek] = useState(() => mondayFor()); const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true); const [message, setMessage] = useState("");
+  const [editing, setEditing] = useState<Entry | null>(null);
   const loadGeneration = useRef(0);
-  const load = useCallback(async (options?: { quiet?: boolean }) => {
+  const load = useCallback(async (quiet = false) => {
     const generation = loadGeneration.current + 1;
     loadGeneration.current = generation;
-    if (!options?.quiet) { setLoading(true); setMessage(""); }
+    if (!quiet) { setLoading(true); setMessage(""); }
     const response = await fetch(`/api/dashboard?week=${week}`, { cache: "no-store" });
     if (response.status === 401) { window.location.assign("/sign-in"); return; }
     if (generation !== loadGeneration.current) return;
     if (!response.ok) {
-      if (!options?.quiet) setMessage("Could not load this week. Please try again.");
+      if (!quiet) setMessage("Could not load this week. Please try again.");
       setLoading(false);
       return;
     }
     setData(await response.json() as DashboardData); setLoading(false);
   }, [week]);
-  const refreshWeek = useCallback(() => load({ quiet: true }), [load]);
   useEffect(() => { void load(); }, [load]);
   const totalMinutes = data?.summary.reduce((sum, row) => sum + row.paidMinutes, 0) ?? 0;
   const totalPay = data?.summary.reduce((sum, row) => sum + row.payCents, 0) ?? 0;
@@ -72,17 +73,18 @@ export function Dashboard() {
       <section className="stats"><article><span>Paid hours</span><strong>{duration(totalMinutes)}</strong><small>{data.entries.length} daily {data.entries.length === 1 ? "entry" : "entries"}</small></article><article><span>Contractor pay</span><strong>{money(totalPay)}</strong><small>{data.summary.length} {data.summary.length === 1 ? "contractor" : "contractors"}</small></article><article><span>Active sites</span><strong>{data.sites.length}</strong><small>{data.assignments.length} team assignments</small></article></section>
       <section className="main-grid">
         <section className="panel"><div className="panel-title"><div><p className="eyebrow">Monday – Sunday</p><h2>{readableDate(data.weekStart)} – {readableDate(data.weekEnd)}</h2></div><ShiftEntrySheet data={data} onSave={async (body) => { await send("/api/time-entries", body); setMessage("Shift added."); await load(); }} /></div>
-          {data.entries.length ? <div className="table-wrap"><table><thead><tr><th>Date</th><th>Contractor</th><th>Site</th><th>Shift</th><th>Paid</th><th>Pay</th><th></th></tr></thead><tbody>{data.entries.map((entry) => <ShiftRow key={entry.id} entry={entry} onDelete={(target) => deleteFlow.request(target)} />)}</tbody></table></div> : <EmptyState title="No shifts this week" body="Add the first daily shift once you have a contractor and a site." />}
+          {data.entries.length ? <div className="table-wrap"><table><thead><tr><th>Date</th><th>Contractor</th><th>Site</th><th>Shift</th><th>Paid</th><th>Pay</th><th></th></tr></thead><tbody>{data.entries.map((entry) => <ShiftRow key={entry.id} entry={entry} onEdit={() => setEditing(entry)} onDelete={(target) => deleteFlow.request(target)} />)}</tbody></table></div> : <EmptyState title="No shifts this week" body="Record the first shift after adding a contractor and assigning them to a site." />}
         </section>
         <aside className="panel summary-panel"><p className="eyebrow">Payment summary</p><h2>What to pay</h2>{data.summary.length ? <>{data.summary.map((row) => <div className="summary-row" key={row.contractorId}><div><strong>{row.contractorName}</strong><small>{duration(row.paidMinutes)}</small></div><b>{money(row.payCents)}</b></div>)}<div className="summary-total"><span>Total</span><strong>{money(totalPay)}</strong></div></> : <p className="muted roomy">Payment totals appear as shifts are added.</p>}</aside>
       </section>
-      <SetupPanel data={data} mutate={mutate} onNotice={setMessage} onWeekRefresh={refreshWeek} />
+      <SetupPanel data={data} mutate={mutate} onReload={() => load(true)} onAnnounce={setMessage} />
     </>}
+    {editing && data ? <ShiftEntrySheet key={editing.id} data={data} entry={editing} onDismiss={() => setEditing(null)} onSave={async (body) => { await send(`/api/time-entries/${editing.id}`, body, "PATCH"); await load(); setMessage("Shift updated."); }} /> : null}
     <DeleteShiftDialog session={deleteSession} onCancel={() => deleteFlow.cancel()} onConfirm={() => void deleteFlow.confirm()} />
   </main>;
 }
 
-function ShiftRow({ entry, onDelete }: { entry: Entry; onDelete: (target: ShiftDeleteTarget) => void }) {
+function ShiftRow({ entry, onEdit, onDelete }: { entry: Entry; onEdit: () => void; onDelete: (target: ShiftDeleteTarget) => void }) {
   const note = visibleShiftNote(entry.notes);
   const noteId = `shift-note-${entry.id}`;
   return <tr aria-describedby={note ? noteId : undefined}>
@@ -95,7 +97,7 @@ function ShiftRow({ entry, onDelete }: { entry: Entry; onDelete: (target: ShiftD
     <td>{entry.entryMode === "paid_hours" ? <>Paid hours</> : <>{clock(entry.startMinutes)}–{clock(entry.endMinutes)}<small>{entry.breakMinutes ? `${entry.breakMinutes}m break` : "No break"}</small></>}</td>
     <td>{duration(entry.paidMinutes)}</td>
     <td><strong>{money(Math.round(entry.paidMinutes * entry.rateCents / 60))}</strong><small>{money(entry.rateCents)}/hr</small></td>
-    <td><button className="icon-button" aria-label={`Delete ${entry.contractorName} shift`} onClick={() => onDelete({ id: entry.id, contractorName: entry.contractorName, siteName: entry.siteName, workDate: entry.workDate })}>×</button></td>
+    <td><div className="row-actions"><button type="button" className="button small" aria-label={`Edit ${entry.contractorName} shift`} onClick={onEdit}>Edit</button><button className="icon-button" aria-label={`Delete ${entry.contractorName} shift`} onClick={() => onDelete({ id: entry.id, contractorName: entry.contractorName, siteName: entry.siteName, workDate: entry.workDate })}>×</button></div></td>
   </tr>;
 }
 
@@ -120,10 +122,9 @@ function WeekPicker({ week, onChange }: { week: string; onChange: (value: string
   return <div className="week-picker"><button onClick={() => onChange(shiftWeek(week, -7))} aria-label="Previous week">←</button><label>Week of<input type="date" value={week} onChange={(e) => onChange(mondayFor(new Date(`${e.target.value}T12:00:00`)))} /></label><button onClick={() => onChange(shiftWeek(week, 7))} aria-label="Next week">→</button></div>;
 }
 
-function SetupPanel({ data, mutate, onNotice, onWeekRefresh }: { data: DashboardData; mutate: (action: () => Promise<void>, success: string) => Promise<void>; onNotice: (message: string) => void; onWeekRefresh: () => Promise<void> }) {
-  return <section className="setup" id="team"><div><p className="eyebrow">Workspace setup</p><h2>Team & cleaning sites</h2><p className="muted">Add each contractor and site once, then connect them with the right rate.</p></div><div className="setup-grid"><SetupCard title="Sites" count={data.sites.length}>{data.sites.map((site) => <div className="compact-row" key={site.id}><strong>{site.name}</strong><small>{site.address || "No address"}</small></div>)}<SiteForm onSave={(body) => mutate(() => send("/api/sites", body), "Site added.")} /></SetupCard><ContractorsPanel onNotice={onNotice} onChanged={onWeekRefresh} /><SetupCard title="Assignments" count={data.assignments.length}>{data.assignments.map((assignment) => { const contractor = data.contractors.find((c) => c.id === assignment.contractorId); const site = data.sites.find((s) => s.id === assignment.siteId); return <div className="compact-row" key={assignment.id}><strong>{contractor?.name} → {site?.name}</strong><small>{assignment.rateCents ? `${money(assignment.rateCents)}/hr override` : "Default rate"}</small></div>; })}<AssignmentForm data={data} onSave={(body) => mutate(() => send("/api/assignments", body), "Assignment added.")} /></SetupCard></div></section>;
+function SetupPanel({ data, mutate, onReload, onAnnounce }: { data: DashboardData; mutate: (action: () => Promise<void>, success: string) => Promise<void>; onReload: () => Promise<void>; onAnnounce: (message: string) => void }) {
+  return <section className="setup" id="team"><div><p className="eyebrow">Workspace setup</p><h2>Team & cleaning sites</h2><p className="muted">Add each contractor and site once, then connect them with the right rate.</p></div><div className="setup-grid"><SetupCard title="Sites" count={data.sites.length}><SiteSetup onReload={onReload} onAnnounce={onAnnounce} /></SetupCard><ContractorsPanel onNotice={onAnnounce} onChanged={onReload} /><SetupCard title="Assignments" count={data.assignments.length}>{data.assignments.map((assignment) => { const contractor = data.contractors.find((c) => c.id === assignment.contractorId); const site = data.sites.find((s) => s.id === assignment.siteId); return <div className="compact-row" key={assignment.id}><strong>{contractor?.name} → {site?.name}</strong><small>{assignment.rateCents ? `${money(assignment.rateCents)}/hr override` : "Default rate"}</small></div>; })}<AssignmentForm data={data} onSave={(body) => mutate(() => send("/api/assignments", body), "Assignment added.")} /></SetupCard></div></section>;
 }
 function SetupCard({ title, count, children }: { title: string; count: number; children: React.ReactNode }) { return <article className="setup-card"><div className="setup-title"><h3>{title}</h3><span>{count}</span></div><div className="compact-list">{children}</div></article>; }
-function SiteForm({ onSave }: { onSave: (body: unknown) => Promise<void> }) { async function submit(e: FormEvent<HTMLFormElement>) { e.preventDefault(); const f = new FormData(e.currentTarget); await onSave({ name: f.get("name"), address: f.get("address") }); e.currentTarget.reset(); } return <details><summary>+ Add site</summary><form className="mini-form" onSubmit={submit}><input name="name" placeholder="Site name" required maxLength={100}/><input name="address" placeholder="Address (optional)" maxLength={240}/><button className="button small">Save site</button></form></details>; }
 function AssignmentForm({ data, onSave }: { data: DashboardData; onSave: (body: unknown) => Promise<void> }) { async function submit(e: FormEvent<HTMLFormElement>) { e.preventDefault(); const f = new FormData(e.currentTarget); const value = String(f.get("rate")); await onSave({ contractorId: f.get("contractorId"), siteId: f.get("siteId"), rateCents: value ? Math.round(Number(value) * 100) : null }); e.currentTarget.reset(); } return <details><summary>+ Assign to site</summary><form className="mini-form" onSubmit={submit}><select name="contractorId" required><option value="">Choose contractor</option>{data.contractors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select><select name="siteId" required><option value="">Choose site</option>{data.sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select><label>Rate override (optional)<input name="rate" type="number" min="15" max="250" step="0.01" placeholder="Use default rate"/></label><button className="button small" disabled={!data.contractors.length || !data.sites.length}>Save assignment</button></form></details>; }
 function EmptyState({ title, body }: { title: string; body: string }) { return <div className="empty"><span>◷</span><h3>{title}</h3><p>{body}</p></div>; }

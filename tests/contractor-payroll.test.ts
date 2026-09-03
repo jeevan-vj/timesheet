@@ -44,7 +44,7 @@ describe("contractor mutations preserve snapshotted pay", () => {
 
   it("keeps dashboard assignment selects on active contractors while time-entry joins ignore active", () => {
     const dashboard = functionBody(timesheetSource, "getDashboard");
-    expect(dashboard).toMatch(/from\(\s*assignments\s*\)[\s\S]*innerJoin\(\s*contractors[\s\S]*eq\(\s*contractors\.active,\s*true\s*\)/);
+    expect(dashboard).toMatch(/from\(\s*assignments\s*\)[\s\S]*innerJoin\(\s*contractors[\s\S]*eq\(\s*contractors\.active,\s*true\s*\)[\s\S]*innerJoin\(\s*sites[\s\S]*eq\(\s*sites\.active,\s*true\s*\)/);
     const entryJoin = dashboard.slice(dashboard.indexOf("from(timeEntries)"));
     expect(entryJoin).toMatch(/innerJoin\(\s*contractors/);
     expect(entryJoin).not.toMatch(/eq\(\s*contractors\.active/);

@@ -22,6 +22,23 @@ export type ShiftEntryDraft = {
 
 type SiteOption = { id: string; name: string };
 type AssignmentOption = { contractorId: string; siteId: string; rateCents: number | null };
+type ContractorOption = { id: string; name: string; defaultRateCents: number };
+
+export type RecordedTimeEntry = {
+  id: string;
+  contractorId: string;
+  contractorName: string;
+  siteId: string;
+  siteName: string;
+  workDate: string;
+  startMinutes: number;
+  endMinutes: number;
+  breakMinutes: number;
+  paidMinutes: number;
+  rateCents: number;
+  notes: string;
+  entryMode: EntryMode;
+};
 
 export function initialShiftDraft(input: { weekStart: string; contractorId: string; siteId: string }): ShiftEntryDraft {
   return {
@@ -64,6 +81,79 @@ export function sitesForContractor(sites: SiteOption[], assignments: AssignmentO
     assigned: sites.filter((site) => assignedIds.has(site.id)),
     unassigned: sites.filter((site) => !assignedIds.has(site.id)),
   };
+}
+
+export function sitesForEdit(
+  sites: SiteOption[],
+  assignments: AssignmentOption[],
+  contractorId: string,
+  persisted?: { contractorId: string; siteId: string; siteName: string },
+) {
+  const assigned = sitesForContractor(sites, assignments, contractorId).assigned;
+  if (!persisted || persisted.contractorId !== contractorId) return assigned;
+  if (assigned.some((site) => site.id === persisted.siteId)) return assigned;
+  const fromCatalog = sites.find((site) => site.id === persisted.siteId);
+  return [...assigned, fromCatalog ?? { id: persisted.siteId, name: persisted.siteName }];
+}
+
+export function contractorsForEdit(contractors: ContractorOption[], persisted?: { id: string; name: string }) {
+  if (!persisted || contractors.some((row) => row.id === persisted.id)) return contractors;
+  return [...contractors, { id: persisted.id, name: persisted.name, defaultRateCents: 0 }];
+}
+
+export function breakMinuteOptions(breakMinutes: number): number[] {
+  return [...new Set([0, 15, 30, 45, 60, breakMinutes])];
+}
+
+export function draftFromTimeEntry(entry: RecordedTimeEntry): ShiftEntryDraft {
+  const clockDefaults = initialShiftDraft({ weekStart: entry.workDate, contractorId: entry.contractorId, siteId: entry.siteId });
+  if (entry.entryMode === "paid_hours") {
+    return {
+      ...clockDefaults,
+      notes: entry.notes,
+      mode: "paid_hours",
+      paidHours: Math.floor(entry.paidMinutes / 60),
+      paidMinutePart: entry.paidMinutes % 60,
+      assigningSite: false,
+    };
+  }
+  return {
+    ...clockDefaults,
+    notes: entry.notes,
+    mode: "clock",
+    start: fromMinutes(entry.startMinutes),
+    end: fromMinutes(entry.endMinutes),
+    breakMinutes: entry.breakMinutes,
+    assigningSite: false,
+  };
+}
+
+export function shiftDateBounds(editing: boolean, weekStart: string, weekEnd: string) {
+  return editing ? { min: undefined, max: undefined } : { min: weekStart, max: weekEnd };
+}
+
+export function isEditReclassification(
+  entry: Pick<RecordedTimeEntry, "contractorId" | "siteId">,
+  draft: Pick<ShiftEntryDraft, "contractorId" | "siteId">,
+) {
+  return draft.contractorId !== entry.contractorId || draft.siteId !== entry.siteId;
+}
+
+export function editPreviewRateCents(input: {
+  entry: Pick<RecordedTimeEntry, "contractorId" | "siteId" | "rateCents">;
+  draft: Pick<ShiftEntryDraft, "contractorId" | "siteId">;
+  defaultRateCents: number | null;
+  assignmentRateCents: number | null | undefined;
+}): number | null {
+  if (!input.draft.contractorId || !input.draft.siteId) return null;
+  if (!isEditReclassification(input.entry, input.draft)) return input.entry.rateCents;
+  if (input.assignmentRateCents === undefined) return null;
+  if (input.assignmentRateCents == null && input.defaultRateCents == null) return null;
+  return effectiveRateCents({
+    defaultRateCents: input.defaultRateCents ?? input.assignmentRateCents ?? 0,
+    assignmentRateCents: input.assignmentRateCents,
+    overrideRateCents: null,
+  });
 }
 
 export function effectiveRateCents(input: { defaultRateCents: number; assignmentRateCents: number | null; overrideRateCents: number | null }): number {
@@ -123,6 +213,12 @@ export function toMinutes(value: string): number {
   return hours * 60 + minutes;
 }
 
+export function fromMinutes(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return `${String(hours).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
+}
+
 export function shiftEntryPayload(draft: ShiftEntryDraft) {
   const assigning = draft.assigningSite || draft.siteId === ASSIGN_ANOTHER_SITE;
   const siteId = assigning ? draft.newSiteId : draft.siteId;
@@ -153,11 +249,25 @@ export function shiftEntryPayload(draft: ShiftEntryDraft) {
   };
 }
 
-export function shiftSaveErrorMessage(error: unknown): string {
+export function shiftUpdatePayload(draft: ShiftEntryDraft) {
+  const { assignSite: _assignSite, ...payload } = shiftEntryPayload({
+    ...draft,
+    assigningSite: false,
+    newSiteId: "",
+    newSiteRate: "",
+  });
+  return payload;
+}
+
+export function shiftSaveErrorMessage(error: unknown, intent: "create" | "edit" = "create"): string {
   const code = error instanceof Error ? error.message : "";
   if (code === "duplicate_entry") return "A shift for this contractor, site, and date is already recorded. Change the date or site, or delete the existing shift first.";
   if (code === "invalid_shift") return "Finish time and break must leave a positive paid shift.";
-  if (code === "not_found") return "That site is not assigned to this contractor. Assign the site from this form and try again.";
+  if (code === "not_found") {
+    return intent === "edit"
+      ? "That contractor is not assigned to this site."
+      : "That site is not assigned to this contractor. Assign the site from this form and try again.";
+  }
   return "Could not save this shift. Check your connection and try again.";
 }
 
@@ -194,13 +304,13 @@ export function draftDurationError(draft: ShiftEntryDraft): string | null {
   return clockShiftError(toMinutes(draft.start), toMinutes(draft.end), draft.breakMinutes);
 }
 
-export function draftSaveError(draft: ShiftEntryDraft): string | null {
+export function draftSaveError(draft: ShiftEntryDraft, options?: { allowAssignSite?: boolean }): string | null {
   if (!draft.contractorId) return "Choose a contractor.";
-  const assigning = draft.assigningSite || draft.siteId === ASSIGN_ANOTHER_SITE;
+  const assigning = options?.allowAssignSite !== false && (draft.assigningSite || draft.siteId === ASSIGN_ANOTHER_SITE);
   if (assigning) {
     if (!draft.newSiteId) return "Choose a site to assign.";
     if (parseRateDollars(draft.newSiteRate) === "invalid") return "Rate for this site must be between NZ$15 and NZ$250.";
-  } else if (!draft.siteId) {
+  } else if (!draft.siteId || draft.siteId === ASSIGN_ANOTHER_SITE) {
     return "Choose a site.";
   }
   if (!draft.workDate) return "Choose a date.";
