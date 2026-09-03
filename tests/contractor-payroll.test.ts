@@ -13,6 +13,7 @@ function functionBody(source: string, name: string): string {
 }
 
 const timesheetSource = fs.readFileSync(path.resolve("src/services/timesheet.ts"), "utf8");
+const assignmentSource = fs.readFileSync(path.resolve("src/lib/assignment.ts"), "utf8");
 
 describe("contractor mutations preserve snapshotted pay", () => {
   it("does not change in-memory entry rate_cents when the default rate or active flag changes", () => {
@@ -51,7 +52,8 @@ describe("contractor mutations preserve snapshotted pay", () => {
   });
 
   it("still requires an active contractor when creating assignments and time entries", () => {
-    expect(functionBody(timesheetSource, "createAssignment")).toMatch(/eq\(\s*contractors\.active,\s*true\s*\)/);
+    expect(functionBody(timesheetSource, "createAssignment")).toMatch(/runCreateAssignment/);
+    expect(assignmentSource).toMatch(/contractor !== "active"/);
     expect(functionBody(timesheetSource, "createTimeEntry")).toMatch(/eq\(\s*contractors\.active,\s*true\s*\)/);
     expect(timesheetSource).not.toMatch(/contractor_archived/);
   });

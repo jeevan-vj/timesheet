@@ -111,7 +111,7 @@ function createMemoryDb() {
     }
   }
 
-  function select(fields: Record<string, Column>) {
+  function select(fields?: Record<string, Column>) {
     const state: { from?: unknown; joins: { table: unknown; on: unknown }[]; where?: unknown; orderBy: unknown[]; limit: number } = {
       joins: [],
       orderBy: [],
@@ -169,6 +169,9 @@ function createMemoryDb() {
           });
         }
         return rows.slice(0, state.limit).map((bundle) => {
+          if (!fields || Object.keys(fields).length === 0) {
+            return { ...(bundle[fromName] ?? {}) };
+          }
           const projected: Row = {};
           for (const [alias, column] of Object.entries(fields)) {
             const ref = columnRef(column);
@@ -339,11 +342,11 @@ describe("site service", () => {
     const moana = await createContractor(asDb(memory), ownerA, { name: "Moana", email: "", phone: "", defaultRateCents: 3100 });
     const pat = await createContractor(asDb(memory), ownerB, { name: "Pat", email: "", phone: "", defaultRateCents: 3300 });
 
-    const harbourActive = await createAssignment(asDb(memory), ownerA, { contractorId: aroha.id, siteId: harbour.id, rateCents: 3500 });
+    const harbourActive = (await createAssignment(asDb(memory), ownerA, { contractorId: aroha.id, siteId: harbour.id, rateCents: 3500 })).assignment;
     const harbourInactive = { id: "assign-inactive", ownerUserId: ownerA, contractorId: moana.id, siteId: harbour.id, rateCents: 3400, active: false, createdAt: new Date(), updatedAt: new Date() };
     memory.store.assignment.push(harbourInactive);
-    const quayActive = await createAssignment(asDb(memory), ownerA, { contractorId: aroha.id, siteId: quay.id, rateCents: null });
-    const otherActive = await createAssignment(asDb(memory), ownerB, { contractorId: pat.id, siteId: other.id, rateCents: 3600 });
+    const quayActive = (await createAssignment(asDb(memory), ownerA, { contractorId: aroha.id, siteId: quay.id, rateCents: null })).assignment;
+    const otherActive = (await createAssignment(asDb(memory), ownerB, { contractorId: pat.id, siteId: other.id, rateCents: 3600 })).assignment;
 
     await archiveSite(asDb(memory), ownerA, harbour.id);
 
@@ -359,7 +362,7 @@ describe("site service", () => {
   it("restores the same site row and reactivates that site's inactive assignments", async () => {
     const harbour = await createSite(asDb(memory), ownerA, { name: "Harbour Offices", address: "" });
     const aroha = await createContractor(asDb(memory), ownerA, { name: "Aroha", email: "", phone: "", defaultRateCents: 3200 });
-    const assignment = await createAssignment(asDb(memory), ownerA, { contractorId: aroha.id, siteId: harbour.id, rateCents: 3500 });
+    const assignment = (await createAssignment(asDb(memory), ownerA, { contractorId: aroha.id, siteId: harbour.id, rateCents: 3500 })).assignment;
     await createTimeEntry(asDb(memory), ownerA, {
       entryMode: "paid_hours",
       contractorId: aroha.id,
@@ -397,7 +400,7 @@ describe("site service", () => {
     const harbour = await createSite(asDb(memory), ownerA, { name: "Harbour Offices", address: "" });
     const quay = await createSite(asDb(memory), ownerA, { name: "Quay Shed", address: "" });
     const aroha = await createContractor(asDb(memory), ownerA, { name: "Aroha", email: "", phone: "", defaultRateCents: 3200 });
-    const assignment = await createAssignment(asDb(memory), ownerA, { contractorId: aroha.id, siteId: harbour.id, rateCents: 3500 });
+    const assignment = (await createAssignment(asDb(memory), ownerA, { contractorId: aroha.id, siteId: harbour.id, rateCents: 3500 })).assignment;
     await archiveSite(asDb(memory), ownerA, harbour.id);
     const clash = memory.store.site.find((row) => row.id === quay.id);
     if (clash) clash.name = "Harbour Offices";

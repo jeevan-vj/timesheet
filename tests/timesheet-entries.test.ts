@@ -43,16 +43,16 @@ async function seedOwner(database: TimesheetDb, sqlite: SqlJsDatabase, ownerUser
     phone: "",
     defaultRateCents: 3_000,
   });
-  const harbourAssignment = await createAssignment(database, ownerUserId, {
+  const harbourAssignment = (await createAssignment(database, ownerUserId, {
     contractorId: contractor.id,
     siteId: harbour.id,
     rateCents: 3_200,
-  });
-  const warehouseAssignment = await createAssignment(database, ownerUserId, {
+  })).assignment;
+  const warehouseAssignment = (await createAssignment(database, ownerUserId, {
     contractorId: contractor.id,
     siteId: warehouse.id,
     rateCents: 2_800,
-  });
+  })).assignment;
   return { contractor, harbour, warehouse, harbourAssignment, warehouseAssignment };
 }
 

@@ -195,8 +195,8 @@ describe("site setup presentation", () => {
 
     expect(dashboard).toContain("<SiteSetup");
     expect(dashboard).toContain("<ShiftEntrySheet data={data}");
-    expect(dashboard).toContain("<AssignmentForm data={data}");
-    expect(dashboard).toContain("data.sites.map((s)");
+    expect(dashboard).toContain("<AssignmentManager");
+    expect(dashboard).toContain("data.sites");
     expect(dashboard).not.toContain("SiteForm");
     expect(dashboard).not.toMatch(/mutate\(\(\) => send\("\/api\/sites"/);
   });

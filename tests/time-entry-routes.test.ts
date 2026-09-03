@@ -73,7 +73,7 @@ describe("time entry route contracts", () => {
     expect(patchById).not.toMatch(/createAssignment/);
     expect(patchById).toMatch(/timeEntryUpdateInput/);
     expect(postCollection).toMatch(/timeEntryInput/);
-    expect(createTimeEntry).toMatch(/createAssignment/);
+    expect(createTimeEntry).toMatch(/applyInlineAssignSiteAfterPrecheck/);
   });
 
   it("GET by id and PATCH share the same invalid id guard as DELETE", () => {
