@@ -150,13 +150,17 @@ async function runScenarios({ page, baseUrl, headSha, screenshotDir }) {
     await page.getByRole("button", { name: "Create account" }).click();
     await page.waitForURL(/\/dashboard(?:\/|$|\?)/, { timeout: 30_000 });
     await page.getByRole("heading", { name: "Hours & contractor pay" }).waitFor({ timeout: 30_000 });
+    await page.getByText("No shifts this week").waitFor({ timeout: 30_000 });
+    await page.waitForLoadState("networkidle");
     return [await shot("owner-signup")];
   });
 
   await run("empty-week-dashboard", async () => {
+    await page.waitForLoadState("networkidle");
     await page.goto(new URL("/dashboard", baseUrl).toString(), { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "Hours & contractor pay" }).waitFor({ timeout: 30_000 });
     await page.getByText("No shifts this week").waitFor({ timeout: 30_000 });
+    await page.waitForLoadState("networkidle");
     return [await shot("empty-week-dashboard")];
   });
 
