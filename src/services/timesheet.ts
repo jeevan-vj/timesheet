@@ -22,6 +22,8 @@ import {
 import { isUniqueConstraintError } from "@/lib/db-errors";
 import { summarizeWeek, weekEnd } from "@/lib/payroll";
 import { clockFieldsForWrite, hasDuplicateTimeEntry, rateCentsForUpdate, shouldResnapshotRate } from "@/lib/time-entry-write";
+import { findWeekApproval } from "@/lib/week-approval-query";
+import { assertUnlockedWeek, toDashboardApproval } from "@/services/week-approval";
 import type { z } from "zod";
 import type { assignmentInput, assignmentRateInput, contractorInput, timeEntryInput, timeEntryUpdateInput } from "@/lib/validation";
 
@@ -212,6 +214,7 @@ export async function restoreAssignment(database: Database, ownerUserId: string,
 export async function createTimeEntry(database: Database, ownerUserId: string, input: TimeEntryInput) {
   // Validate paid duration before any assignment write so invalid_shift cannot restore a pair.
   const clock = clockFieldsForWrite(input);
+  await assertUnlockedWeek(database, ownerUserId, input.workDate);
 
   await applyInlineAssignSiteAfterPrecheck(assignmentRepo(database), ownerUserId, input, assignmentClock, async () => {
     const [duplicate] = await database
@@ -279,6 +282,8 @@ export async function updateTimeEntry(database: Database, ownerUserId: string, e
     .where(and(eq(timeEntries.id, entryId), eq(timeEntries.ownerUserId, ownerUserId)))
     .limit(1);
   if (!existing) throw new Error("not_found");
+  await assertUnlockedWeek(database, ownerUserId, existing.workDate);
+  await assertUnlockedWeek(database, ownerUserId, input.workDate);
 
   const clock = clockFieldsForWrite(input);
   const resnapshot = shouldResnapshotRate(existing, input);
@@ -338,13 +343,20 @@ export async function updateTimeEntry(database: Database, ownerUserId: string, e
 }
 
 export async function deleteTimeEntry(database: Database, ownerUserId: string, entryId: string): Promise<boolean> {
-  const deleted = await database.delete(timeEntries).where(and(eq(timeEntries.id, entryId), eq(timeEntries.ownerUserId, ownerUserId))).returning({ id: timeEntries.id });
+  const [existing] = await database
+    .select({ id: timeEntries.id, workDate: timeEntries.workDate })
+    .from(timeEntries)
+    .where(and(eq(timeEntries.id, entryId), eq(timeEntries.ownerUserId, ownerUserId)))
+    .limit(1);
+  if (!existing) return false;
+  await assertUnlockedWeek(database, ownerUserId, existing.workDate);
+  const deleted = await database.delete(timeEntries).where(and(eq(timeEntries.id, existing.id), eq(timeEntries.ownerUserId, ownerUserId))).returning({ id: timeEntries.id });
   return deleted.length === 1;
 }
 
 export async function getDashboard(database: Database, ownerUserId: string, weekStart: string) {
   const end = weekEnd(weekStart);
-  const [siteRows, contractorRows, assignmentRows, entryRows] = await Promise.all([
+  const [siteRows, contractorRows, assignmentRows, entryRows, approvalRow] = await Promise.all([
     database.select({ id: sites.id, name: sites.name, address: sites.address }).from(sites).where(and(eq(sites.ownerUserId, ownerUserId), eq(sites.active, true))).orderBy(asc(sites.name)),
     database.select({ id: contractors.id, name: contractors.name, email: contractors.email, phone: contractors.phone, defaultRateCents: contractors.defaultRateCents, currency: contractors.currency }).from(contractors).where(and(eq(contractors.ownerUserId, ownerUserId), eq(contractors.active, true))).orderBy(asc(contractors.name)),
     database.select({ id: assignments.id, contractorId: assignments.contractorId, siteId: assignments.siteId, rateCents: assignments.rateCents }).from(assignments)
@@ -362,10 +374,12 @@ export async function getDashboard(database: Database, ownerUserId: string, week
       .innerJoin(sites, and(eq(sites.id, timeEntries.siteId), eq(sites.ownerUserId, ownerUserId)))
       .where(and(eq(timeEntries.ownerUserId, ownerUserId), gte(timeEntries.workDate, weekStart), lte(timeEntries.workDate, end)))
       .orderBy(asc(timeEntries.workDate), asc(contractors.name)),
+    findWeekApproval(database, ownerUserId, weekStart),
   ]);
   return {
     weekStart, weekEnd: end, sites: siteRows, contractors: contractorRows, assignments: assignmentRows,
     entries: entryRows,
     summary: summarizeWeek(entryRows.map((entry) => ({ contractorId: entry.contractorId, contractorName: entry.contractorName, paidMinutes: entry.paidMinutes, rateCents: entry.rateCents }))),
+    approval: toDashboardApproval(approvalRow),
   };
 }

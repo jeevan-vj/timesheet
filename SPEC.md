@@ -36,6 +36,8 @@ An owner can inspect a recorded shift and correct contractor, site, date, entry 
 
 Edit requires an active same-owner assignment only when contractor or site changes. Duration, date, mode, and notes-only corrections keep the original rate snapshot.
 
+Create, edit (including a date-move into or out of a locked week), and delete of a time entry are rejected with `week_locked` while that week is approved. GET inspect remains allowed until the week is reopened.
+
 ### CT-005 Historical rate integrity
 
 The effective hourly rate is copied onto every new time entry. Changing a contractor or assignment rate never rewrites historical `rate_cents`. Archived contractors remain readable by the owner; historical weeks keep the contractor name and snapshotted pay. Contractor update, archive, and restore never update or delete time entries.
@@ -52,14 +54,26 @@ Money is stored as integer cents. Work dates are ISO calendar dates and times ar
 
 ### CT-008 Confirmed shift deletion
 
-An owner can delete a recorded shift from the weekly dashboard. The delete control opens a confirmation that identifies the contractor, site, and work date. Cancel or closing the dialog leaves the entry unchanged and does not call DELETE. Confirm sends one owner-scoped DELETE for that entry, then refreshes the week using the existing success and error messaging.
+An owner can delete a recorded shift from the weekly dashboard. The delete control opens a confirmation that identifies the contractor, site, and work date. Cancel or closing the dialog leaves the entry unchanged and does not call DELETE. Confirm sends one owner-scoped DELETE for that entry, then refreshes the week using the existing success and error messaging. Confirmed delete of a shift in an approved week is rejected with `week_locked` until the week is reopened.
+
+### CT-009 Weekly payroll approval
+
+An owner can approve a Monday-start week after comparing the current owner-scoped paid minutes and gross pay to the totals they expect. Approval is a lock, not a second pay snapshot: `week_approval` stores only status and timestamps, never copied minutes, rates, or pay.
+
+States:
+
+- **Open** — no `week_approval` row. This is the default for every week, including empty weeks.
+- **Approved** — create, edit, delete, and date-move of time entries in that week are rejected with `week_locked`. Dashboard GET and entry GET remain allowed.
+- **Reopened** — writes are allowed again. `approvedAt` is kept; a later approve sets a new `approvedAt` and clears `reopenedAt`.
+
+Approve is compare-and-set: if current totals do not match `expectedPaidMinutes` / `expectedPayCents`, the API returns `stale_week` and writes nothing. Matching 0/0 is allowed for an empty week. A second approve of an already-approved week with matching totals is idempotent and does not rewrite timestamps. Changing a contractor default or assignment rate after approve never rewrites historical `time_entry.rate_cents`.
 
 ## Non-goals
 
 - tax, holiday pay, GST, expenses, invoicing, or bank payments;
 - contractor self-service and clock-in geolocation;
 - overlapping/multi-shift days;
-- payroll approval workflows or accounting exports;
+- accounting exports;
 - multiple currencies inside one owner workspace.
 
 ## Definition of done

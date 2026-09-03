@@ -26,10 +26,14 @@ Contractor identity/contact data, site locations, rates, work notes, time record
 | CSRF creates, updates, or deletes records | Cookie-authenticated mutations (POST, PATCH, DELETE), including site, contractor, and assignment create/edit/archive/restore, require a configured trusted Origin |
 | Cross-owner inspect, update, or delete | Owner-scoped GET, PATCH, and DELETE return a non-disclosing `not_found` 404 |
 | Accidental deletion of a recorded shift | Confirmation dialog before the existing owner-scoped DELETE; authorization and payroll math are unchanged |
+| Accidental edit or delete of an approved week | Approve locks the owner-scoped week; create/update/delete and date-move throw `week_locked` with no writes until reopen |
+| CSRF approves or reopens a week | Cookie-authenticated POST `/api/weeks/approve` and `/api/weeks/reopen` require a configured trusted Origin |
+| One owner approves or reopens another owner's week | `week_approval` lookups and writes use the session owner plus week start; foreign rows are invisible (`open` / `week_not_approved`) |
+| Approve commits stale hours or pay | Compare-and-set on current owner-scoped minutes and entry-snapshot pay; mismatch returns `stale_week` with no insert or timestamp bump |
 | Money/time rounding drift | Integer cents and minutes; per-entry cent rounding is specified and tested |
 | Sensitive data reaches logs | No request-body, site name/address, or other domain logging; automated boundary test |
 | Cloud agent reaches production | Cursor receives no production secrets; trusted GitHub workflows own merge/deploy gates |
 
 ## Residual risks
 
-An authenticated owner can enter incorrect hours or rates. MVP totals are gross contractor payments, not tax or payroll advice. Production should add backups, audit events, MFA/SSO, approval states, and rate-limited abuse protection as the product grows.
+An authenticated owner can enter incorrect hours or rates. MVP totals are gross contractor payments, not tax or payroll advice. Production should add backups, audit events, MFA/SSO, and rate-limited abuse protection as the product grows. The MVP weekly approval lock (open / approved / reopened) is already in place.

@@ -14,7 +14,11 @@ Paid-hours entries store integer paid minutes directly. Clock columns remain req
 
 The owner can assign a contractor to another site in the same create-entry request (`assignSite`). That inline path creates a missing assignment or restores an archived pair (applying `assignSite.rateCents`), and does not rewrite an already-active override. Shift validation and the duplicate contractor/site/date check run before the assignment write so a failed entry does not leave a restored assignment. Inline assign-another-site remains create-only. Dashboard new-entry options include only assignments whose contractor and site are both active and owned (inner joins); archived assignments and inactive relations are omitted from that list.
 
-The weekly dashboard GET remains the collection read for time entries: Monday–Sunday, owner-scoped joins to contractors and sites, ordered by work date then contractor name. There is no separate collection GET for time entries.
+The weekly dashboard GET remains the collection read for time entries: Monday–Sunday, owner-scoped joins to contractors and sites, ordered by work date then contractor name. There is no separate collection GET for time entries. The same response includes `approval: { status, approvedAt, reopenedAt }` without `id` or `ownerUserId`. Missing `week_approval` rows map to `{ status: "open", approvedAt: null, reopenedAt: null }`.
+
+`week_approval` is unique on `(owner_user_id, week_start)` and stores only status plus `approved_at` / `reopened_at`. It is not a pay copy. Current week totals are computed at approve time from owner-scoped `time_entry` rows in `[weekStart, weekEnd]` and compared to the submitted expected minutes and cents. Approve and reopen never rewrite `time_entry.rate_cents`.
+
+Time-entry create, update, and delete call `assertUnlockedWeek` so an approved week cannot be changed. Date-move checks both the existing work date’s week and the target week. Create checks the lock after `invalid_shift` validation and before inline `assignSite`, so a locked week does not restore or create an assignment.
 
 An owner inspects one recorded shift with GET `/api/time-entries/:id`, which returns the dashboard-entry-shaped row (including contractor and site display names) after owner-scoped inner joins. PATCH `/api/time-entries/:id` updates contractor, site, date, entry mode, duration/clock, break, and notes. If contractor and site are unchanged, the original `rate_cents` snapshot is kept. If contractor or site changes, the service requires an active same-owner assignment and snapshots that assignment's effective rate as a reclassification.
 
@@ -60,3 +64,16 @@ The dashboard continues to load only `sites.active = true` and `assignments.acti
 - One contractor/site/date entry keeps entry and correction semantics simple for the first release. Duplicate creates or updates return `duplicate_entry`.
 - Gross totals are contractor payments before tax/GST/expenses and are not a payroll or tax determination.
 - Deleting a recorded shift requires confirmation that names the contractor, site, and work date before the owner-scoped DELETE runs.
+
+### Weekly approval HTTP contract
+
+`WeekApprovalResource` omits `ownerUserId` and serializes timestamps as ISO strings:
+
+`{ id, weekStart, status, approvedAt, reopenedAt }`
+
+| Method | Path | Cookie mutation | Success |
+| --- | --- | --- | --- |
+| POST | `/api/weeks/approve` | yes | `200 WeekApprovalResource` |
+| POST | `/api/weeks/reopen` | yes | `200 WeekApprovalResource` |
+
+Cookie-authenticated mutations use `authorize(request, true)`. Errors: `401 unauthorized`, `403 forbidden`, `400 invalid_week` (non-Monday), `400 invalid_request` (malformed totals), `409 stale_week`, `409 week_not_approved`. Time-entry POST/PATCH/DELETE map `week_locked` to `409`.

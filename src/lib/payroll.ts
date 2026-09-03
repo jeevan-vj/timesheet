@@ -70,3 +70,27 @@ export function weekEnd(weekStart: string): string {
   end.setUTCDate(end.getUTCDate() + 6);
   return end.toISOString().slice(0, 10);
 }
+
+export function weekStartFromDate(isoDate: string): string {
+  if (!isIsoDate(isoDate)) throw new Error("invalid_week_start");
+  const date = new Date(`${isoDate}T00:00:00.000Z`);
+  const weekday = date.getUTCDay();
+  const daysFromMonday = weekday === 0 ? 6 : weekday - 1;
+  date.setUTCDate(date.getUTCDate() - daysFromMonday);
+  return date.toISOString().slice(0, 10);
+}
+
+export function weekPayrollTotals(entries: ReadonlyArray<{ paidMinutes: number; rateCents: number }>): {
+  currentPaidMinutes: number;
+  currentPayCents: number;
+} {
+  let currentPaidMinutes = 0;
+  let currentPayCents = 0;
+  for (const entry of entries) {
+    currentPaidMinutes += entry.paidMinutes;
+    if (entry.paidMinutes > 0) {
+      currentPayCents += calculateEntryPayCents(entry.paidMinutes, entry.rateCents);
+    }
+  }
+  return { currentPaidMinutes, currentPayCents };
+}

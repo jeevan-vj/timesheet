@@ -51,6 +51,14 @@ describe("time entry route contracts", () => {
     }
   });
 
+  it("maps week_locked to 409 on POST, PATCH, and DELETE", () => {
+    expect(postCollection).toMatch(/"week_locked"[\s\S]*409/);
+    expect(patchById).toMatch(/"week_locked"[\s\S]*409/);
+    expect(deleteById).toMatch(/"week_locked"[\s\S]*409/);
+    expect(deleteById).toMatch(/try/);
+    expect(deleteById).toMatch(/"not_found"[\s\S]*404/);
+  });
+
   it("scopes getTimeEntry and updateTimeEntry by owner, including contractor and site joins", () => {
     expect(getTimeEntry).toMatch(/eq\(timeEntries\.ownerUserId,\s*ownerUserId\)/);
     expect(getTimeEntry).toMatch(/eq\(contractors\.ownerUserId,\s*ownerUserId\)/);
