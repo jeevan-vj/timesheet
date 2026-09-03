@@ -31,19 +31,21 @@ describe("weekly table note presentation", () => {
     const helper = fs.readFileSync(path.resolve("src/lib/shift-note.ts"), "utf8");
     const component = fs.readFileSync(path.resolve("src/components/shift-note.tsx"), "utf8");
     const dashboard = fs.readFileSync(path.resolve("src/components/dashboard.tsx"), "utf8");
+    const grid = fs.readFileSync(path.resolve("src/components/week-grid.tsx"), "utf8");
 
     expect(helper).toContain("notes.trim()");
     expect(component).toContain("visibleShiftNote(notes)");
     expect(component).toContain("if (!note) return null");
     expect(component).toContain("shift-note-label");
     expect(component).toContain(">Notes</span>");
-    expect(dashboard).toContain("visibleShiftNote(entry.notes)");
-    expect(dashboard).toContain("<ShiftTableNote notes={entry.notes} noteId={noteId} />");
-    expect(dashboard).toContain("aria-describedby={note ? noteId : undefined}");
+    expect(grid).toContain("visibleShiftNote(entry.notes)");
+    expect(grid).toContain("<ShiftTableNote notes={entry.notes} noteId={noteId!} />");
+    expect(grid).toContain("aria-describedby={note ? noteId : undefined}");
 
     const summary = dashboard.slice(dashboard.indexOf("summary-panel"), dashboard.indexOf("SetupPanel"));
     expect(summary).not.toContain("ShiftTableNote");
     expect(summary).not.toContain("shift-note");
+    expect(grid).toContain("ShiftTableNote");
   });
 
   it("styles notes with wrapping and a non-colour-only label", () => {

@@ -188,17 +188,15 @@ describe("dashboard week approval wiring", () => {
     expect(dashboard).toContain("weekApprovalErrorMessage");
   });
 
-  it("keeps approval controls out of shift rows and disables edit/delete when locked", () => {
-    const rowStart = dashboard.indexOf("function ShiftRow");
-    const rowEnd = dashboard.indexOf("function DeleteShiftDialog");
-    const shiftRow = dashboard.slice(rowStart, rowEnd === -1 ? undefined : rowEnd);
-    expect(shiftRow).not.toContain("Approve week");
-    expect(shiftRow).not.toContain("Reopen week");
-    expect(shiftRow).not.toContain("canApproveWeek");
-    expect(shiftRow).toContain("disabled={locked}");
+  it("keeps approval controls out of timesheet cells and disables grid actions when locked", () => {
+    const grid = fs.readFileSync(path.resolve("src/components/week-grid.tsx"), "utf8");
+    expect(grid).not.toContain("Approve week");
+    expect(grid).not.toContain("Reopen week");
+    expect(grid).not.toContain("canApproveWeek");
+    expect(grid).toContain("disabled={locked}");
     expect(dashboard).toContain("locked={weekLocked}");
     expect(dashboard).toContain('const weekLocked = data?.approval.status === "approved"');
-    expect(dashboard).toContain("if (locked) return");
+    expect(grid).toContain("if (locked) return");
   });
 
   it("hides create-shift when the week is locked", () => {
