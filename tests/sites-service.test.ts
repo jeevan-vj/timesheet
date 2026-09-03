@@ -13,7 +13,7 @@ const ownerA = "owner-a";
 const ownerB = "owner-b";
 
 type Row = Record<string, unknown>;
-type TableName = "site" | "assignment" | "contractor" | "time_entry";
+type TableName = "site" | "assignment" | "contractor" | "time_entry" | "week_approval";
 type Store = Record<TableName, Row[]>;
 type ColRef = { tableName: string; key: string };
 type Token = { kind: "col"; tableName: string; key: string } | { kind: "val"; value: unknown } | { kind: "op"; op: string };
@@ -23,6 +23,7 @@ const uniqueKeys: Record<TableName, string[]> = {
   assignment: ["ownerUserId", "contractorId", "siteId"],
   time_entry: ["ownerUserId", "contractorId", "siteId", "workDate"],
   contractor: ["ownerUserId", "name"],
+  week_approval: ["ownerUserId", "weekStart"],
 };
 
 function columnRef(column: Column): ColRef {
@@ -88,7 +89,7 @@ function thenable<T>(run: () => T) {
 }
 
 function createMemoryDb() {
-  const store: Store = { site: [], assignment: [], contractor: [], time_entry: [] };
+  const store: Store = { site: [], assignment: [], contractor: [], time_entry: [], week_approval: [] };
 
   function cloneStore(): Store {
     return structuredClone(store);
@@ -447,6 +448,7 @@ describe("site service", () => {
 
     const dashboard = await getDashboard(asDb(memory), ownerA, "2026-08-31");
     expect(dashboard.sites.map((site) => site.id)).not.toContain(harbour.id);
+    expect(dashboard.approval).toEqual({ status: "open", approvedAt: null, reopenedAt: null });
     expect(dashboard.entries).toEqual([expect.objectContaining({
       id: entry.id,
       siteId: harbour.id,

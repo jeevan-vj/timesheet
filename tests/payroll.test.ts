@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateEntryPayCents, calculatePaidMinutes, isMonday, paidMinutesFromParts, summarizeWeek } from "../src/lib/payroll";
+import { calculateEntryPayCents, calculatePaidMinutes, isMonday, paidMinutesFromParts, summarizeWeek, weekStartForDate, weekTotals } from "../src/lib/payroll";
 
 describe("payroll calculations", () => {
   it("subtracts an unpaid break from a same-day shift", () => {
@@ -39,5 +39,41 @@ describe("payroll calculations", () => {
   it("recognises ISO Mondays without timezone drift", () => {
     expect(isMonday("2026-08-31")).toBe(true);
     expect(isMonday("2026-09-01")).toBe(false);
+  });
+
+  it("returns the UTC calendar Monday for an ISO work date", () => {
+    expect(weekStartForDate("2026-09-02")).toBe("2026-08-31");
+    expect(weekStartForDate("2026-08-31")).toBe("2026-08-31");
+    expect(weekStartForDate("2026-09-06")).toBe("2026-08-31");
+    expect(weekStartForDate("2026-09-07")).toBe("2026-09-07");
+  });
+
+  it("rejects invalid ISO dates with the same week-start error as weekEnd", () => {
+    expect(() => weekStartForDate("2026-13-01")).toThrow("invalid_week_start");
+    expect(() => weekStartForDate("31/08/2026")).toThrow("invalid_week_start");
+    expect(() => weekStartForDate("not-a-date")).toThrow("invalid_week_start");
+  });
+
+  it("summarises week totals as zero for an empty list without calling per-entry pay", () => {
+    expect(weekTotals([])).toEqual({ paidMinutes: 0, payCents: 0 });
+  });
+
+  it("sums paid minutes and per-entry rounded cents the same way as summarizeWeek", () => {
+    expect(weekTotals([
+      { paidMinutes: 120, rateCents: 3_000 },
+      { paidMinutes: 90, rateCents: 3_200 },
+      { paidMinutes: 60, rateCents: 2_800 },
+    ])).toEqual({ paidMinutes: 270, payCents: 13_600 });
+    expect(weekTotals([
+      { paidMinutes: 1, rateCents: 2_500 },
+      { paidMinutes: 1, rateCents: 2_500 },
+    ])).toEqual({
+      paidMinutes: 2,
+      payCents: calculateEntryPayCents(1, 2_500) + calculateEntryPayCents(1, 2_500),
+    });
+    expect(weekTotals([
+      { paidMinutes: 1, rateCents: 2_500 },
+      { paidMinutes: 1, rateCents: 2_500 },
+    ]).payCents).not.toBe(Math.round((2 * 2_500) / 60));
   });
 });

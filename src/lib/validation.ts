@@ -85,6 +85,11 @@ export const timeEntryUpdateInput = z.discriminatedUnion("entryMode", [
 
 export const weekStartInput = z.string().refine(isMonday, "Week must start on Monday");
 
+export const weekTotalsExpectationInput = z.object({
+  expectedPaidMinutes: z.number().int().min(0),
+  expectedPayCents: z.number().int().min(0),
+});
+
 export function parseIncludeArchived(value: string | null): boolean {
   return value === "1";
 }

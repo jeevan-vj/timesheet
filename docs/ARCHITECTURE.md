@@ -14,7 +14,7 @@ Paid-hours entries store integer paid minutes directly. Clock columns remain req
 
 The owner can assign a contractor to another site in the same create-entry request (`assignSite`). That inline path creates a missing assignment or restores an archived pair (applying `assignSite.rateCents`), and does not rewrite an already-active override. Shift validation and the duplicate contractor/site/date check run before the assignment write so a failed entry does not leave a restored assignment. Inline assign-another-site remains create-only. Dashboard new-entry options include only assignments whose contractor and site are both active and owned (inner joins); archived assignments and inactive relations are omitted from that list.
 
-The weekly dashboard GET remains the collection read for time entries: Monday–Sunday, owner-scoped joins to contractors and sites, ordered by work date then contractor name. There is no separate collection GET for time entries.
+The weekly dashboard GET remains the collection read for time entries: Monday–Sunday, owner-scoped joins to contractors and sites, ordered by work date then contractor name. There is no separate collection GET for time entries. The dashboard payload includes `approval` from the owner-scoped week-approval row (`{ status: "open" | "approved", approvedAt, reopenedAt }` as ISO 8601 or null). A missing row is never-approved: `{ status: "open", approvedAt: null, reopenedAt: null }`.
 
 An owner inspects one recorded shift with GET `/api/time-entries/:id`, which returns the dashboard-entry-shaped row (including contractor and site display names) after owner-scoped inner joins. PATCH `/api/time-entries/:id` updates contractor, site, date, entry mode, duration/clock, break, and notes. If contractor and site are unchanged, the original `rate_cents` snapshot is kept. If contractor or site changes, the service requires an active same-owner assignment and snapshots that assignment's effective rate as a reclassification.
 
@@ -60,3 +60,20 @@ The dashboard continues to load only `sites.active = true` and `assignments.acti
 - One contractor/site/date entry keeps entry and correction semantics simple for the first release. Duplicate creates or updates return `duplicate_entry`.
 - Gross totals are contractor payments before tax/GST/expenses and are not a payroll or tax determination.
 - Deleting a recorded shift requires confirmation that names the contractor, site, and work date before the owner-scoped DELETE runs.
+- An owner may approve a Monday week after confirming live totals. Approval locks time-entry create, update, and delete for work dates in that week; the lock runs before inline `assignSite` so a locked create cannot restore or insert an assignment. Site, contractor, and assignment CRUD stay allowed and never rewrite `time_entry.rate_cents`. Reopen unlocks the same owner-scoped row.
+
+### Week approval HTTP contract
+
+`WeekApprovalResource` omits owner id and serializes timestamps as ISO 8601:
+
+`{ status: "open" | "approved", approvedAt: string | null, reopenedAt: string | null }`
+
+| Method | Path | Cookie mutation | Success |
+| --- | --- | --- | --- |
+| GET | `/api/dashboard?week=` | no | existing dashboard JSON plus `approval` |
+| POST | `/api/weeks/[weekStart]/approve` | yes | `200 WeekApprovalResource` |
+| POST | `/api/weeks/[weekStart]/reopen` | yes | `200 WeekApprovalResource` |
+
+Cookie-authenticated approve and reopen use `authorize(request, true)`. Path `weekStart` must be a UTC Monday (`weekStartInput`) or the route returns `400 { error: "invalid_week" }`. The body is `{ expectedPaidMinutes, expectedPayCents }` (non-negative integers). Success returns only the approval resource: no entries, names, owner ids, or totals.
+
+Errors: `401 unauthorized`, `403 forbidden`, `400 invalid_week` / `invalid_request`, `409 week_locked`, `409 week_already_approved`, `409 week_not_approved`, `409 stale_week_totals`, `413 payload_too_large`. Time-entry POST, PATCH, and DELETE surface `week_locked` as 409. Cross-owner time-entry access stays `404 { error: "not_found" }` with no `week_locked` wording. Another owner's approved week is never-approved for the caller.

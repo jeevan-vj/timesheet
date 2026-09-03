@@ -54,12 +54,16 @@ Money is stored as integer cents. Work dates are ISO calendar dates and times ar
 
 An owner can delete a recorded shift from the weekly dashboard. The delete control opens a confirmation that identifies the contractor, site, and work date. Cancel or closing the dialog leaves the entry unchanged and does not call DELETE. Confirm sends one owner-scoped DELETE for that entry, then refreshes the week using the existing success and error messaging.
 
+### CT-009 Weekly approval and lock
+
+An owner can approve a Monday–Sunday payroll week after confirming the current paid minutes and pay cents. Approval is an owner-scoped week status. A week with no approval row is open. Approving locks time-entry create, update, and delete for work dates in that week so reviewed totals cannot be edited by accident. Reopening sets the same row back to open and unlocks those writes. Site, contractor, and assignment CRUD stay allowed while a week is locked and must never rewrite historical `time_entry.rate_cents`. Approve and reopen never update time entries or persist totals. Expected totals that do not match the current owner-scoped week throw `stale_week_totals` and write nothing.
+
 ## Non-goals
 
 - tax, holiday pay, GST, expenses, invoicing, or bank payments;
 - contractor self-service and clock-in geolocation;
 - overlapping/multi-shift days;
-- payroll approval workflows or accounting exports;
+- accounting exports;
 - multiple currencies inside one owner workspace.
 
 ## Definition of done

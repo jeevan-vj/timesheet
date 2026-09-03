@@ -26,10 +26,13 @@ Contractor identity/contact data, site locations, rates, work notes, time record
 | CSRF creates, updates, or deletes records | Cookie-authenticated mutations (POST, PATCH, DELETE), including site, contractor, and assignment create/edit/archive/restore, require a configured trusted Origin |
 | Cross-owner inspect, update, or delete | Owner-scoped GET, PATCH, and DELETE return a non-disclosing `not_found` 404 |
 | Accidental deletion of a recorded shift | Confirmation dialog before the existing owner-scoped DELETE; authorization and payroll math are unchanged |
+| Accidental edit after a week is reviewed | Owner weekly approve locks time-entry create/update/delete for that Monday week; reopen is required to edit; mismatched expected totals throw `stale_week_totals` and write nothing |
+| CSRF approves or reopens a week | Cookie-authenticated POST `/api/weeks/:weekStart/approve` and `/reopen` require a configured trusted Origin |
+| Cross-owner approval probing | Week-approval reads and writes are owner-scoped. Another owner's approved week is never-approved for the caller (dashboard `open` + null timestamps; reopen is `week_not_approved`). Same-owner lock conflicts are `409`. Cross-owner time-entry inspect/update/delete stay `404 { error: "not_found" }` with no `week_locked` wording |
 | Money/time rounding drift | Integer cents and minutes; per-entry cent rounding is specified and tested |
 | Sensitive data reaches logs | No request-body, site name/address, or other domain logging; automated boundary test |
 | Cloud agent reaches production | Cursor receives no production secrets; trusted GitHub workflows own merge/deploy gates |
 
 ## Residual risks
 
-An authenticated owner can enter incorrect hours or rates. MVP totals are gross contractor payments, not tax or payroll advice. Production should add backups, audit events, MFA/SSO, approval states, and rate-limited abuse protection as the product grows.
+An authenticated owner can enter incorrect hours or rates. MVP totals are gross contractor payments, not tax or payroll advice. Production should add backups, audit events, MFA/SSO, and rate-limited abuse protection as the product grows.

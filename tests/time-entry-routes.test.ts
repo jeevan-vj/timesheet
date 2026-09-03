@@ -29,6 +29,8 @@ describe("time entry route contracts", () => {
   const getTimeEntry = exportedFunction(timesheet, "getTimeEntry");
   const updateTimeEntry = exportedFunction(timesheet, "updateTimeEntry");
   const createTimeEntry = exportedFunction(timesheet, "createTimeEntry");
+  const deleteTimeEntry = exportedFunction(timesheet, "deleteTimeEntry");
+  const apiSource = readSrc("src/lib/api.ts");
 
   it("GET by id authorizes without mutation CSRF; PATCH and DELETE require trusted origin", () => {
     expect(getById).toMatch(/authorize\(request\)/);
@@ -51,6 +53,24 @@ describe("time entry route contracts", () => {
     }
   });
 
+  it("maps week_locked on POST, PATCH, and DELETE through apiError", () => {
+    expect(postCollection).toMatch(/apiError/);
+    expect(patchById).toMatch(/apiError/);
+    expect(deleteById).toMatch(/try/);
+    expect(deleteById).toMatch(/catch/);
+    expect(deleteById).toMatch(/apiError/);
+    expect(apiSource).toMatch(/week_locked/);
+    expect(apiSource).toMatch(/409/);
+  });
+
+  it("locks createTimeEntry before inline assignment write", () => {
+    const lockAt = createTimeEntry.indexOf("assertWeekUnlocked");
+    const assignAt = createTimeEntry.indexOf("applyInlineAssignSiteAfterPrecheck");
+    expect(lockAt).toBeGreaterThan(-1);
+    expect(assignAt).toBeGreaterThan(-1);
+    expect(lockAt).toBeLessThan(assignAt);
+  });
+
   it("scopes getTimeEntry and updateTimeEntry by owner, including contractor and site joins", () => {
     expect(getTimeEntry).toMatch(/eq\(timeEntries\.ownerUserId,\s*ownerUserId\)/);
     expect(getTimeEntry).toMatch(/eq\(contractors\.ownerUserId,\s*ownerUserId\)/);
@@ -61,6 +81,9 @@ describe("time entry route contracts", () => {
     expect(updateTimeEntry).toMatch(/eq\(timeEntries\.ownerUserId,\s*ownerUserId\)/);
     expect(updateTimeEntry).toMatch(/eq\(contractors\.ownerUserId,\s*ownerUserId\)/);
     expect(updateTimeEntry).toMatch(/eq\(sites\.ownerUserId,\s*ownerUserId\)/);
+
+    expect(deleteTimeEntry).toMatch(/eq\(timeEntries\.ownerUserId,\s*ownerUserId\)/);
+    expect(deleteTimeEntry).toMatch(/assertWeekUnlocked/);
   });
 
   it("excludes the current id from the update duplicate lookup and sets updatedAt", () => {

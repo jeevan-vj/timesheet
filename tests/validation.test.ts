@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assignmentInput, assignmentRateInput, contractorInput, invalidRequestFromZod, parseIncludeArchived, siteInput, timeEntryInput, timeEntryUpdateInput } from "../src/lib/validation";
+import { assignmentInput, assignmentRateInput, contractorInput, invalidRequestFromZod, parseIncludeArchived, siteInput, timeEntryInput, timeEntryUpdateInput, weekStartInput, weekTotalsExpectationInput } from "../src/lib/validation";
 
 describe("API validation", () => {
   it("accepts an integer-cent contractor rate", () => {
@@ -218,5 +218,32 @@ describe("time entry update validation", () => {
     expect(parsed).not.toHaveProperty("rateCents");
     expect(parsed).not.toHaveProperty("ownerUserId");
     expect(parsed).not.toHaveProperty("owner_user_id");
+  });
+});
+
+describe("week totals expectation validation", () => {
+  it("accepts non-negative integer minutes and cents and strips owner fields", () => {
+    expect(weekTotalsExpectationInput.parse({
+      expectedPaidMinutes: 0,
+      expectedPayCents: 0,
+      ownerUserId: "forged",
+      owner_user_id: "forged",
+    })).toEqual({ expectedPaidMinutes: 0, expectedPayCents: 0 });
+    expect(weekTotalsExpectationInput.parse({
+      expectedPaidMinutes: 480,
+      expectedPayCents: 25_600,
+    })).toEqual({ expectedPaidMinutes: 480, expectedPayCents: 25_600 });
+  });
+
+  it("rejects fractional, negative, or missing totals", () => {
+    expect(weekTotalsExpectationInput.safeParse({ expectedPaidMinutes: 1.5, expectedPayCents: 0 }).success).toBe(false);
+    expect(weekTotalsExpectationInput.safeParse({ expectedPaidMinutes: -1, expectedPayCents: 0 }).success).toBe(false);
+    expect(weekTotalsExpectationInput.safeParse({ expectedPaidMinutes: 0, expectedPayCents: -1 }).success).toBe(false);
+    expect(weekTotalsExpectationInput.safeParse({ expectedPaidMinutes: 0 }).success).toBe(false);
+  });
+
+  it("still requires a UTC Monday for weekStartInput", () => {
+    expect(weekStartInput.safeParse("2026-08-31").success).toBe(true);
+    expect(weekStartInput.safeParse("2026-09-02").success).toBe(false);
   });
 });

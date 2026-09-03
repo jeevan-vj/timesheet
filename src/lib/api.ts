@@ -18,11 +18,19 @@ export async function readJson(request: Request): Promise<unknown> {
   return request.json();
 }
 
+const conflictErrors = new Set([
+  "duplicate_contractor",
+  "week_locked",
+  "week_already_approved",
+  "week_not_approved",
+  "stale_week_totals",
+]);
+
 export function apiError(error: unknown): Response {
   if (error instanceof Error) {
     if (error.message === "payload_too_large") return noStoreJson({ error: "payload_too_large" }, 413);
     if (error.message === "not_found") return noStoreJson({ error: "not_found" }, 404);
-    if (error.message === "duplicate_contractor") return noStoreJson({ error: "duplicate_contractor" }, 409);
+    if (conflictErrors.has(error.message)) return noStoreJson({ error: error.message }, 409);
   }
   return noStoreJson({ error: "invalid_request" }, 400);
 }
