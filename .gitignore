@@ -11,5 +11,4 @@ dist/
 coverage/
 factory-e2e-output/
 *.log
-*.log
 .DS_Store

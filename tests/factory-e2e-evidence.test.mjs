@@ -271,6 +271,12 @@ describe("factory E2E workflows stay fail-closed and complementary", () => {
     expect(e2e).toContain("retention-days: 14");
     expect(e2e).toContain("persist-credentials: false");
     expect(e2e).not.toContain("CLOUDFLARE_API_TOKEN");
+    expect(e2e).not.toContain("gh api");
+    expect(e2e).not.toContain("GH_TOKEN");
+    expect(e2e).toContain("github.event.pull_request.head.sha");
+    expect(e2e).toContain('--var "BETTER_AUTH_URL:${FACTORY_E2E_BASE_URL}"');
+    expect(e2e).toContain('--var "AUTH_TRUSTED_ORIGINS:${FACTORY_E2E_BASE_URL}"');
+    expect((e2e.match(/^permissions:\n  contents: read$/m) || []).length).toBe(1);
   });
 
   it("makes the trusted controller validate current-head artifacts before merge evaluation", () => {

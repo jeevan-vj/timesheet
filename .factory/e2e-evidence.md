@@ -84,7 +84,10 @@ pnpm exec playwright install chromium
 pnpm build
 printf 'BETTER_AUTH_SECRET=local-development-secret-change-me-123456789\nBETTER_AUTH_URL=http://127.0.0.1:8787\nAUTH_TRUSTED_ORIGINS=http://127.0.0.1:8787\n' > .dev.vars
 pnpm exec wrangler d1 migrations apply cleantrack-timesheet --local --config wrangler.jsonc --persist-to .wrangler/e2e-state
-pnpm exec wrangler dev --config dist/server/wrangler.json --ip 127.0.0.1 --port 8787 --persist-to .wrangler/e2e-state
+pnpm exec wrangler dev --config dist/server/wrangler.json --ip 127.0.0.1 --port 8787 --persist-to .wrangler/e2e-state \
+  --var "BETTER_AUTH_URL:http://127.0.0.1:8787" \
+  --var "AUTH_TRUSTED_ORIGINS:http://127.0.0.1:8787" \
+  --var "RELEASE_SHA:factory-e2e"
 # other terminal:
 FACTORY_E2E_REPOSITORY=local/dev FACTORY_E2E_PR=1 FACTORY_E2E_HEAD_SHA="$(git rev-parse HEAD)" \
   node .factory/e2e/harness.mjs --base-url http://127.0.0.1:8787 --out factory-e2e-output
