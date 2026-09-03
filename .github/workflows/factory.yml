@@ -135,16 +135,34 @@ jobs:
           fi
           body_file="$RUNNER_TEMP/issue.md"; printf '%s' "$BODY" > "$body_file"
           gh issue edit "$ISSUE" --repo "$REPOSITORY" --add-label factory:implementing
-          output="$(node .factory/dispatch-cursor.mjs --repo "$REPOSITORY" --issue "$ISSUE" --title "$TITLE" --body-file "$body_file" --ref "${{ github.event.repository.default_branch }}")"
-          agent_id="$(printf '%s' "$output" | jq -r '.agent.id // .id // empty')"
-          url="$(printf '%s' "$output" | jq -r '.agent.url // .url // empty')"
-          if [ -z "$agent_id" ]; then
+          if ! output="$(node .factory/dispatch-cursor.mjs --repo "$REPOSITORY" --issue "$ISSUE" --title "$TITLE" --body-file "$body_file" --ref "${{ github.event.repository.default_branch }}")"; then
             gh issue edit "$ISSUE" --repo "$REPOSITORY" --remove-label factory:implementing || true
             gh issue edit "$ISSUE" --repo "$REPOSITORY" --add-label factory:needs-human
-            gh issue comment "$ISSUE" --repo "$REPOSITORY" --body 'Cursor accepted the task but returned no durable agent ID, so automated repair follow-ups are disabled. Re-apply `factory:ready` or use workflow_dispatch to retry.'
+            gh issue comment "$ISSUE" --repo "$REPOSITORY" --body 'Cursor dispatch was accepted or attempted, but the factory could not verify the durable agent through the Cursor Agents API. No durable agent was recorded. Re-apply `factory:ready` or use workflow_dispatch after investigating the Cursor API/account configuration.'
             exit 0
           fi
-          gh issue comment "$ISSUE" --repo "$REPOSITORY" --body "Cursor Cloud Agent dispatched${url:+: $url}\n\nFactory intake used the \`factory:ready\` label via Actions (Agents API). Use \`@cursor\` on the pull request only for human refine outside the factory repair loop.\n\n<!-- factory-agent-id:$agent_id -->"
+          agent_id="$(printf '%s' "$output" | jq -r '.agent.id // .id // .run.agentId // empty')"
+          verified_id="$(printf '%s' "$output" | jq -r '.factoryVerification.id // empty')"
+          verified_url="$(printf '%s' "$output" | jq -r '.factoryVerification.url // empty')"
+          run_id="$(printf '%s' "$output" | jq -r '.factoryVerification.runId // empty')"
+          run_status="$(printf '%s' "$output" | jq -r '.factoryVerification.runStatus // empty')"
+          if [ -z "$agent_id" ] || [ "$verified_id" != "$agent_id" ]; then
+            gh issue edit "$ISSUE" --repo "$REPOSITORY" --remove-label factory:implementing || true
+            gh issue edit "$ISSUE" --repo "$REPOSITORY" --add-label factory:needs-human
+            gh issue comment "$ISSUE" --repo "$REPOSITORY" --body 'Cursor returned an agent response, but the factory could not verify the same durable agent ID through `GET /v1/agents/{id}`. Automated repair follow-ups are disabled until intake is retried.'
+            exit 0
+          fi
+          canonical_url="https://cursor.com/agents/$agent_id"
+          comment_file="$RUNNER_TEMP/factory-agent-comment.md"
+          {
+            printf 'Cursor Cloud Agent API-verified: %s\n\n' "$canonical_url"
+            printf 'Factory intake used the `factory:ready` label via Actions (Agents API).'
+            if [ -n "$run_id" ]; then printf ' Initial run: `%s`' "$run_id"; fi
+            if [ -n "$run_status" ]; then printf ' (`%s`)' "$run_status"; fi
+            printf '\n\nThe API key may belong to a service account, so whether this URL is visible in your personal Cursor dashboard depends on Cursor account access. Factory repair follows the API-verified agent ID, not browser visibility.\n\n'
+            printf '<!-- factory-agent-id:%s -->\n' "$agent_id"
+          } > "$comment_file"
+          gh issue comment "$ISSUE" --repo "$REPOSITORY" --body-file "$comment_file"
       - name: Record Codex handoff
         if: steps.gate.outputs.delegated == 'true' && steps.gate.outputs.provider == 'codex'
         env:

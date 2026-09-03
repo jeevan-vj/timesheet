@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { detectFactoryHandoff } from '../.factory/handoff.mjs';
 import fs from 'node:fs';
-import { buildAgentPayload, dispatchCursorAgent } from '../.factory/dispatch-cursor.mjs';
+import { buildAgentPayload, dispatchCursorAgent, verifyCursorAgentRecord } from '../.factory/dispatch-cursor.mjs';
 import { buildRepairPrompt, createFollowUpRun } from '../.factory/followup-cursor.mjs';
 import { classifyRisk, loadPolicy } from '../.factory/classify-risk.mjs';
 import {
@@ -36,6 +36,9 @@ describe('Cursor factory', () => {
     expect(workflow).toContain("github.event.label.name == 'factory:ready'");
     expect(workflow).not.toContain("contains(github.event.comment.body, '@cursor')");
     expect(workflow).toContain('Skipping dispatch; durable factory agent already recorded');
+    expect(workflow).toContain('Cursor Cloud Agent API-verified');
+    expect(workflow).toContain('--body-file "$comment_file"');
+    expect(workflow).not.toContain('Cursor Cloud Agent dispatched${url:+: $url}\\n\\n');
   });
   it('creates an auto-PR Cursor Agents payload', () => {
     const payload=buildAgentPayload({repository:'jeevan-vj/timesheet',issueNumber:4,title:'Weekly CSV',body:'Export approved totals'});
@@ -46,12 +49,31 @@ describe('Cursor factory', () => {
     expect(payload.customSubagents.map(({name})=>name)).toEqual(['spec','frontend','api','database','verifier']);
     expect(payload.customSubagents.every(({prompt})=>prompt.length>100)).toBe(true);
   });
-  it('uses bearer authentication without placing a key in the payload', async () => {
-    const fetchImpl=vi.fn(async()=>({ok:true,status:200,text:async()=>JSON.stringify({agent:{id:'bc-test'}})}));
-    await dispatchCursorAgent({name:'test'},{apiKey:'test-key',fetchImpl});
-    const [,init]=fetchImpl.mock.calls[0];
-    expect(init.headers.Authorization).toBe('Bearer test-key');
-    expect(init.body).not.toContain('test-key');
+  it('uses bearer authentication and verifies the durable agent after creation', async () => {
+    const fetchImpl=vi.fn()
+      .mockResolvedValueOnce({ok:true,status:200,text:async()=>JSON.stringify({agent:{id:'bc-test'}})})
+      .mockResolvedValueOnce({ok:true,status:200,text:async()=>JSON.stringify({id:'bc-test',status:'ACTIVE',url:'https://cursor.com/agents/bc-test',latestRunId:'run-test'})});
+    const result = await dispatchCursorAgent({name:'test'},{apiKey:'test-key',fetchImpl});
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const [createUrl,createInit]=fetchImpl.mock.calls[0];
+    expect(createUrl).toBe('https://api.cursor.com/v1/agents');
+    expect(createInit.headers.Authorization).toBe('Bearer test-key');
+    expect(createInit.body).not.toContain('test-key');
+    const [verifyUrl,verifyInit]=fetchImpl.mock.calls[1];
+    expect(verifyUrl).toBe('https://api.cursor.com/v1/agents/bc-test');
+    expect(verifyInit.method).toBe('GET');
+    expect(verifyInit.headers.Authorization).toBe('Bearer test-key');
+    expect(result.factoryVerification).toMatchObject({id:'bc-test',runId:'run-test',status:'ACTIVE'});
+  });
+  it('fails closed when post-dispatch agent verification fails', async () => {
+    const fetchImpl=vi.fn()
+      .mockResolvedValueOnce({ok:true,status:200,text:async()=>JSON.stringify({agent:{id:'bc-missing'}})})
+      .mockResolvedValueOnce({ok:false,status:404,text:async()=>JSON.stringify({error:'not_found'})});
+    await expect(dispatchCursorAgent({name:'test'},{apiKey:'test-key',fetchImpl})).rejects.toThrow('Cursor Agents API 404');
+  });
+  it('rejects an immediately archived or mismatched verified agent', () => {
+    expect(() => verifyCursorAgentRecord('bc-test', {id:'bc-other',status:'ACTIVE'})).toThrow('unexpected ID');
+    expect(() => verifyCursorAgentRecord('bc-test', {id:'bc-test',status:'ARCHIVED'})).toThrow('archived');
   });
   it('protects control plane and treats payroll/auth/data as high risk', () => {
     const policy=loadPolicy();

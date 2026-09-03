@@ -50,13 +50,60 @@ export function buildAgentPayload({ repository, issueNumber, title, body, starti
   };
 }
 
-export async function dispatchCursorAgent(payload, { apiKey, apiUrl = API_URL, fetchImpl = fetch } = {}) {
-  if (!apiKey) throw new Error('CURSOR_API_KEY is required');
-  const response = await fetchImpl(apiUrl, { method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+async function readCursorResponse(response) {
   const text = await response.text();
-  let json; try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text }; }
+  let json;
+  try {
+    json = text ? JSON.parse(text) : {};
+  } catch {
+    json = { raw: text };
+  }
   if (!response.ok) throw new Error(`Cursor Agents API ${response.status}: ${JSON.stringify(json)}`);
   return json;
+}
+
+export async function getCursorAgent(agentId, { apiKey, apiUrl = API_URL, fetchImpl = fetch } = {}) {
+  if (!apiKey) throw new Error('CURSOR_API_KEY is required');
+  if (!/^bc-[A-Za-z0-9-]+$/.test(agentId)) throw new Error('Invalid Cursor agent ID');
+  const response = await fetchImpl(`${apiUrl}/${agentId}`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+  return readCursorResponse(response);
+}
+
+export function verifyCursorAgentRecord(agentId, record) {
+  const returnedId = record?.id ?? record?.agent?.id ?? record?.run?.agentId;
+  if (returnedId && returnedId !== agentId) throw new Error(`Cursor agent verification returned unexpected ID ${returnedId}`);
+  if (record?.status === 'ARCHIVED') throw new Error(`Cursor agent ${agentId} is archived immediately after dispatch`);
+  const runId = record?.latestRunId ?? record?.run?.id ?? null;
+  const runStatus = record?.run?.status ?? null;
+  return {
+    id: agentId,
+    url: record?.url ?? `https://cursor.com/agents/${agentId}`,
+    status: record?.status ?? null,
+    runId,
+    runStatus,
+  };
+}
+
+export async function dispatchCursorAgent(payload, { apiKey, apiUrl = API_URL, fetchImpl = fetch, verify = true } = {}) {
+  if (!apiKey) throw new Error('CURSOR_API_KEY is required');
+  const response = await fetchImpl(apiUrl, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const created = await readCursorResponse(response);
+  const agentId = created?.agent?.id ?? created?.id ?? created?.run?.agentId;
+  if (!agentId) return created;
+  if (!verify) return created;
+
+  const record = await getCursorAgent(agentId, { apiKey, apiUrl, fetchImpl });
+  return {
+    ...created,
+    factoryVerification: verifyCursorAgentRecord(agentId, record),
+  };
 }
 
 function parseArgs(argv) {
