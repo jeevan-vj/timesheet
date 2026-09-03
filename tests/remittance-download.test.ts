@@ -1,11 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { remittanceFilename } from "../src/lib/remittance";
 import {
   cancelRemittanceDownload,
   createRemittanceDownloadFlow,
   idleRemittanceDownload,
   parseContentDispositionFilename,
+  remittanceDownloadFilename,
   remittanceDownloadPrompt,
   remittanceDownloadRequest,
   remittanceDownloadUrl,
@@ -123,6 +125,12 @@ describe("parseContentDispositionFilename", () => {
     expect(parseContentDispositionFilename(null)).toBeNull();
     expect(parseContentDispositionFilename("inline")).toBeNull();
   });
+
+  it("falls back to remittanceFilename when Content-Disposition is missing", () => {
+    expect(remittanceDownloadFilename(null, target)).toBe(remittanceFilename(target.contractorName, target.weekEnd));
+    expect(remittanceDownloadFilename('attachment; filename="remittance-aroha-2026-09-06.pdf"', target))
+      .toBe("remittance-aroha-2026-09-06.pdf");
+  });
 });
 
 describe("weekly dashboard remittance controls", () => {
@@ -134,8 +142,8 @@ describe("weekly dashboard remittance controls", () => {
     expect(dashboard).toContain("RemittanceDownloadDialog");
     expect(dashboard).toContain("createRemittanceDownloadFlow");
     expect(dashboard).toContain('cache: "no-store"');
-    expect(dashboard).toContain("parseContentDispositionFilename");
-    expect(dashboard).toContain("remittanceFilename");
+    expect(dashboard).toContain("remittanceDownloadFilename");
+    expect(dashboard).not.toContain('from "@/lib/remittance"');
     expect(dashboard).toContain("window.location.assign(\"/sign-in\")");
     expect(dashboard).not.toContain("owner_user_id");
   });

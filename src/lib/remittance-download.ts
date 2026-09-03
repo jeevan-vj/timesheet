@@ -57,6 +57,19 @@ export function parseContentDispositionFilename(header: string | null): string |
   return value || null;
 }
 
+function remittanceFilenameSlug(contractorName: string): string {
+  const slug = contractorName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return slug || "contractor";
+}
+
+export function remittanceDownloadFilename(header: string | null, target: Pick<RemittanceDownloadTarget, "contractorName" | "weekEnd">): string {
+  return parseContentDispositionFilename(header) ?? `remittance-${remittanceFilenameSlug(target.contractorName)}-${target.weekEnd}.pdf`;
+}
+
 export function createRemittanceDownloadFlow(
   download: (request: RemittanceDownloadRequest) => Promise<void>,
   onChange?: (session: RemittanceDownloadSession) => void,

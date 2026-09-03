@@ -6,11 +6,10 @@ import { authClient } from "@/lib/auth-client";
 import { ContractorsPanel } from "@/components/contractors";
 import { ShiftEntrySheet } from "@/components/shift-entry";
 import { SiteSetup } from "@/components/site-setup";
-import { remittanceFilename } from "@/lib/remittance";
 import {
   createRemittanceDownloadFlow,
   idleRemittanceDownload,
-  parseContentDispositionFilename,
+  remittanceDownloadFilename,
   remittanceDownloadPrompt,
   remittanceErrorMessage,
   type RemittanceDownloadSession,
@@ -69,7 +68,7 @@ async function saveRemittancePdf(url: string, target: RemittanceDownloadTarget) 
   if (response.status === 401) { window.location.assign("/sign-in"); return false; }
   if (!response.ok) { const data = await response.json().catch(() => ({})) as { error?: string }; throw new Error(data.error ?? "request_failed"); }
   const blob = await response.blob();
-  const filename = parseContentDispositionFilename(response.headers.get("Content-Disposition")) ?? remittanceFilename(target.contractorName, target.weekEnd);
+  const filename = remittanceDownloadFilename(response.headers.get("Content-Disposition"), target);
   const objectUrl = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = objectUrl;
