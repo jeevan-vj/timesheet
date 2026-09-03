@@ -12,7 +12,7 @@ Non-negotiable rules:
 4. Do not log request bodies, contact details, rates, notes, session tokens, passwords, or authentication URLs.
 5. Store currency as integer cents and time as integer minutes; never persist calculated floating-point hours.
 6. Snapshot the effective rate on each time entry to protect historical totals.
-7. Validate all untrusted input at the API boundary and return non-disclosing errors.
+7. Validate all untrusted input at the API boundary and return non-disclosing errors. Contractor create/patch field messages are canned and do not disclose whether another owner's contractor exists.
 8. Cookie-authenticated mutations must enforce trusted-origin checks.
 9. Do not weaken authentication, authorization, validation, migrations, headers, or tests to make a change pass.
 10. `AGENTS.md`, `.github/**`, and `.factory/**` are protected control-plane code and require human merge approval.

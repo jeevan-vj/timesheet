@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { authClient } from "@/lib/auth-client";
+import { ContractorsPanel } from "@/components/contractors";
 import { ShiftEntrySheet } from "@/components/shift-entry";
 import { SiteSetup } from "@/components/site-setup";
 import { createShiftDeleteFlow, idleShiftDelete, shiftDeletePrompt, type ShiftDeleteSession, type ShiftDeleteTarget } from "@/lib/shift-delete";
@@ -43,7 +44,11 @@ export function Dashboard() {
     const response = await fetch(`/api/dashboard?week=${week}`, { cache: "no-store" });
     if (response.status === 401) { window.location.assign("/sign-in"); return; }
     if (generation !== loadGeneration.current) return;
-    if (!response.ok) { setMessage("Could not load this week. Please try again."); setLoading(false); return; }
+    if (!response.ok) {
+      if (!quiet) setMessage("Could not load this week. Please try again.");
+      setLoading(false);
+      return;
+    }
     setData(await response.json() as DashboardData); setLoading(false);
   }, [week]);
   useEffect(() => { void load(); }, [load]);
@@ -118,9 +123,8 @@ function WeekPicker({ week, onChange }: { week: string; onChange: (value: string
 }
 
 function SetupPanel({ data, mutate, onReload, onAnnounce }: { data: DashboardData; mutate: (action: () => Promise<void>, success: string) => Promise<void>; onReload: () => Promise<void>; onAnnounce: (message: string) => void }) {
-  return <section className="setup" id="team"><div><p className="eyebrow">Workspace setup</p><h2>Team & cleaning sites</h2><p className="muted">Add each contractor and site once, then connect them with the right rate.</p></div><div className="setup-grid"><SetupCard title="Sites" count={data.sites.length}><SiteSetup onReload={onReload} onAnnounce={onAnnounce} /></SetupCard><SetupCard title="Contractors" count={data.contractors.length}>{data.contractors.map((contractor) => <div className="compact-row" key={contractor.id}><strong>{contractor.name}</strong><small>{money(contractor.defaultRateCents)}/hr</small></div>)}<ContractorForm onSave={(body) => mutate(() => send("/api/contractors", body), "Contractor added.")} /></SetupCard><SetupCard title="Assignments" count={data.assignments.length}>{data.assignments.map((assignment) => { const contractor = data.contractors.find((c) => c.id === assignment.contractorId); const site = data.sites.find((s) => s.id === assignment.siteId); return <div className="compact-row" key={assignment.id}><strong>{contractor?.name} → {site?.name}</strong><small>{assignment.rateCents ? `${money(assignment.rateCents)}/hr override` : "Default rate"}</small></div>; })}<AssignmentForm data={data} onSave={(body) => mutate(() => send("/api/assignments", body), "Assignment added.")} /></SetupCard></div></section>;
+  return <section className="setup" id="team"><div><p className="eyebrow">Workspace setup</p><h2>Team & cleaning sites</h2><p className="muted">Add each contractor and site once, then connect them with the right rate.</p></div><div className="setup-grid"><SetupCard title="Sites" count={data.sites.length}><SiteSetup onReload={onReload} onAnnounce={onAnnounce} /></SetupCard><ContractorsPanel onNotice={onAnnounce} onChanged={onReload} /><SetupCard title="Assignments" count={data.assignments.length}>{data.assignments.map((assignment) => { const contractor = data.contractors.find((c) => c.id === assignment.contractorId); const site = data.sites.find((s) => s.id === assignment.siteId); return <div className="compact-row" key={assignment.id}><strong>{contractor?.name} → {site?.name}</strong><small>{assignment.rateCents ? `${money(assignment.rateCents)}/hr override` : "Default rate"}</small></div>; })}<AssignmentForm data={data} onSave={(body) => mutate(() => send("/api/assignments", body), "Assignment added.")} /></SetupCard></div></section>;
 }
 function SetupCard({ title, count, children }: { title: string; count: number; children: React.ReactNode }) { return <article className="setup-card"><div className="setup-title"><h3>{title}</h3><span>{count}</span></div><div className="compact-list">{children}</div></article>; }
-function ContractorForm({ onSave }: { onSave: (body: unknown) => Promise<void> }) { async function submit(e: FormEvent<HTMLFormElement>) { e.preventDefault(); const f = new FormData(e.currentTarget); await onSave({ name: f.get("name"), email: f.get("email"), phone: f.get("phone"), defaultRateCents: Math.round(Number(f.get("rate")) * 100) }); e.currentTarget.reset(); } return <details><summary>+ Add contractor</summary><form className="mini-form" onSubmit={submit}><input name="name" placeholder="Contractor name" required maxLength={100}/><input name="email" type="email" placeholder="Email (optional)"/><input name="phone" placeholder="Phone (optional)" maxLength={40}/><label>Default hourly rate (NZD)<input name="rate" type="number" min="15" max="250" step="0.01" defaultValue="30.00" required/></label><button className="button small">Save contractor</button></form></details>; }
 function AssignmentForm({ data, onSave }: { data: DashboardData; onSave: (body: unknown) => Promise<void> }) { async function submit(e: FormEvent<HTMLFormElement>) { e.preventDefault(); const f = new FormData(e.currentTarget); const value = String(f.get("rate")); await onSave({ contractorId: f.get("contractorId"), siteId: f.get("siteId"), rateCents: value ? Math.round(Number(value) * 100) : null }); e.currentTarget.reset(); } return <details><summary>+ Assign to site</summary><form className="mini-form" onSubmit={submit}><select name="contractorId" required><option value="">Choose contractor</option>{data.contractors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select><select name="siteId" required><option value="">Choose site</option>{data.sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select><label>Rate override (optional)<input name="rate" type="number" min="15" max="250" step="0.01" placeholder="Use default rate"/></label><button className="button small" disabled={!data.contractors.length || !data.sites.length}>Save assignment</button></form></details>; }
 function EmptyState({ title, body }: { title: string; body: string }) { return <div className="empty"><span>◷</span><h3>{title}</h3><p>{body}</p></div>; }

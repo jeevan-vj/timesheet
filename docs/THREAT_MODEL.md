@@ -10,19 +10,18 @@ Contractor identity/contact data, site locations, rates, work notes, time record
 | --- | --- |
 | One owner reads or mutates another owner's data | Server-derived owner ID plus owner predicates on every query and relation lookup |
 | Client forges ownership or a relationship | APIs do not accept owner IDs; assignment and entry services verify owner-scoped contractor/site rows |
+| Cross-owner contractor get, update, archive, or restore | Identical `404 { error: "not_found" }` with no writes; owner predicates on every contractor and assignment query |
 | Cross-owner site get, edit, archive, or restore | Owner-scoped site lookup returns `not_found`; no writes and no mention of other owners |
-| CSRF creates or deletes records | Cookie-authenticated mutations, including site create/edit/archive/restore, require a configured trusted Origin |
+| Same-owner duplicate contractor name, including archived | Unique `(owner, name)` index; `409 { error: "duplicate_contractor" }` is same-owner only |
 | Duplicate site names collide inside an owner | Unique owner/name index; create, edit, and restore map unique failures to `duplicate_site` without writing |
+| Rate changes rewrite prior payroll | Effective assignment/default rate is snapshotted on entry creation; contractor rate edits never rewrite `time_entry.rate_cents` |
+| Accidental contractor removal | Archive deactivates the contractor and assignments; no hard delete. Time entries use `ON DELETE RESTRICT`. Archive requires accessible confirmation naming the contractor; cancel or close does not call archive |
 | Archive is mistaken for hard-delete | Archive sets `active = false` and deactivates that site's assignments; the site row and historical time entries remain |
-| Rate changes rewrite prior payroll | Effective assignment/default rate is snapshotted on entry creation |
-| Duplicate daily entry inflates pay | Unique owner/contractor/site/date index, pre-insert owner-scoped lookup, and a specific `duplicate_entry` error |
-| Client forges an inline assignment | Assignment create still verifies owner-scoped contractor and site rows before the entry is stored |
-| Rate changes rewrite prior payroll | Effective assignment/default rate is snapshotted on entry creation. Duration/date/mode/notes-only edits keep that snapshot and do not re-read current rates |
-| Silent reprice on duration-only edit | PATCH preserves the stored rate snapshot unless contractor or site changes |
-| Reclassify to another contractor or site | Update snapshots the current assignment effective rate only when contractor or site changes, and only after an owner-scoped active assignment join |
 | Duplicate daily entry inflates pay | Unique owner/contractor/site/date index, pre-insert owner-scoped lookup, pre-update lookup that excludes the current entry id, and a specific `duplicate_entry` error |
 | Client forges an inline assignment | Assignment create still verifies owner-scoped contractor and site rows before the entry is stored; updates never create assignments |
-| CSRF creates, updates, or deletes records | Cookie-authenticated mutations (POST, PATCH, DELETE) require a configured trusted Origin |
+| Rate changes rewrite prior payroll on duration-only edit | PATCH preserves the stored rate snapshot unless contractor or site changes |
+| Reclassify to another contractor or site | Update snapshots the current assignment effective rate only when contractor or site changes, and only after an owner-scoped active assignment join |
+| CSRF creates, updates, or deletes records | Cookie-authenticated mutations (POST, PATCH, DELETE), including site and contractor create/edit/archive/restore, require a configured trusted Origin |
 | Cross-owner inspect, update, or delete | Owner-scoped GET, PATCH, and DELETE return a non-disclosing `not_found` 404 |
 | Accidental deletion of a recorded shift | Confirmation dialog before the existing owner-scoped DELETE; authorization and payroll math are unchanged |
 | Money/time rounding drift | Integer cents and minutes; per-entry cent rounding is specified and tested |

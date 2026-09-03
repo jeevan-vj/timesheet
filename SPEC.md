@@ -14,7 +14,7 @@ All business data is private to an authenticated owner. Every domain query and m
 
 Owners can create, list, view, edit, archive, and restore cleaning sites. Site names are unique per owner; a duplicate create, edit, or restore returns `duplicate_site` and does not write. Archive is a soft-delete of the same row (`active = false`) and, in the same batch, deactivates that site's owner-scoped active assignments. Restore sets the same row `active = true` and reactivates that site's currently-inactive assignments. Archived sites are omitted from the default list and cannot be selected for new assignments or time entries. Historical time entries keep the archived site's identity and snapshotted pay.
 
-A contractor has a default hourly rate in integer cents and may work at many sites.
+Owners can list, create, read, update, archive, and restore contractors. A contractor has a default hourly rate in integer cents and may work at many sites. Contractor names are unique per owner, including archived rows; different owners may share names. Archive deactivates the contractor and that owner's assignments for the contractor; it does not delete rows or time entries. Restore reactivates the same contractor row and those assignments. Dashboard contractor and site selects stay active-only.
 
 ### CT-003 Site assignments
 
@@ -32,7 +32,7 @@ Edit requires an active same-owner assignment only when contractor or site chang
 
 ### CT-005 Historical rate integrity
 
-The effective hourly rate is copied onto every new time entry. Changing a contractor or assignment rate never changes historical pay.
+The effective hourly rate is copied onto every new time entry. Changing a contractor or assignment rate never rewrites historical `rate_cents`. Archived contractors remain readable by the owner; historical weeks keep the contractor name and snapshotted pay. Contractor update, archive, and restore never update or delete time entries.
 
 Correcting an entry without changing contractor or site keeps the original snapshotted rate. Changing contractor or site snapshots the current assignment effective rate as a reclassification.
 

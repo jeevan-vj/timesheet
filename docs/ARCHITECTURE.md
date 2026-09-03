@@ -14,6 +14,31 @@ The weekly dashboard GET remains the collection read for time entries: Monday–
 
 An owner inspects one recorded shift with GET `/api/time-entries/:id`, which returns the dashboard-entry-shaped row (including contractor and site display names) after owner-scoped inner joins. PATCH `/api/time-entries/:id` updates contractor, site, date, entry mode, duration/clock, break, and notes. If contractor and site are unchanged, the original `rate_cents` snapshot is kept. If contractor or site changes, the service requires an active same-owner assignment and snapshots that assignment's effective rate as a reclassification.
 
+## Contractor lifecycle
+
+A contractor row stays in place for the owner's history. Archive sets `active=false` on all of that owner's assignments for the contractor, then on the contractor row. Restore is the inverse on the same row (contractor first, then assignments) and never inserts a new contractor. Both writes are issued in one Drizzle D1 `batch` so they share a single round trip. D1 batch is not rollback-atomic; retry remains safe because the operations are idempotent. Both never write `time_entry`.
+
+The unique index `contractor_owner_name_uq` on `(owner_user_id, name)` includes archived rows. A same-owner create or rename that collides, including with an archived name, returns `409 { error: "duplicate_contractor" }`. Different owners may share names. Cross-owner get, update, archive, and restore return identical `404 { error: "not_found" }` with no writes.
+
+`GET /api/dashboard` contractor and site selects remain active-only. The assignment query returns only active assignments whose contractor and site are also `active=true`. Time-entry joins still load contractors and sites without an active filter so historical weeks keep names and snapshotted pay. Creating an assignment or time entry still requires an active contractor and site; an archived contractor or site is `not_found`.
+
+### Contractor HTTP contract
+
+`ContractorResource` omits `ownerUserId` and serializes timestamps as JSON dates:
+
+`{ id, name, email, phone, defaultRateCents, currency: "NZD", active, createdAt, updatedAt }`
+
+| Method | Path | Cookie mutation | Success |
+| --- | --- | --- | --- |
+| GET | `/api/contractors` | no | `200 { contractors: ContractorResource[] }` name asc; `includeArchived` omit/false/0 = active only, true/1 = active+archived |
+| POST | `/api/contractors` | yes | `201 ContractorResource` |
+| GET | `/api/contractors/[id]` | no | `200 ContractorResource` (archived readable by owner) |
+| PATCH | `/api/contractors/[id]` | yes | `200 ContractorResource` |
+| POST | `/api/contractors/[id]/archive` | yes | `200 ContractorResource` `active: false` |
+| POST | `/api/contractors/[id]/restore` | yes | `200 ContractorResource` `active: true` |
+
+There is no DELETE on contractors. Cookie-authenticated mutations use `authorize(request, true)`. Errors: `401 unauthorized`, `403 forbidden`, `404 not_found`, `409 duplicate_contractor`, `413 payload_too_large`, `400 invalid_request` (optional `fields` on create/patch Zod failures only).
+
 ## Runtime
 
 The vinext App Router runs as a Cloudflare Worker. D1 is accessed through the `DB` binding with Drizzle. Better Auth stores users and sessions in the same D1 database. The browser calls same-origin route handlers; route handlers validate input and invoke owner-scoped services.
