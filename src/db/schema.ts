@@ -113,4 +113,16 @@ export const timeEntries = sqliteTable("time_entry", {
   uniqueIndex("time_entry_owner_contractor_site_date_uq").on(t.ownerUserId, t.contractorId, t.siteId, t.workDate),
 ]);
 
+export const weekApprovals = sqliteTable("week_approval", {
+  id: text("id").primaryKey(),
+  ...ownedFields,
+  weekStart: text("week_start").notNull(),
+  status: text("status").notNull().$type<"open" | "approved">(),
+  approvedAt: integer("approved_at", { mode: "timestamp" }),
+  reopenedAt: integer("reopened_at", { mode: "timestamp" }),
+}, (t) => [
+  index("week_approval_owner_idx").on(t.ownerUserId),
+  uniqueIndex("week_approval_owner_week_uq").on(t.ownerUserId, t.weekStart),
+]);
+
 export const authSchema = { user, session, account, verification, rateLimit };
