@@ -22,6 +22,7 @@ async function openMemoryDb() {
   const sqlite = new SQL.Database();
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0000_initial.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0001_entry_mode.sql"), "utf8"));
+  sqlite.exec(fs.readFileSync(path.resolve("drizzle/0002_week_approval.sql"), "utf8"));
   const database = drizzle(sqlite) as unknown as TimesheetDb;
   return { sqlite, database };
 }
