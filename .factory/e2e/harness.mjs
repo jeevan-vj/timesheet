@@ -54,15 +54,15 @@ async function waitForHealth(baseUrl, timeoutMs = 90_000) {
 
 function writeDevVars(cwd, baseUrl) {
   const secret = process.env.BETTER_AUTH_SECRET || "local-development-secret-change-me-123456789";
-  fs.writeFileSync(
-    path.join(cwd, ".dev.vars"),
-    [
-      `BETTER_AUTH_SECRET=${secret}`,
-      `BETTER_AUTH_URL=${baseUrl}`,
-      `AUTH_TRUSTED_ORIGINS=${baseUrl}`,
-      "",
-    ].join("\n"),
-  );
+  const contents = [
+    `BETTER_AUTH_SECRET=${secret}`,
+    `BETTER_AUTH_URL=${baseUrl}`,
+    `AUTH_TRUSTED_ORIGINS=${baseUrl}`,
+    "",
+  ].join("\n");
+  fs.writeFileSync(path.join(cwd, ".dev.vars"), contents);
+  const distDir = path.join(cwd, "dist", "server");
+  if (fs.existsSync(distDir)) fs.writeFileSync(path.join(distDir, ".dev.vars"), contents);
 }
 
 function spawnLogged(command, args, { cwd, extraEnv = {} } = {}) {

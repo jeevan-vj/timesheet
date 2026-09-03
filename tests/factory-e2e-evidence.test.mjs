@@ -252,6 +252,7 @@ describe("factory E2E workflows stay fail-closed and complementary", () => {
   const repair = fs.readFileSync(new URL("../.github/workflows/factory-repair.yml", import.meta.url), "utf8");
   const prGate = fs.readFileSync(new URL("../.github/workflows/factory-pr.yml", import.meta.url), "utf8");
   const e2e = fs.readFileSync(new URL("../.github/workflows/factory-e2e.yml", import.meta.url), "utf8");
+  const harness = fs.readFileSync(new URL("../.factory/e2e/harness.mjs", import.meta.url), "utf8");
   const smoke = fs.readFileSync(new URL("../.github/scripts/production-smoke.mjs", import.meta.url), "utf8");
   const release = fs.readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
 
@@ -270,6 +271,10 @@ describe("factory E2E workflows stay fail-closed and complementary", () => {
     expect(e2e).toContain("evaluate-e2e-evidence.mjs");
     expect(e2e).toContain("retention-days: 14");
     expect(e2e).toContain("persist-credentials: false");
+    expect(e2e).toContain("pull-requests: read");
+    expect(e2e).toContain('gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}"');
+    expect(e2e).toContain("cp .dev.vars dist/server/.dev.vars");
+    expect(harness).toContain('path.join(distDir, ".dev.vars")');
     expect(e2e).not.toContain("CLOUDFLARE_API_TOKEN");
   });
 
