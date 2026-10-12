@@ -9,6 +9,7 @@ import {
   selectActionableFactoryReview,
   selectMergeableFactoryReview,
 } from '../.factory/review-bots.mjs';
+import { planIndependentReview } from '../.factory/review-dispatch.mjs';
 
 describe('Cursor factory', () => {
   it('starts Cursor intake from factory:ready and ignores bare @cursor mentions', () => {
@@ -167,11 +168,26 @@ describe('Cursor factory', () => {
     expect(repair).not.toContain('/cancel');
     expect(controller).toContain('@codex review');
     expect(controller).toContain('factory-review-request:');
+    expect(controller).toContain('review-dispatch.mjs');
+    expect(controller).toContain('no trusted independent review covers this head');
+    const dispatchAt = controller.indexOf('review-dispatch.mjs');
+    const riskAt = controller.indexOf('if [ "$risk" != low ]');
+    const waitAt = controller.indexOf('if [ "$review_action" != proceed ]; then');
+    expect(dispatchAt).toBeGreaterThan(-1);
+    expect(riskAt).toBeGreaterThan(dispatchAt);
+    expect(waitAt).toBeGreaterThan(riskAt);
     expect(controller).toContain('/replies');
     expect(controller).toContain('resolveReviewThread');
     expect(controller).toContain('--remove-label factory:needs-human');
     expect(controller).toContain('contents: write');
     expect(controller).toContain('selectMergeableFactoryReview');
     expect(controller).not.toContain('[ "$comments" -eq 0 ]');
+  });
+  it('requests an independent review for an unreviewed head and waits without asking twice', () => {
+    expect(planIndependentReview({ reviewId: '', requestCount: 0 })).toBe('request');
+    expect(planIndependentReview({ reviewId: '   ', requestCount: 0 })).toBe('request');
+    expect(planIndependentReview({ reviewId: '', requestCount: 1 })).toBe('wait');
+    expect(planIndependentReview({ reviewId: '99', requestCount: 0 })).toBe('proceed');
+    expect(planIndependentReview({ reviewId: '99', requestCount: 2 })).toBe('proceed');
   });
 });
