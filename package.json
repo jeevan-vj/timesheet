@@ -11,7 +11,9 @@
     "deploy": "vinext-cloudflare deploy",
     "test": "vitest run",
     "test:watch": "vitest",
+    "lint": "node scripts/lint-paved-path.mjs",
     "typecheck": "tsc --noEmit",
+    "verify": "pnpm lint && pnpm test && pnpm typecheck && pnpm build",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply cleantrack-timesheet --local",
     "cf:types": "wrangler types worker-configuration.d.ts --include-runtime false"

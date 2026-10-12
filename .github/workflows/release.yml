@@ -25,6 +25,7 @@ jobs:
         with:
           node-version: 22
       - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm lint
       - run: pnpm test
       - run: pnpm typecheck
       - run: pnpm build

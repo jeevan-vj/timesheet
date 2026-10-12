@@ -26,9 +26,9 @@ Then create the first owner account at `/sign-up` and open `/dashboard`.
 ## Verification
 
 ```bash
-pnpm test
-pnpm typecheck
-pnpm build
+pnpm verify
 ```
+
+`pnpm verify` is the paved path: lint, test, typecheck, and build. See [.factory/POTATO.md](.factory/POTATO.md) for how agents specify, implement, verify, and ship on top of the existing factory.
 
 See [SPEC.md](SPEC.md), [SECURITY.md](SECURITY.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [.factory/SETUP.md](.factory/SETUP.md), [.factory/control-plane.md](.factory/control-plane.md), and [.factory/e2e-evidence.md](.factory/e2e-evidence.md).

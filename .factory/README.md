@@ -2,6 +2,8 @@
 
 State machine: `issue -> orchestrate -> spec -> specialist implementation -> behavior verification -> PR -> deterministic gate -> E2E evidence -> independent review -> merge`.
 
+How an agent behaves inside that machine is [POTATO.md](POTATO.md): a reusable `pnpm verify` command, the [feature map](feature-map.json), proof from the running app, and autonomy limited by `.factory/risk-policy.json`. Do not add a parallel intake path.
+
 Canonical factory state is owned by the [control plane](control-plane.md): an immutable Factory Run ID, explicit state machine, append-only event log, structured failures, and deterministic recovery. GitHub labels (`factory:ready`, `factory:delegated`, `factory:implementing`, `factory:needs-human`, `factory:complete`) are projections, not authority.
 
 One durable cloud orchestrator owns one issue, one branch, and one PR. It first asks a read-only spec agent for a task contract, then routes the approved work to the database, API, and frontend specialists that are actually needed. Editing specialists run sequentially in the shared checkout. A read-only verifier checks the integrated acceptance criteria and sends blocking findings back through the orchestrator for at most two repair cycles.

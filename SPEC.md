@@ -82,6 +82,14 @@ An assignment may have an optional weekday template stored as versioned `assignm
 - **Apply** is idempotent and owner-scoped. Existing rows, approved dates, and archived assignments are skipped per date; apply never throws `week_locked` for the whole week.
 - **Exceptions:** `absent` this day stores `paid_minutes = 0` and `occurrence_kind = absent`; `hours_override` this day changes that date only; `worked_as_scheduled` restores paid minutes from that row's historical version. `hours_override` going-forward opens a new version; Monday of an unlocked week becomes scheduled under the new version. Manual entries return `no_schedule`. Clients cannot POST `occurrenceKind: scheduled`; PATCH of a scheduled/absent/override duration becomes `hours_override`. Dashboard GET never inserts `time_entry` or `assignment_schedule_version` rows.
 
+### CT-012 Site pay rollup
+
+The weekly dashboard shows paid hours and gross pay grouped by site, next to the existing contractor summary. The rollup is derived in the browser from the time entries already returned for that owner and week. Each positive-minute entry contributes `calculateEntryPayCents(paidMinutes, rateCents)` using the snapshotted entry rate. A 0-minute row adds minutes only and does not call pay math. Site totals sum to the same minutes and cents as the contractor summary. Nothing is stored, and week approval still compare-and-sets the contractor summary only.
+
+### CT-013 Copy week brief
+
+An owner can copy a plain-text brief of the week they are viewing: the Monday–Sunday range, one line per contractor, one line per site, and the gross total. The brief includes names, durations, and pay only. It does not include rates, notes, email, or phone. Copy uses the clipboard and does not call an API. An empty week copies an explicit "No shifts this week." brief with a zero total.
+
 Product slice: `owner -> contractors + sites -> assignments (+ optional schedule versions) -> daily time entries -> weekly summary`.
 
 ## Non-goals

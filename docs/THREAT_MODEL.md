@@ -41,6 +41,8 @@ Contractor identity/contact data, site locations, rates, work notes, time record
 | Absence counted as paid time | Absent rows store `paid_minutes = 0` and `occurrence_kind = absent`. `summarizeWeek` / remittance line pay skip `calculateEntryPayCents` when minutes are 0 |
 | Duplicate daily entry from apply-schedule | Unique owner/contractor/site/date index; apply skips any existing row for that key and does not throw `duplicate_entry` |
 | Apply restores an archived assignment | Apply inner-joins `assignment.active = true` with active owned contractor and site; archived assignments are skipped and historical entries remain |
+| Site rollup or week brief recomputes pay from current rates | Both are derived from the owner-scoped dashboard entries already loaded; positive minutes use `calculateEntryPayCents` on the snapshotted `rateCents`. No new route, write, or log |
+| Week brief leaves the browser | Copy is an explicit owner action of names, durations, and totals already on screen. The text omits rates, notes, email, and phone, and it is not sent to an API |
 | Sensitive data reaches logs | No request-body, site name/address, PDF bytes, contractor, rate, or pay logging; automated boundary test |
 | Cloud agent reaches production | Cursor receives no production secrets; trusted GitHub workflows own merge/deploy gates |
 
