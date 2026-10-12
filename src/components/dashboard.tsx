@@ -7,6 +7,7 @@ import { ContractorsPanel } from "@/components/contractors";
 import { ShiftEntrySheet } from "@/components/shift-entry";
 import { SiteSetup } from "@/components/site-setup";
 import { AddRepeatingSchedule, WeekGrid } from "@/components/week-grid";
+import { mondayFor, shiftWeek, thisWeekSelection } from "@/components/week-picker";
 import { assignmentMutationMessage } from "@/lib/assignment-manage";
 import {
   createRemittanceDownloadFlow,
@@ -62,11 +63,6 @@ type ManualEntry = Entry & { entryMode: "clock" | "paid_hours"; occurrenceKind: 
 type Summary = { contractorId: string; contractorName: string; paidMinutes: number; payCents: number };
 type DashboardData = { weekStart: string; weekEnd: string; sites: Site[]; contractors: Contractor[]; assignments: Assignment[]; entries: Entry[]; summary: Summary[]; approval: WeekApproval };
 
-function mondayFor(date = new Date()): string {
-  const value = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  const day = value.getUTCDay() || 7; value.setUTCDate(value.getUTCDate() - day + 1); return value.toISOString().slice(0, 10);
-}
-function shiftWeek(week: string, days: number): string { const value = new Date(`${week}T00:00:00Z`); value.setUTCDate(value.getUTCDate() + days); return value.toISOString().slice(0, 10); }
 function duration(minutes: number) { return formatMinutes(minutes); }
 function money(cents: number) { return formatNzd(cents); }
 function readableDate(value: string) { return new Intl.DateTimeFormat("en-NZ", { day: "numeric", month: "short" }).format(new Date(`${value}T00:00:00Z`)); }
@@ -303,7 +299,7 @@ function RemittanceDownloadDialog({ session, onCancel, onConfirm }: { session: R
 }
 
 function WeekPicker({ week, onChange }: { week: string; onChange: (value: string) => void }) {
-  return <div className="week-picker"><button onClick={() => onChange(shiftWeek(week, -7))} aria-label="Previous week">←</button><label>Week of<input type="date" value={week} onChange={(e) => onChange(mondayFor(new Date(`${e.target.value}T12:00:00`)))} /></label><button onClick={() => onChange(shiftWeek(week, 7))} aria-label="Next week">→</button></div>;
+  return <div className="week-picker"><button type="button" onClick={() => onChange(shiftWeek(week, -7))} aria-label="Previous week">←</button><button type="button" className="this-week" onClick={() => onChange(thisWeekSelection(week))}>This week</button><label>Week of<input type="date" value={week} onChange={(e) => onChange(mondayFor(new Date(`${e.target.value}T12:00:00`)))} /></label><button type="button" onClick={() => onChange(shiftWeek(week, 7))} aria-label="Next week">→</button></div>;
 }
 
 function SetupPanel({ data, weekLocked, onReload, onAnnounce }: { data: DashboardData; weekLocked: boolean; onReload: () => Promise<void>; onAnnounce: (message: string) => void }) {
