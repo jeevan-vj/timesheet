@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "app": "CleanTrack",
+  "start": "pnpm dev",
+  "verify": "pnpm verify",
+  "notes": "Use a synthetic owner. Do not type real contractor details, rates, or notes into logs or PR text.",
+  "features": [
+    {
+      "id": "sign-up",
+      "name": "Create owner account",
+      "path": "/sign-up",
+      "reach": "Open /sign-up, submit name, email, and password.",
+      "expect": "The browser lands on /dashboard."
+    },
+    {
+      "id": "empty-week",
+      "name": "Empty week",
+      "path": "/dashboard",
+      "reach": "Sign in and stay on the current week before adding shifts.",
+      "expect": "The heading 'No shifts this week' is visible. Copy week brief still copies a zero total."
+    },
+    {
+      "id": "record-shift",
+      "name": "Record a shift",
+      "path": "/dashboard",
+      "reach": "Add a site, add a contractor, assign them, then use the shift sheet.",
+      "expect": "The week grid shows the shift. Contractor pay uses the snapshotted rate."
+    },
+    {
+      "id": "week-site-summary",
+      "name": "Pay by site",
+      "path": "/dashboard",
+      "selector": "[data-feature='week-site-summary']",
+      "reach": "Record shifts at two sites, then read the payment summary.",
+      "expect": "By site lists each site's hours and gross pay. The site cents sum to the contractor total."
+    },
+    {
+      "id": "copy-week-brief",
+      "name": "Copy week brief",
+      "path": "/dashboard",
+      "selector": "[data-feature='copy-week-brief']",
+      "reach": "Press Copy week brief on a week that has shifts.",
+      "expect": "A status message says the brief was copied. The text has contractor lines, site lines, and a total, and it has no rates or email addresses."
+    },
+    {
+      "id": "approve-week",
+      "name": "Approve week",
+      "path": "/dashboard",
+      "reach": "Press Approve week and confirm the totals.",
+      "expect": "The week badge says Approved and shift edits are refused until reopen."
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+---
+description: Potato loop for CleanTrack agents. Follow it for any non-trivial change.
+alwaysApply: true
+---
+
+# Potato loop
+
+Read `.factory/POTATO.md` and `.factory/feature-map.json` before editing. The factory in `.factory/` already owns intake, runs, and merge. Do not invent a second workflow.
+
+- One scoped change, one branch, one PR.
+- State the outcome and acceptance criteria before code.
+- Put behavior in a test when it is pay, authorization, or a new derivation.
+- Run `pnpm verify` (lint, test, typecheck, build). Do not write a fresh check script.
+- For UI, run the app and walk the feature-map entry. Screenshots belong in the PR.
+- The author of a change does not declare it verified. A green build is not UI proof.
+- Keep pay in integer cents and durations in integer minutes. Site rollups call `calculateEntryPayCents` on snapshotted rates.
+- Never log contractor details, rates, notes, request bodies, tokens, or passwords.
+- Encode a repeated agent mistake as a lint or a type, not as a comment that explains a workaround.
+- High-risk and protected paths in `.factory/risk-policy.json` stay human-gated after checks pass.

@@ -15,3 +15,5 @@ Repository variables:
 Autonomous merge is intentionally limited to low-risk changes. Medium, high, and protected changes always require human approval.
 
 The first merge adding this factory is a protected control-plane change and must be reviewed and merged by a human.
+
+Agent behavior inside a factory run is [.factory/POTATO.md](POTATO.md). Preview deploys are configured in [docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md) and stay off until the preview secrets and variables exist.

@@ -14,11 +14,17 @@ Read and obey `AGENTS.md`, the product/security/architecture contracts, `.factor
 
 ## Goal
 
-Describe the desired outcome.
+Describe the outcome, not the steps. Restate the user-visible result.
 
 ## Acceptance criteria
 
 - [ ]
+
+## Verification
+
+- [ ] `pnpm verify` passes.
+- [ ] UI changes name the `.factory/feature-map.json` ids exercised and include a screenshot or recording.
+- [ ] Non-UI changes name the test or command that proves the behavior.
 
 ## Constraints / non-goals
 

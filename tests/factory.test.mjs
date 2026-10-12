@@ -93,6 +93,7 @@ describe('Cursor factory', () => {
     const policy=loadPolicy();
     expect(classifyRisk(['.github/workflows/factory.yml'],policy)).toBe('protected');
     expect(classifyRisk(['src/lib/payroll.ts'],policy)).toBe('high');
+    expect(classifyRisk(['src/lib/week-rollup.ts'],policy)).toBe('high');
     expect(classifyRisk(['src/lib/api.ts'],policy)).toBe('high');
     expect(classifyRisk(['src/lib/request-session.ts'],policy)).toBe('high');
     expect(classifyRisk(['src/lib/accounts-config.ts'],policy)).toBe('high');

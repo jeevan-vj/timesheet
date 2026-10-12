@@ -20,6 +20,7 @@ import {
 import { createShiftDeleteFlow, idleShiftDelete, shiftDeletePrompt, type ShiftDeleteSession } from "@/lib/shift-delete";
 import { applyThenDashboardUrls, shouldApplySchedule } from "@/lib/week-load";
 import { buildWeekGridRows, weekGridIsEmpty } from "@/lib/week-grid";
+import { formatMinutes, formatNzd, formatWeekBrief, summarizeWeekBySite } from "@/lib/week-rollup";
 import {
   canApproveWeek,
   canReopenWeek,
@@ -66,8 +67,8 @@ function mondayFor(date = new Date()): string {
   const day = value.getUTCDay() || 7; value.setUTCDate(value.getUTCDate() - day + 1); return value.toISOString().slice(0, 10);
 }
 function shiftWeek(week: string, days: number): string { const value = new Date(`${week}T00:00:00Z`); value.setUTCDate(value.getUTCDate() + days); return value.toISOString().slice(0, 10); }
-function money(cents: number) { return new Intl.NumberFormat("en-NZ", { style: "currency", currency: "NZD" }).format(cents / 100); }
-function duration(minutes: number) { return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`; }
+function duration(minutes: number) { return formatMinutes(minutes); }
+function money(cents: number) { return formatNzd(cents); }
 function readableDate(value: string) { return new Intl.DateTimeFormat("en-NZ", { day: "numeric", month: "short" }).format(new Date(`${value}T00:00:00Z`)); }
 function fullDate(value: string) { return new Intl.DateTimeFormat("en-NZ", { weekday: "short", day: "numeric", month: "long", year: "numeric" }).format(new Date(`${value}T00:00:00Z`)); }
 function mutateErrorMessage(error: unknown) {
@@ -151,6 +152,22 @@ export function Dashboard() {
   useEffect(() => { void load(); }, [load]);
   const totalMinutes = data?.summary.reduce((sum, row) => sum + row.paidMinutes, 0) ?? 0;
   const totalPay = data?.summary.reduce((sum, row) => sum + row.payCents, 0) ?? 0;
+  const siteSummary = data ? summarizeWeekBySite(data.entries) : [];
+  async function copyWeekBrief() {
+    if (!data) return;
+    const text = formatWeekBrief({
+      weekStart: data.weekStart,
+      weekEnd: data.weekEnd,
+      contractors: data.summary.map((row) => ({ name: row.contractorName, paidMinutes: row.paidMinutes, payCents: row.payCents })),
+      sites: siteSummary.map((row) => ({ name: row.siteName, paidMinutes: row.paidMinutes, payCents: row.payCents })),
+    });
+    try {
+      await navigator.clipboard.writeText(text);
+      setMessage("Week brief copied.");
+    } catch {
+      setMessage("Could not copy the week brief.");
+    }
+  }
 
   async function mutate(action: () => Promise<void>, success: string) {
     try {
@@ -210,7 +227,11 @@ export function Dashboard() {
         <section className="panel"><div className="panel-title"><div><p className="eyebrow">Monday – Sunday</p><h2>{readableDate(data.weekStart)} – {readableDate(data.weekEnd)}</h2></div><div className="week-panel-tools"><AddRepeatingSchedule assignments={data.assignments} contractors={data.contractors} sites={data.sites} weekStart={data.weekStart} locked={weekLocked} onSave={async (assignmentId, body) => { await send(`/api/assignments/${assignmentId}/schedule`, body, "PUT"); await load(true); setMessage("Repeating schedule added."); }} /><ShiftEntrySheet data={data} locked={weekLocked} onSave={async (body) => { await send("/api/time-entries", body); await load(true); setMessage("Shift added."); }} /></div></div>
           {weekGridIsEmpty(buildWeekGridRows({ assignments: data.assignments, contractors: data.contractors, sites: data.sites, entries: data.entries }), data.entries) ? <EmptyState title="No shifts this week" body="Record the first shift after adding a contractor and assigning them to a site." /> : <WeekGrid weekStart={data.weekStart} assignments={data.assignments} contractors={data.contractors} sites={data.sites} entries={data.entries} locked={weekLocked} onEdit={(entry) => { if (entry.occurrenceKind !== "manual" || entry.entryMode === "absent") return; setEditing(entry as ManualEntry); }} onDelete={(target) => deleteFlow.request(target)} onException={async (url, body) => { try { await send(url, body); await load(true); setMessage("Timesheet updated."); } catch (error) { setMessage(mutateErrorMessage(error)); throw error; } }} />}
         </section>
-        <aside className="panel summary-panel"><p className="eyebrow">Payment summary</p><h2>What to pay</h2>{data.summary.length ? <>{data.summary.map((row) => <div className="summary-row" key={row.contractorId}><div><strong>{row.contractorName}</strong><small>{duration(row.paidMinutes)}</small><button type="button" className="button small secondary" aria-label={`Download remittance for ${row.contractorName}`} onClick={() => remittanceFlow.request({ contractorId: row.contractorId, contractorName: row.contractorName, weekStart: data.weekStart, weekEnd: data.weekEnd })}>Remittance</button></div><b>{money(row.payCents)}</b></div>)}<div className="summary-total"><span>Total</span><strong>{money(totalPay)}</strong></div></> : <p className="muted roomy">Payment totals appear as shifts are added.</p>}</aside>
+        <aside className="panel summary-panel">
+          <div className="summary-heading"><div><p className="eyebrow">Payment summary</p><h2>What to pay</h2></div><button type="button" className="button small secondary summary-copy" data-feature="copy-week-brief" onClick={() => void copyWeekBrief()}>Copy week brief</button></div>
+          {data.summary.length ? <>{data.summary.map((row) => <div className="summary-row" key={row.contractorId}><div><strong>{row.contractorName}</strong><small>{duration(row.paidMinutes)}</small><button type="button" className="button small secondary" aria-label={`Download remittance for ${row.contractorName}`} onClick={() => remittanceFlow.request({ contractorId: row.contractorId, contractorName: row.contractorName, weekStart: data.weekStart, weekEnd: data.weekEnd })}>Remittance</button></div><b>{money(row.payCents)}</b></div>)}<div className="summary-total"><span>Total</span><strong>{money(totalPay)}</strong></div></> : <p className="muted roomy">Payment totals appear as shifts are added.</p>}
+          <div className="site-summary" data-feature="week-site-summary"><h3 className="summary-subhead">By site</h3>{siteSummary.length ? siteSummary.map((row) => <div className="summary-row" key={row.siteId}><div><strong>{row.siteName}</strong><small>{duration(row.paidMinutes)}</small></div><b>{money(row.payCents)}</b></div>) : <p className="muted">Site totals appear as shifts are added.</p>}</div>
+        </aside>
       </section>
       <SetupPanel data={data} weekLocked={weekLocked} onReload={() => load(true)} onAnnounce={setMessage} />
     </>}

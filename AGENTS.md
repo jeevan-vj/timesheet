@@ -15,8 +15,11 @@ For non-trivial work:
 1. Write a short plan and acceptance criteria.
 2. Use TDD where practical.
 3. Implement the smallest coherent vertical slice.
-4. Run `pnpm install --frozen-lockfile`, `pnpm test`, `pnpm typecheck`, and `pnpm build`.
-5. Review the final diff for authorization, payroll, migration, and unintended behavior changes.
+4. Run `pnpm install --frozen-lockfile` and `pnpm verify` (lint, test, typecheck, build).
+5. For UI changes, run the app and exercise the flow. Put screenshots or a short recording in the PR.
+6. Review the final diff for authorization, payroll, migration, and unintended behavior changes.
+
+The factory in `.factory/` is the intake and merge machine. `.factory/POTATO.md` is how an agent should behave inside it: one scoped change, a separate verification pass, proof from the running app, and autonomy that matches blast radius. Do not start a second intake path.
 
 ## Hard rules
 
