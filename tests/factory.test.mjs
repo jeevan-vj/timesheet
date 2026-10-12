@@ -167,6 +167,7 @@ describe('Cursor factory', () => {
     expect(repair).toContain('current_head=');
     expect(repair).not.toContain('/cancel');
     expect(controller).toContain('@codex review');
+    expect(controller).toContain('bugbot run');
     expect(controller).toContain('factory-review-request:');
     expect(controller).toContain('review-dispatch.mjs');
     expect(controller).toContain('no trusted independent review covers this head');

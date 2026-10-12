@@ -145,9 +145,9 @@ jobs:
                   gh api --method POST "repos/$REPOSITORY/pulls/$pr/comments/$comment_id/replies" -f body="Factory repair produced commit $head, and the deterministic gate plus E2E evidence passed. A fresh independent review has been requested before this thread is resolved.\n\n$reply_marker" >/dev/null
                 fi
               done <<< "$blocking_ids"
-              printf -v review_request '@codex review\n\nFactory repair produced commit %s and the deterministic gate plus E2E evidence passed. Please independently re-review the current head before the factory proceeds.\n\n%s' "$head" "$marker"
+              printf -v review_request 'bugbot run\n\n@codex review\n\nFactory repair produced commit %s and the deterministic gate plus E2E evidence passed. Please independently re-review the current head before the factory proceeds.\n\n%s' "$head" "$marker"
             else
-              printf -v review_request '@codex review\n\nThe deterministic gate and E2E evidence passed for commit %s, and no trusted independent review covers this head. Please independently review the current head before the factory proceeds.\n\n%s' "$head" "$marker"
+              printf -v review_request 'bugbot run\n\n@codex review\n\nThe deterministic gate and E2E evidence passed for commit %s, and no trusted independent review covers this head. Please independently review the current head before the factory proceeds.\n\n%s' "$head" "$marker"
             fi
             gh pr comment "$pr" --repo "$REPOSITORY" --body "$review_request"
           fi
