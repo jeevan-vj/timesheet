@@ -1,7 +1,7 @@
 name: Factory Trusted Controller
 on:
   workflow_run:
-    workflows: [Factory PR Gate, Factory Review Signal, Factory E2E Evidence]
+    workflows: [Factory PR Gate, Factory Review Signal, Factory E2E Evidence, Factory Review Comment]
     types: [completed]
 permissions:
   contents: read
@@ -31,9 +31,21 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
           RUN_PRS: ${{ toJson(github.event.workflow_run.pull_requests) }}
+          TRIGGER_WORKFLOW: ${{ github.event.workflow_run.name }}
+          TRIGGER_RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
           set -euo pipefail
-          pr="$(printf '%s' "$RUN_PRS" | jq -r '.[0].number // empty')"
+          pr=""
+          if [ "${TRIGGER_WORKFLOW:-}" = "Factory Review Comment" ]; then
+            comment_dir="$RUNNER_TEMP/factory-review-comment"
+            rm -rf "$comment_dir"
+            gh run download "$TRIGGER_RUN_ID" --repo "$REPOSITORY" --name factory-review-comment --dir "$comment_dir"
+            pr="$(tr -d '[:space:]' < "$comment_dir/pr.txt")"
+            case "$pr" in
+              ''|*[!0-9]*) exit 0 ;;
+            esac
+          fi
+          if [ -z "$pr" ]; then pr="$(printf '%s' "$RUN_PRS" | jq -r '.[0].number // empty')"; fi
           if [ -z "$pr" ]; then [ -n "$HEAD_BRANCH" ] || exit 0; pr="$(gh pr list --repo "$REPOSITORY" --state open --head "$HEAD_BRANCH" --json number --jq '.[0].number // empty')"; fi
           [ -n "$pr" ] || exit 0
           pr_json="$(gh api "repos/$REPOSITORY/pulls/$pr")"
@@ -117,6 +129,8 @@ jobs:
           issue_comments="$RUNNER_TEMP/issue-comments.json"
           gh api --paginate "repos/$REPOSITORY/pulls/$pr/reviews?per_page=100" | jq -s '[.[][]]' > "$reviews"
           gh api --paginate "repos/$REPOSITORY/pulls/$pr/comments?per_page=100" | jq -s '[.[][]]' > "$review_comments"
+          gh api --paginate "repos/$REPOSITORY/issues/$pr/comments?per_page=100" | jq -s '[.[][]]' > "$RUNNER_TEMP/pr-comments.json"
+          node --input-type=module -e 'import fs from "node:fs"; import {reviewsWithCodexCleanPass} from "./.factory/review-bots.mjs"; const reviews=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const comments=JSON.parse(fs.readFileSync(process.argv[2],"utf8")); fs.writeFileSync(process.argv[1], JSON.stringify(reviewsWithCodexCleanPass(reviews, comments, process.argv[3])));' "$reviews" "$RUNNER_TEMP/pr-comments.json" "$head"
           gh api --paginate "repos/$REPOSITORY/issues/$issue/comments?per_page=100" | jq -s '[.[][]]' > "$issue_comments"
           jq -n --slurpfile comments "$issue_comments" --arg head "$head" --argjson pr "$pr" '{comments:($comments[0] // []), phase:"reviewing", head_sha:$head, pull_request:$pr, actor:{type:"workflow",name:"Factory Trusted Controller",harness:"other"}}' > "$RUNNER_TEMP/factory-advance-reviewing.json"
           node .factory/control-plane.mjs advance "$RUNNER_TEMP/factory-advance-reviewing.json" > "$RUNNER_TEMP/factory-advance-reviewing-plane.json"
@@ -131,7 +145,6 @@ jobs:
 
           marker="<!-- factory-review-request:$head -->"
           pr_comments="$RUNNER_TEMP/pr-comments.json"
-          gh api --paginate "repos/$REPOSITORY/issues/$pr/comments?per_page=100" | jq -s '[.[][]]' > "$pr_comments"
           requested="$(jq --arg marker "$marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | length' "$pr_comments")"
           review_action="$(node .factory/review-dispatch.mjs --review-id "$current_review_id" --requests "$requested")"
           if [ "$review_action" = request ]; then

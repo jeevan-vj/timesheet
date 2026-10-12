@@ -43,6 +43,39 @@ export function selectActionableFactoryReview(reviews, comments, headSha, policy
   };
 }
 
+export function codexCleanPassReview(comments, headSha, policy = loadReviewBots()) {
+  const head = String(headSha ?? '').toLowerCase();
+  if (!/^[0-9a-f]{40}$/.test(head)) return null;
+  const found = (Array.isArray(comments) ? comments : [])
+    .filter((comment) => isFactoryReviewBot(comment?.user?.login, comment?.user?.type, policy))
+    .filter((comment) => /^Codex Review:\s*Didn['’]t find any major issues\b/i.test(String(comment?.body ?? '').trim()))
+    .map((comment) => {
+      const match = String(comment.body).match(/Reviewed commit:[^`]*`([0-9a-f]{7,40})`/i);
+      return { comment, prefix: match?.[1]?.toLowerCase() ?? '' };
+    })
+    .filter((item) => item.prefix && head.startsWith(item.prefix))
+    .sort((a, b) => String(a.comment.created_at ?? a.comment.updated_at ?? '').localeCompare(String(b.comment.created_at ?? b.comment.updated_at ?? '')))
+    .at(-1);
+  if (!found) return null;
+  return {
+    id: Number(found.comment.id),
+    commit_id: headSha,
+    state: 'COMMENTED',
+    submitted_at: found.comment.created_at ?? found.comment.updated_at ?? '',
+    user: found.comment.user,
+    body: String(found.comment.body),
+    synthetic: true,
+  };
+}
+
+export function reviewsWithCodexCleanPass(reviews, comments, headSha, policy = loadReviewBots()) {
+  const list = Array.isArray(reviews) ? reviews : [];
+  const existing = selectLatestFactoryReview(list.filter((review) => review?.commit_id === headSha), policy);
+  if (existing) return list;
+  const synthetic = codexCleanPassReview(comments, headSha, policy);
+  return synthetic ? [...list, synthetic] : list;
+}
+
 export function selectMergeableFactoryReview(reviews, comments, headSha, policy = loadReviewBots()) {
   const review = (Array.isArray(reviews) ? reviews : [])
     .filter((item) => item?.commit_id === headSha)
