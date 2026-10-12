@@ -259,6 +259,7 @@ describe("factory E2E workflows stay fail-closed and complementary", () => {
   it("keeps the deterministic gate unchanged and adds a separate E2E evidence workflow", () => {
     expect(prGate).toContain("name: Factory deterministic gate");
     expect(prGate).toContain("pnpm install --frozen-lockfile");
+    expect(prGate).toContain("pnpm lint");
     expect(prGate).toContain("pnpm test");
     expect(prGate).toContain("pnpm typecheck");
     expect(prGate).toContain("pnpm build");
