@@ -24,7 +24,7 @@ export default function HomePage() {
       <section className="feature-strip">
         <article><span>01</span><h2>Add your team</h2><p>Keep contractor contact details and default rates together.</p></article>
         <article><span>02</span><h2>Connect each site</h2><p>Assign people wherever they work, with a site-specific rate when needed.</p></article>
-        <article><span>03</span><h2>Close the week</h2><p>Review daily shifts and see exact gross payment totals by contractor.</p></article>
+        <article><span>03</span><h2>Close the week</h2><p>Review daily shifts and see exact gross payment totals by contractor and by site.</p></article>
       </section>
     </main>
   );
