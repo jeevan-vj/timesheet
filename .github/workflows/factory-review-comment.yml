@@ -1,7 +1,7 @@
 name: Factory Review Comment
 on:
   issue_comment:
-    types: [created]
+    types: [created, edited]
 permissions:
   contents: read
   pull-requests: read
@@ -12,7 +12,11 @@ jobs:
       github.event.issue.pull_request != null &&
       github.event.comment.user.type == 'Bot' &&
       github.event.comment.user.login == 'chatgpt-codex-connector[bot]' &&
-      startsWith(github.event.comment.body, 'Codex Review: Didn')
+      (
+        startsWith(github.event.comment.body, 'Codex Review') ||
+        contains(github.event.comment.body, 'codex-pull-request-review-summary') ||
+        contains(github.event.comment.body, 'automated review suggestions')
+      )
     name: Factory review comment
     runs-on: ubuntu-latest
     steps:

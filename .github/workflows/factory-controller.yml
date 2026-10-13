@@ -55,6 +55,8 @@ jobs:
           body="$(printf '%s' "$pr_json" | jq -r '.body // ""')"
           [ "$head_repo" = "$REPOSITORY" ] || exit 0
           [ "$draft" = false ] || exit 0
+          [ "$(printf '%s' "$pr_json" | jq -r .state)" = open ] || exit 0
+          [ "$(printf '%s' "$pr_json" | jq -r .merged)" = false ] || exit 0
           issue="$(printf '%s' "$body" | sed -nE 's/.*(Closes|Fixes|Resolves)[[:space:]]+#([0-9]+).*/\2/ip' | head -1)"
           [ -n "$issue" ] || exit 0
           delegated="$(gh api "repos/$REPOSITORY/issues/$issue" --jq '[.labels[].name] | any(. == "factory:delegated")')"
@@ -130,7 +132,7 @@ jobs:
           gh api --paginate "repos/$REPOSITORY/pulls/$pr/reviews?per_page=100" | jq -s '[.[][]]' > "$reviews"
           gh api --paginate "repos/$REPOSITORY/pulls/$pr/comments?per_page=100" | jq -s '[.[][]]' > "$review_comments"
           gh api --paginate "repos/$REPOSITORY/issues/$pr/comments?per_page=100" | jq -s '[.[][]]' > "$RUNNER_TEMP/pr-comments.json"
-          node --input-type=module -e 'import fs from "node:fs"; import {reviewsWithCodexCleanPass} from "./.factory/review-bots.mjs"; const reviews=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const comments=JSON.parse(fs.readFileSync(process.argv[2],"utf8")); fs.writeFileSync(process.argv[1], JSON.stringify(reviewsWithCodexCleanPass(reviews, comments, process.argv[3])));' "$reviews" "$RUNNER_TEMP/pr-comments.json" "$head"
+          node --input-type=module -e 'import fs from "node:fs"; import {reviewsWithCodexComments} from "./.factory/review-bots.mjs"; const reviews=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const comments=JSON.parse(fs.readFileSync(process.argv[2],"utf8")); fs.writeFileSync(process.argv[1], JSON.stringify(reviewsWithCodexComments(reviews, comments, process.argv[3])));' "$reviews" "$RUNNER_TEMP/pr-comments.json" "$head"
           gh api --paginate "repos/$REPOSITORY/issues/$issue/comments?per_page=100" | jq -s '[.[][]]' > "$issue_comments"
           jq -n --slurpfile comments "$issue_comments" --arg head "$head" --argjson pr "$pr" '{comments:($comments[0] // []), phase:"reviewing", head_sha:$head, pull_request:$pr, actor:{type:"workflow",name:"Factory Trusted Controller",harness:"other"}}' > "$RUNNER_TEMP/factory-advance-reviewing.json"
           node .factory/control-plane.mjs advance "$RUNNER_TEMP/factory-advance-reviewing.json" > "$RUNNER_TEMP/factory-advance-reviewing-plane.json"

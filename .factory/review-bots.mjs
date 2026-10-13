@@ -43,36 +43,84 @@ export function selectActionableFactoryReview(reviews, comments, headSha, policy
   };
 }
 
-export function codexCleanPassReview(comments, headSha, policy = loadReviewBots()) {
-  const head = String(headSha ?? '').toLowerCase();
-  if (!/^[0-9a-f]{40}$/.test(head)) return null;
-  const found = (Array.isArray(comments) ? comments : [])
-    .filter((comment) => isFactoryReviewBot(comment?.user?.login, comment?.user?.type, policy))
-    .filter((comment) => /^Codex Review:\s*Didn['’]t find any major issues\b/i.test(String(comment?.body ?? '').trim()))
-    .map((comment) => {
-      const match = String(comment.body).match(/Reviewed commit:[^`]*`([0-9a-f]{7,40})`/i);
-      return { comment, prefix: match?.[1]?.toLowerCase() ?? '' };
-    })
-    .filter((item) => item.prefix && head.startsWith(item.prefix))
-    .sort((a, b) => String(a.comment.created_at ?? a.comment.updated_at ?? '').localeCompare(String(b.comment.created_at ?? b.comment.updated_at ?? '')))
-    .at(-1);
-  if (!found) return null;
+function isCodexConnector(comment, policy) {
+  return isFactoryReviewBot(comment?.user?.login, comment?.user?.type, policy)
+    && String(comment?.user?.login ?? '').toLowerCase() === 'chatgpt-codex-connector[bot]';
+}
+
+function commentTime(comment) {
+  return String(comment?.created_at ?? comment?.updated_at ?? '');
+}
+
+function namesHead(body, head) {
+  return [...String(body).matchAll(/`([0-9a-f]{7,40})`/gi)].some((match) => head.startsWith(match[1].toLowerCase()));
+}
+
+function isBreezyCodexComment(body) {
+  return /^Codex Review:\s*Didn['’]t find any major issues\b/i.test(String(body ?? '').trim());
+}
+
+function isCompletedCodexSummary(body, head) {
+  if (!String(body).includes('codex-pull-request-review-summary')) return false;
+  const row = [...String(body).matchAll(/Code Review[\s\S]{0,500}?`([0-9a-f]{7,40})`/gi)].at(-1);
+  if (!row || !/Completed/i.test(row[0])) return false;
+  return head.startsWith(row[1].toLowerCase());
+}
+
+function isCodexFindingsComment(body) {
+  const text = String(body ?? '');
+  if (text.includes('codex-pull-request-review-summary')) return false;
+  if (isBreezyCodexComment(text)) return false;
+  if (/create an environment for this repo/i.test(text)) return false;
+  if (/usage limits for code reviews/i.test(text)) return false;
+  if (!/`[0-9a-f]{7,40}`/i.test(text)) return false;
+  return /^Codex Review\b/im.test(text.trim())
+    || /💡\s*Codex Review/i.test(text)
+    || /automated review suggestions/i.test(text)
+    || /found \d+ (?:major )?issues?/i.test(text)
+    || isBlockingFactoryFinding(text);
+}
+
+function syntheticCodexReview(comment, headSha, state) {
   return {
-    id: Number(found.comment.id),
+    id: Number(comment.id),
     commit_id: headSha,
-    state: 'COMMENTED',
-    submitted_at: found.comment.created_at ?? found.comment.updated_at ?? '',
-    user: found.comment.user,
-    body: String(found.comment.body),
+    state,
+    submitted_at: comment.created_at ?? comment.updated_at ?? '',
+    user: comment.user,
+    body: String(comment.body),
     synthetic: true,
   };
 }
 
-export function reviewsWithCodexCleanPass(reviews, comments, headSha, policy = loadReviewBots()) {
+export function codexCommentReview(comments, headSha, policy = loadReviewBots()) {
+  const head = String(headSha ?? '').toLowerCase();
+  if (!/^[0-9a-f]{40}$/.test(head)) return null;
+  const classified = (Array.isArray(comments) ? comments : [])
+    .filter((comment) => isCodexConnector(comment, policy))
+    .map((comment) => {
+      const body = String(comment?.body ?? '');
+      if (isBreezyCodexComment(body) && namesHead(body, head)) return { kind: 'breezy', comment };
+      if (isCompletedCodexSummary(body, head)) return { kind: 'summary', comment };
+      if (isCodexFindingsComment(body) && namesHead(body, head)) return { kind: 'findings', comment };
+      return null;
+    })
+    .filter(Boolean);
+  const latest = (kind) => classified.filter((item) => item.kind === kind).sort((a, b) => commentTime(a.comment).localeCompare(commentTime(b.comment))).at(-1);
+  const findings = latest('findings');
+  const breezy = latest('breezy');
+  if (findings && (!breezy || commentTime(findings.comment) >= commentTime(breezy.comment))) {
+    return syntheticCodexReview(findings.comment, headSha, 'CHANGES_REQUESTED');
+  }
+  const clean = [breezy, latest('summary')].filter(Boolean).sort((a, b) => commentTime(a.comment).localeCompare(commentTime(b.comment))).at(-1);
+  return clean ? syntheticCodexReview(clean.comment, headSha, 'COMMENTED') : null;
+}
+
+export function reviewsWithCodexComments(reviews, comments, headSha, policy = loadReviewBots()) {
   const list = Array.isArray(reviews) ? reviews : [];
   const existing = selectLatestFactoryReview(list.filter((review) => review?.commit_id === headSha), policy);
   if (existing) return list;
-  const synthetic = codexCleanPassReview(comments, headSha, policy);
+  const synthetic = codexCommentReview(comments, headSha, policy);
   return synthetic ? [...list, synthetic] : list;
 }
 
