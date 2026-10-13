@@ -40,6 +40,75 @@ export function extractTrustedAgentId(comments) {
   return found;
 }
 
+export const DEFAULT_STALE_RUN_MS = 24 * 60 * 60 * 1000;
+
+const ACTIVE_RUN_STATUSES = new Set(['QUEUED', 'CREATING', 'RUNNING']);
+const TERMINAL_RUN_STATUSES = new Set(['FINISHED', 'ERROR', 'FAILED', 'CANCELLED', 'CANCELED', 'EXPIRED']);
+const TERMINAL_AGENT_STATUSES = new Set(['IDLE', 'ARCHIVED', 'ERROR', 'FINISHED']);
+const RUNNING_AGENT_STATUSES = new Set(['ACTIVE', 'RUNNING', 'CREATING']);
+
+function upperStatus(value) {
+  return typeof value === 'string' ? value.trim().toUpperCase() : '';
+}
+
+export function classifyHarnessLiveness(agent) {
+  if (!agent || typeof agent !== 'object' || Array.isArray(agent)) {
+    return { known: false, running: false, terminal: false, status: null, runStatus: null };
+  }
+  const status = upperStatus(agent.status);
+  const runStatus = upperStatus(agent.runStatus ?? agent.run?.status);
+  if (!status && !runStatus) {
+    return { known: false, running: false, terminal: false, status: null, runStatus: null };
+  }
+  const running = ACTIVE_RUN_STATUSES.has(runStatus) || (!runStatus && RUNNING_AGENT_STATUSES.has(status));
+  const terminal = !running && (TERMINAL_RUN_STATUSES.has(runStatus) || TERMINAL_AGENT_STATUSES.has(status));
+  return {
+    known: true,
+    running,
+    terminal,
+    status: status || null,
+    runStatus: runStatus || null,
+  };
+}
+
+export function factoryRunActivityMs(run, agent) {
+  const stamps = [run?.updated_at];
+  if (agent && typeof agent === 'object' && !Array.isArray(agent)) {
+    stamps.push(agent.updatedAt, agent.runUpdatedAt, agent.run?.updatedAt);
+  }
+  const parsed = stamps.map((value) => Date.parse(value)).filter((value) => Number.isFinite(value));
+  if (parsed.length === 0) return null;
+  return Math.max(...parsed);
+}
+
+export function isFactoryRunStale(run, agent, nowMs, thresholdMs = DEFAULT_STALE_RUN_MS) {
+  if (!run || Number.isInteger(run.github?.pull_request)) return false;
+  if (!Number.isFinite(thresholdMs) || thresholdMs < 0) return false;
+  if (!Number.isFinite(nowMs)) return false;
+  const activity = factoryRunActivityMs(run, agent);
+  if (activity == null) return false;
+  return nowMs - activity >= thresholdMs;
+}
+
+function recordedAgentId(run, comments) {
+  return run?.agent_id || extractTrustedAgentId(comments) || null;
+}
+
+function agentForRun(run, comments, agent) {
+  if (!agent || typeof agent !== 'object' || Array.isArray(agent)) return null;
+  const recorded = recordedAgentId(run, comments);
+  if (agent.id && recorded && agent.id !== recorded) return null;
+  return agent;
+}
+
+function supersedeReason(liveness, stale) {
+  if (liveness.running && !stale) return null;
+  if (liveness.runStatus === 'ERROR' || liveness.runStatus === 'FAILED' || liveness.status === 'ERROR') return 'agent_errored';
+  if (liveness.terminal) return 'agent_finished';
+  if (stale) return 'stale_run';
+  return null;
+}
+
 function cloneRun(run) {
   return structuredClone(run);
 }
@@ -366,6 +435,43 @@ function resultFor(run, extras = {}) {
   };
 }
 
+function supersedeFactoryRun(existing, input, { actor, ids, now, comments, reason, liveness, agentId }) {
+  let created = createFactoryRun({
+    repository: input.repository,
+    issue: input.issue,
+    provider: input.provider,
+    actor,
+    ids,
+    now,
+  });
+  created = startHappyPath(created, { provider: input.provider, actor, ids, now });
+  const superseded = applyTransition(existing, 'CANCELLED', {
+    event_type: 'run.superseded',
+    metadata: {
+      reason,
+      trigger: input.relabelled ? 'factory:ready' : 'intake',
+      agent_id: agentId,
+      agent_status: liveness.status,
+      run_status: liveness.runStatus,
+      successor_factory_run_id: created.factory_run_id,
+    },
+    actor,
+    ids,
+    now,
+  });
+  const previousStatus = planStatusUpsert(comments, superseded);
+  return resultFor(created, {
+    comments,
+    result: {
+      action: 'supersede',
+      reason,
+      previous_run: superseded,
+      previous_status_markdown: previousStatus.body,
+      previous_status_comment_id: previousStatus.comment_id,
+    },
+  });
+}
+
 export function intakeFactoryRun(input) {
   const comments = input.comments ?? [];
   const parsed = parseTrustedControlPlane(comments);
@@ -379,7 +485,7 @@ export function intakeFactoryRun(input) {
   }
 
   if (parsed.ok && !input.force) {
-    if (parsed.run.state === 'BLOCKED' && !agentId) {
+    if (parsed.run.state === 'BLOCKED' && !parsed.run.agent_id && !agentId) {
       const resumed = applyTransition(parsed.run, 'IMPLEMENTING', {
         event_type: 'implementation.started',
         metadata: { reason: 'resume_blocked_without_agent' },
@@ -390,8 +496,33 @@ export function intakeFactoryRun(input) {
       appendNamedEvent(resumed, { event_type: 'agent.attempt.started', metadata: { provider: input.provider }, actor, ids, now });
       return resultFor(resumed, { comments, result: { action: 'dispatch', reason: 'resume_blocked' } });
     }
-    if (isInProgressState(parsed.run.state) || parsed.run.state === 'READY_FOR_HUMAN_APPROVAL' || parsed.run.state === 'BLOCKED') {
-      return resultFor(parsed.run, { comments, result: { action: 'skip', reason: parsed.run.state === 'READY_FOR_HUMAN_APPROVAL' ? 'human_gate' : 'active_run' } });
+    if (parsed.run.state === 'READY_FOR_HUMAN_APPROVAL') {
+      return resultFor(parsed.run, { comments, result: { action: 'skip', reason: 'human_gate' } });
+    }
+    if (isInProgressState(parsed.run.state) || parsed.run.state === 'BLOCKED') {
+      const observed = input.provider === 'codex' ? null : agentForRun(parsed.run, comments, input.agent);
+      const liveness = classifyHarnessLiveness(observed);
+      const thresholdMs = Number.isFinite(input.staleAfterMs) ? input.staleAfterMs : DEFAULT_STALE_RUN_MS;
+      const stale = input.provider === 'codex'
+        ? false
+        : isFactoryRunStale(parsed.run, observed, Date.parse(nowIso(now)), thresholdMs);
+      const hasPullRequest = Number.isInteger(parsed.run.github?.pull_request);
+      const reason = hasPullRequest ? null : supersedeReason(liveness, stale);
+      if (reason) {
+        return supersedeFactoryRun(parsed.run, input, {
+          actor,
+          ids,
+          now,
+          comments,
+          reason,
+          liveness,
+          agentId: recordedAgentId(parsed.run, comments),
+        });
+      }
+      return resultFor(parsed.run, {
+        comments,
+        result: { action: 'skip', reason: liveness.running ? 'agent_running' : 'active_run' },
+      });
     }
   }
 

@@ -12,6 +12,7 @@ import {
   applyRepairSignal,
   associateGithub,
   advanceFactoryRun,
+  classifyHarnessLiveness,
   createFactoryRun,
   deriveMetrics,
   extractTrustedAgentId,
@@ -207,6 +208,248 @@ describe('factory control plane', () => {
     expect(forced.factory_run_id).not.toBe(first.factory_run_id);
   });
 
+  it('classifies Agents API liveness from agent status and run status', () => {
+    expect(classifyHarnessLiveness(null)).toMatchObject({ known: false, running: false, terminal: false });
+    expect(classifyHarnessLiveness({ status: 'ACTIVE', runStatus: 'RUNNING' })).toMatchObject({ running: true, terminal: false });
+    expect(classifyHarnessLiveness({ status: 'ACTIVE' })).toMatchObject({ running: true, terminal: false });
+    expect(classifyHarnessLiveness({ status: 'IDLE', runStatus: 'ERROR' })).toMatchObject({ running: false, terminal: true, runStatus: 'ERROR' });
+    expect(classifyHarnessLiveness({ status: 'IDLE', runStatus: 'FINISHED' })).toMatchObject({ running: false, terminal: true });
+    expect(classifyHarnessLiveness({ status: 'ARCHIVED' })).toMatchObject({ terminal: true, running: false });
+  });
+
+  it('supersedes an implementing run when factory:ready is reapplied and the agent errored without a PR', () => {
+    const started = '2026-09-07T00:00:00.000Z';
+    const persisted = persistedImplementingRun({ when: started });
+    const restarted = intakeFactoryRun({
+      comments: persisted.comments,
+      repository: 'jeevan-vj/timesheet',
+      issue: 43,
+      provider: 'cursor',
+      actor: actor(),
+      ids: sequentialIds(),
+      now: () => new Date('2026-10-13T04:19:00.000Z'),
+      relabelled: true,
+      agent: {
+        id: 'bc-fd2d7ef8-9bf4-44a8-b747-ff3f8bb73d29',
+        status: 'IDLE',
+        updatedAt: '2026-09-07T01:00:00.000Z',
+        runStatus: 'ERROR',
+        runUpdatedAt: '2026-09-07T01:00:00.000Z',
+      },
+    });
+    expect(restarted.action).toBe('supersede');
+    expect(restarted.reason).toBe('agent_errored');
+    expect(restarted.factory_run_id).not.toBe(persisted.factory_run_id);
+    expect(restarted.run.state).toBe('IMPLEMENTING');
+    expect(restarted.run.github.pull_request).toBeNull();
+    expect(restarted.create_status_comment).toBe(true);
+    expect(restarted.previous_status_comment_id).toBe(501);
+    expect(restarted.previous_run.state).toBe('CANCELLED');
+    expect(restarted.previous_run.latest_failure).toBeNull();
+    const superseded = findEvent(restarted.previous_run, 'run.superseded');
+    expect(superseded.metadata).toMatchObject({
+      reason: 'agent_errored',
+      trigger: 'factory:ready',
+      agent_id: 'bc-fd2d7ef8-9bf4-44a8-b747-ff3f8bb73d29',
+      run_status: 'ERROR',
+      successor_factory_run_id: restarted.factory_run_id,
+    });
+    const previous = decodeControlPlane(restarted.previous_status_markdown);
+    expect(previous.state).toBe('CANCELLED');
+    expect(previous.events.at(-1).event_type).toBe('run.superseded');
+    expect(restarted.previous_status_markdown).toContain(`This run was superseded by \`${restarted.factory_run_id}\`.`);
+    expect(decodeControlPlane(restarted.status_markdown).factory_run_id).toBe(restarted.factory_run_id);
+  });
+
+  it('supersedes a finished agent that never opened a PR', () => {
+    const persisted = persistedImplementingRun({ when: '2026-10-13T03:00:00.000Z' });
+    const restarted = intakeFactoryRun({
+      comments: persisted.comments,
+      repository: 'jeevan-vj/timesheet',
+      issue: 43,
+      provider: 'cursor',
+      actor: actor(),
+      ids: sequentialIds(),
+      now: () => new Date('2026-10-13T04:19:00.000Z'),
+      relabelled: true,
+      agent: { id: 'bc-fd2d7ef8-9bf4-44a8-b747-ff3f8bb73d29', status: 'IDLE', runStatus: 'FINISHED', runUpdatedAt: '2026-10-13T03:30:00.000Z' },
+    });
+    expect(restarted.action).toBe('supersede');
+    expect(restarted.reason).toBe('agent_finished');
+    expect(restarted.factory_run_id).not.toBe(persisted.factory_run_id);
+  });
+
+  it('keeps the run when factory:ready is reapplied while the agent is still running', () => {
+    const persisted = persistedImplementingRun({ when: '2026-09-07T00:00:00.000Z' });
+    const skipped = intakeFactoryRun({
+      comments: persisted.comments,
+      repository: 'jeevan-vj/timesheet',
+      issue: 43,
+      provider: 'cursor',
+      actor: actor(),
+      ids: sequentialIds(),
+      now: () => new Date('2026-10-13T04:19:00.000Z'),
+      relabelled: true,
+      agent: {
+        id: 'bc-fd2d7ef8-9bf4-44a8-b747-ff3f8bb73d29',
+        status: 'ACTIVE',
+        updatedAt: '2026-10-13T04:00:00.000Z',
+        runStatus: 'RUNNING',
+        runUpdatedAt: '2026-10-13T04:00:00.000Z',
+      },
+    });
+    expect(skipped.action).toBe('skip');
+    expect(skipped.reason).toBe('agent_running');
+    expect(skipped.factory_run_id).toBe(persisted.factory_run_id);
+  });
+
+  it('supersedes a run with no pull request and no activity past the stale threshold', () => {
+    const persisted = persistedImplementingRun({ when: '2026-09-07T00:00:00.000Z' });
+    const restarted = intakeFactoryRun({
+      comments: persisted.comments,
+      repository: 'jeevan-vj/timesheet',
+      issue: 43,
+      provider: 'cursor',
+      actor: actor(),
+      ids: sequentialIds(),
+      now: () => new Date('2026-10-13T04:19:00.000Z'),
+      relabelled: true,
+    });
+    expect(restarted.action).toBe('supersede');
+    expect(restarted.reason).toBe('stale_run');
+    expect(findEvent(restarted.previous_run, 'run.superseded').metadata.reason).toBe('stale_run');
+
+    const fresh = persistedImplementingRun({ when: '2026-10-12T05:19:00.000Z' });
+    const stillActive = intakeFactoryRun({
+      comments: fresh.comments,
+      repository: 'jeevan-vj/timesheet',
+      issue: 43,
+      provider: 'cursor',
+      actor: actor(),
+      ids: sequentialIds(),
+      now: () => new Date('2026-10-13T04:19:00.000Z'),
+      relabelled: true,
+    });
+    expect(stillActive.action).toBe('skip');
+    expect(stillActive.factory_run_id).toBe(fresh.factory_run_id);
+
+    const hour = 60 * 60 * 1000;
+    const custom = intakeFactoryRun({
+      comments: fresh.comments,
+      repository: 'jeevan-vj/timesheet',
+      issue: 43,
+      provider: 'cursor',
+      actor: actor(),
+      ids: sequentialIds(),
+      now: () => new Date('2026-10-13T04:19:00.000Z'),
+      relabelled: true,
+      staleAfterMs: hour,
+    });
+    expect(custom.action).toBe('supersede');
+    expect(custom.reason).toBe('stale_run');
+  });
+
+  it('supersedes a stuck RUNNING agent once activity and the pull request are both absent past the threshold', () => {
+    const persisted = persistedImplementingRun({ when: '2026-09-07T00:00:00.000Z' });
+    const restarted = intakeFactoryRun({
+      comments: persisted.comments,
+      repository: 'jeevan-vj/timesheet',
+      issue: 43,
+      provider: 'cursor',
+      actor: actor(),
+      ids: sequentialIds(),
+      now: () => new Date('2026-10-13T04:19:00.000Z'),
+      relabelled: true,
+      agent: {
+        id: 'bc-fd2d7ef8-9bf4-44a8-b747-ff3f8bb73d29',
+        status: 'ACTIVE',
+        updatedAt: '2026-09-07T01:00:00.000Z',
+        runStatus: 'RUNNING',
+        runUpdatedAt: '2026-09-07T01:00:00.000Z',
+      },
+    });
+    expect(restarted.action).toBe('supersede');
+    expect(restarted.reason).toBe('stale_run');
+  });
+
+  it('does not supersede a run that already has a pull request or a human gate', () => {
+    const withPr = persistedImplementingRun({ when: '2026-09-07T00:00:00.000Z', pullRequest: 12 });
+    const kept = intakeFactoryRun({
+      comments: withPr.comments,
+      repository: 'jeevan-vj/timesheet',
+      issue: 43,
+      provider: 'cursor',
+      actor: actor(),
+      ids: sequentialIds(),
+      now: () => new Date('2026-10-13T04:19:00.000Z'),
+      relabelled: true,
+      agent: { id: 'bc-fd2d7ef8-9bf4-44a8-b747-ff3f8bb73d29', status: 'IDLE', runStatus: 'ERROR', runUpdatedAt: '2026-09-07T01:00:00.000Z' },
+    });
+    expect(kept.action).toBe('skip');
+    expect(kept.factory_run_id).toBe(withPr.factory_run_id);
+
+    const created = intakeFactoryRun({
+      comments: [],
+      repository: 'jeevan-vj/timesheet',
+      issue: 43,
+      provider: 'cursor',
+      actor: actor(),
+      ids: sequentialIds(),
+      now: () => new Date('2026-09-07T00:00:00.000Z'),
+    });
+    const human = applyControllerSignal({
+      comments: [botComment(created.status_markdown)],
+      risk: 'protected',
+      ids: sequentialIds(),
+      now: () => new Date('2026-09-07T00:00:00.000Z'),
+    });
+    expect(human.run.state).toBe('READY_FOR_HUMAN_APPROVAL');
+    const gated = intakeFactoryRun({
+      comments: [botComment(human.status_markdown)],
+      repository: 'jeevan-vj/timesheet',
+      issue: 43,
+      provider: 'cursor',
+      actor: actor(),
+      ids: sequentialIds(),
+      now: () => new Date('2026-10-13T04:19:00.000Z'),
+      relabelled: true,
+      agent: { status: 'IDLE', runStatus: 'ERROR' },
+    });
+    expect(gated.action).toBe('skip');
+    expect(gated.reason).toBe('human_gate');
+    expect(gated.factory_run_id).toBe(human.factory_run_id);
+  });
+
+  it('ignores an Agents API record for a different agent and does not let a codex handoff supersede', () => {
+    const persisted = persistedImplementingRun({ when: '2026-10-13T03:00:00.000Z' });
+    const mismatched = intakeFactoryRun({
+      comments: persisted.comments,
+      repository: 'jeevan-vj/timesheet',
+      issue: 43,
+      provider: 'cursor',
+      actor: actor(),
+      ids: sequentialIds(),
+      now: () => new Date('2026-10-13T04:19:00.000Z'),
+      relabelled: true,
+      agent: { id: 'bc-other-agent', status: 'IDLE', runStatus: 'ERROR', runUpdatedAt: '2026-10-13T03:30:00.000Z' },
+    });
+    expect(mismatched.action).toBe('skip');
+    expect(mismatched.factory_run_id).toBe(persisted.factory_run_id);
+
+    const codex = intakeFactoryRun({
+      comments: persisted.comments,
+      repository: 'jeevan-vj/timesheet',
+      issue: 43,
+      provider: 'codex',
+      actor: { type: 'workflow', name: 'Factory Intake', harness: 'codex' },
+      ids: sequentialIds(),
+      now: () => new Date('2026-10-13T04:19:00.000Z'),
+      agent: { id: 'bc-fd2d7ef8-9bf4-44a8-b747-ff3f8bb73d29', status: 'IDLE', runStatus: 'ERROR' },
+    });
+    expect(codex.action).toBe('skip');
+    expect(codex.factory_run_id).toBe(persisted.factory_run_id);
+  });
+
   it('routes repairable CI to repair, unknown failures closed, and protected risk to human approval', () => {
     const created = intakeFactoryRun({
       comments: [],
@@ -363,6 +606,29 @@ describe('factory control plane', () => {
     expect(failureSchema.additionalProperties).toBe(false);
   });
 });
+
+function persistedImplementingRun({
+  when = '2026-09-07T12:00:00.000Z',
+  agentId = 'bc-fd2d7ef8-9bf4-44a8-b747-ff3f8bb73d29',
+  pullRequest,
+} = {}) {
+  const ids = sequentialIds();
+  const now = () => new Date(when);
+  const created = intakeFactoryRun({
+    comments: [],
+    repository: 'jeevan-vj/timesheet',
+    issue: 43,
+    provider: 'cursor',
+    actor: actor(),
+    ids,
+    now,
+  });
+  const run = associateGithub(created.run, {
+    agent_id: agentId,
+    ...(pullRequest ? { pull_request: pullRequest } : {}),
+  }, { ids, actor: actor(), now });
+  return { run, comments: [botComment(renderStatusMarkdown(run), 501)], factory_run_id: run.factory_run_id };
+}
 
 function findEvent(run, type) {
   return run.events.find((event) => event.event_type === type);

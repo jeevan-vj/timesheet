@@ -76,6 +76,31 @@ export async function getCursorAgent(agentId, { apiKey, apiUrl = API_URL, fetchI
   return readCursorResponse(response);
 }
 
+export async function inspectCursorAgent(agentId, { apiKey, apiUrl = API_URL, fetchImpl = fetch } = {}) {
+  const agent = await getCursorAgent(agentId, { apiKey, apiUrl, fetchImpl });
+  const latestRunId = agent?.latestRunId ?? null;
+  let run = null;
+  if (latestRunId) {
+    try {
+      const response = await fetchImpl(`${apiUrl}/${encodeURIComponent(agentId)}/runs/${encodeURIComponent(latestRunId)}`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+      if (response.ok) run = await readCursorResponse(response);
+    } catch {
+      run = null;
+    }
+  }
+  return {
+    id: agent?.id ?? agentId,
+    status: agent?.status ?? null,
+    updatedAt: agent?.updatedAt ?? null,
+    latestRunId,
+    runStatus: run?.status ?? null,
+    runUpdatedAt: run?.updatedAt ?? null,
+  };
+}
+
 export function verifyCursorAgentRecord(agentId, record) {
   const returnedId = record?.id ?? record?.agent?.id ?? record?.run?.agentId;
   if (returnedId && returnedId !== agentId) throw new Error(`Cursor agent verification returned unexpected ID ${returnedId}`);
@@ -111,12 +136,17 @@ export async function dispatchCursorAgent(payload, { apiKey, apiUrl = API_URL, f
 }
 
 function parseArgs(argv) {
-  const out = { dryRun:false, repo:'', issue:'', title:'', body:'', bodyFile:'', ref:'main', factoryRunId:'' };
-  for (let i=0;i<argv.length;i+=1) { const arg=argv[i]; const next=argv[i+1]; if (arg==='--dry-run') out.dryRun=true; else if (arg==='--repo') {out.repo=next;i+=1;} else if (arg==='--issue') {out.issue=next;i+=1;} else if (arg==='--title') {out.title=next;i+=1;} else if (arg==='--body') {out.body=next;i+=1;} else if (arg==='--body-file') {out.bodyFile=next;i+=1;} else if (arg==='--ref') {out.ref=next;i+=1;} else if (arg==='--factory-run-id') {out.factoryRunId=next;i+=1;} }
+  const out = { dryRun:false, repo:'', issue:'', title:'', body:'', bodyFile:'', ref:'main', factoryRunId:'', inspectAgent:'' };
+  for (let i=0;i<argv.length;i+=1) { const arg=argv[i]; const next=argv[i+1]; if (arg==='--dry-run') out.dryRun=true; else if (arg==='--repo') {out.repo=next;i+=1;} else if (arg==='--issue') {out.issue=next;i+=1;} else if (arg==='--title') {out.title=next;i+=1;} else if (arg==='--body') {out.body=next;i+=1;} else if (arg==='--body-file') {out.bodyFile=next;i+=1;} else if (arg==='--ref') {out.ref=next;i+=1;} else if (arg==='--factory-run-id') {out.factoryRunId=next;i+=1;} else if (arg==='--inspect-agent') {out.inspectAgent=next;i+=1;} }
   return out;
 }
 async function main() {
   const args=parseArgs(process.argv.slice(2));
+  if (args.inspectAgent) {
+    const inspected = await inspectCursorAgent(args.inspectAgent, { apiKey: process.env.CURSOR_API_KEY });
+    process.stdout.write(`${JSON.stringify(inspected)}\n`);
+    return;
+  }
   if (!args.repo || !args.issue || !args.title) throw new Error('Missing --repo, --issue, or --title');
   const body=args.bodyFile ? fs.readFileSync(args.bodyFile,'utf8') : args.body;
   const payload=buildAgentPayload({repository:args.repo,issueNumber:Number(args.issue),title:args.title,body,startingRef:args.ref,factoryRunId:args.factoryRunId||undefined});

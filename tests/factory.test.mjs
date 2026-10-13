@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { detectFactoryHandoff } from '../.factory/handoff.mjs';
 import fs from 'node:fs';
-import { buildAgentPayload, dispatchCursorAgent, verifyCursorAgentRecord } from '../.factory/dispatch-cursor.mjs';
+import { buildAgentPayload, dispatchCursorAgent, inspectCursorAgent, verifyCursorAgentRecord } from '../.factory/dispatch-cursor.mjs';
 import { buildRepairPrompt, createFollowUpRun } from '../.factory/followup-cursor.mjs';
 import { classifyRisk, loadPolicy } from '../.factory/classify-risk.mjs';
 import {
@@ -43,6 +43,10 @@ describe('Cursor factory', () => {
     expect(workflow).toContain('--body-file "$comment_file"');
     expect(workflow).toContain('node .factory/control-plane.mjs intake');
     expect(workflow).toContain('previous_status_markdown');
+    expect(workflow).toContain('[ "$action" = cancel_and_recreate ] || [ "$action" = supersede ]');
+    expect(workflow).toContain('--inspect-agent');
+    expect(workflow).toContain('FACTORY_STALE_RUN_HOURS');
+    expect(workflow).toContain('[ "$PLANE_ACTION" != supersede ]');
     expect(workflow).toContain('--factory-run-id "$FACTORY_RUN_ID"');
     expect(workflow).toContain('<!-- factory-run-id:%s -->');
     expect(workflow).not.toContain('Cursor Cloud Agent dispatched${url:+: $url}\\n\\n');
@@ -81,6 +85,23 @@ describe('Cursor factory', () => {
     expect(verifyInit.method).toBe('GET');
     expect(verifyInit.headers.Authorization).toBe('Bearer test-key');
     expect(result.factoryVerification).toMatchObject({id:'bc-test',runId:'run-test',status:'ACTIVE'});
+  });
+  it('reads agent lifecycle and run status without returning the API key', async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, text: async () => JSON.stringify({ id: 'bc-test', status: 'IDLE', updatedAt: '2026-09-07T01:00:00.000Z', latestRunId: 'run-1' }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, text: async () => JSON.stringify({ id: 'run-1', status: 'ERROR', updatedAt: '2026-09-07T01:05:00.000Z' }) });
+    const result = await inspectCursorAgent('bc-test', { apiKey: 'test-key', fetchImpl });
+    expect(result).toEqual({
+      id: 'bc-test',
+      status: 'IDLE',
+      updatedAt: '2026-09-07T01:00:00.000Z',
+      latestRunId: 'run-1',
+      runStatus: 'ERROR',
+      runUpdatedAt: '2026-09-07T01:05:00.000Z',
+    });
+    expect(JSON.stringify(result)).not.toContain('test-key');
+    expect(fetchImpl.mock.calls[1][0]).toBe('https://api.cursor.com/v1/agents/bc-test/runs/run-1');
+    expect(fetchImpl.mock.calls[1][1].headers.Authorization).toBe('Bearer test-key');
   });
   it('fails closed when post-dispatch agent verification fails', async () => {
     const fetchImpl=vi.fn()
