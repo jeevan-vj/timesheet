@@ -17,3 +17,4 @@ Read `.factory/POTATO.md` and `.factory/feature-map.json` before editing. The fa
 - Never log contractor details, rates, notes, request bodies, tokens, or passwords.
 - Encode a repeated agent mistake as a lint or a type, not as a comment that explains a workaround.
 - High-risk and protected paths in `.factory/risk-policy.json` stay human-gated after checks pass.
+- A Codex review comment counts as the independent review. A clean pass or a Code Review Completed summary for the current head can proceed. A comment that reports issues is a finding and follows the factory repair path.

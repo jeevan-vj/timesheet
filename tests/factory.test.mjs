@@ -6,9 +6,12 @@ import { buildRepairPrompt, createFollowUpRun } from '../.factory/followup-curso
 import { classifyRisk, loadPolicy } from '../.factory/classify-risk.mjs';
 import {
   blockingFactoryReviewCommentIds,
+  codexCommentReview,
+  reviewsWithCodexComments,
   selectActionableFactoryReview,
   selectMergeableFactoryReview,
 } from '../.factory/review-bots.mjs';
+import { planIndependentReview } from '../.factory/review-dispatch.mjs';
 
 describe('Cursor factory', () => {
   it('starts Cursor intake from factory:ready and ignores bare @cursor mentions', () => {
@@ -166,12 +169,121 @@ describe('Cursor factory', () => {
     expect(repair).toContain('current_head=');
     expect(repair).not.toContain('/cancel');
     expect(controller).toContain('@codex review');
+    expect(controller).toContain('bugbot run');
     expect(controller).toContain('factory-review-request:');
+    expect(controller).toContain('review-dispatch.mjs');
+    expect(controller).toContain('no trusted independent review covers this head');
+    const dispatchAt = controller.indexOf('review-dispatch.mjs');
+    const riskAt = controller.indexOf('if [ "$risk" != low ]');
+    const waitAt = controller.indexOf('if [ "$review_action" != proceed ]; then');
+    expect(dispatchAt).toBeGreaterThan(-1);
+    expect(riskAt).toBeGreaterThan(dispatchAt);
+    expect(waitAt).toBeGreaterThan(riskAt);
     expect(controller).toContain('/replies');
     expect(controller).toContain('resolveReviewThread');
     expect(controller).toContain('--remove-label factory:needs-human');
     expect(controller).toContain('contents: write');
     expect(controller).toContain('selectMergeableFactoryReview');
+    expect(controller).toContain('reviewsWithCodexComments');
+    expect(controller).toContain('Factory Review Comment');
+    expect(controller).toContain('[ "$(printf \'%s\' "$pr_json" | jq -r .merged)" = false ]');
     expect(controller).not.toContain('[ "$comments" -eq 0 ]');
+    expect(repair).toContain('Factory Review Comment');
+    expect(repair).toContain('reviewsWithCodexComments');
+    expect(repair).toContain('selectActionableFactoryReview');
+    const commentWorkflow = fs.readFileSync(new URL('../.github/workflows/factory-review-comment.yml', import.meta.url), 'utf8');
+    expect(commentWorkflow).toContain("github.event.comment.user.login == 'chatgpt-codex-connector[bot]'");
+    expect(commentWorkflow).toContain("startsWith(github.event.comment.body, 'Codex Review')");
+    expect(commentWorkflow).toContain('codex-pull-request-review-summary');
+    expect(commentWorkflow).toContain('types: [created, edited]');
+    expect(commentWorkflow).toContain('name: factory-review-comment');
+  });
+  it('requests an independent review for an unreviewed head and waits without asking twice', () => {
+    expect(planIndependentReview({ reviewId: '', requestCount: 0 })).toBe('request');
+    expect(planIndependentReview({ reviewId: '   ', requestCount: 0 })).toBe('request');
+    expect(planIndependentReview({ reviewId: '', requestCount: 1 })).toBe('wait');
+    expect(planIndependentReview({ reviewId: '99', requestCount: 0 })).toBe('proceed');
+    expect(planIndependentReview({ reviewId: '99', requestCount: 2 })).toBe('proceed');
+  });
+  it('treats a Codex comment for the current head as the independent review', () => {
+    const head = '0567e9794e5a33ab1a22c1d2d47173067df5bcca';
+    const bot = { login: 'chatgpt-codex-connector[bot]', type: 'Bot' };
+    const breezy = {
+      id: 6134696081,
+      created_at: '2026-10-12T23:38:01Z',
+      user: bot,
+      body: "Codex Review: Didn't find any major issues. Breezy!\n\n**Reviewed commit:** `0567e9794e`\n",
+    };
+    const curly = {
+      ...breezy,
+      id: 2,
+      body: "Codex Review: Didn’t find any major issues. Breezy!\n\n**Reviewed commit:** `0567e9794e`\n",
+    };
+    const boilerplate = {
+      id: 6134685701,
+      created_at: '2026-10-12T23:37:04Z',
+      user: bot,
+      body: '<!-- codex-pull-request-review-summary -->\n## Codex Review Summary\nno findings\nReviewed commit `0567e97`\n',
+    };
+    const running = {
+      ...boilerplate,
+      id: 11,
+      body: '<!-- codex-pull-request-review-summary -->\n| 📝 **Code Review** | **Running** | `0567e97` | Manual request |\n',
+    };
+    const completed = {
+      id: 12,
+      created_at: '2026-10-12T23:38:03Z',
+      user: bot,
+      body: '<!-- codex-pull-request-review-summary -->\n## Codex Review Summary\n| 📝 **Code Review** | ✅ **Completed** <relative-time datetime="2026-10-12T23:38:02.784027Z">2026-10-12T23:38:02.784027Z</relative-time> | `0567e97` | Manual request |\n',
+    };
+    const findings = {
+      id: 13,
+      created_at: '2026-10-12T23:39:00Z',
+      user: bot,
+      body: "Codex Review: Found 1 issue\n\n**Reviewed commit:** `0567e9794e`\n\n[P1] The week control can leave the selected week.\n",
+    };
+    const suggestions = {
+      id: 14,
+      created_at: '2026-10-12T23:39:30Z',
+      user: bot,
+      body: "### 💡 Codex Review\n\nHere are some automated review suggestions for this pull request.\n\n**Reviewed commit:** `0567e9794e`\n",
+    };
+    const otherHead = {
+      ...breezy,
+      id: 3,
+      body: "Codex Review: Didn't find any major issues. Breezy!\n\n**Reviewed commit:** `aaaaaaaaaa`\n",
+    };
+    const human = { ...breezy, id: 4, user: { login: 'jeevan-vj', type: 'User' } };
+
+    expect(codexCommentReview([boilerplate, running, otherHead, human], head)).toBeNull();
+    expect(codexCommentReview([breezy], 'not-a-full-sha')).toBeNull();
+    expect(codexCommentReview([curly], head)).toMatchObject({ id: 2, commit_id: head, state: 'COMMENTED' });
+    expect(codexCommentReview([completed], head)).toMatchObject({ id: 12, state: 'COMMENTED', synthetic: true });
+
+    const folded = reviewsWithCodexComments([], [breezy], head);
+    expect(selectMergeableFactoryReview(folded, [], head)?.id).toBe(6134696081);
+    expect(selectActionableFactoryReview(folded, [], head)).toBeNull();
+
+    const withFindings = reviewsWithCodexComments([], [completed, findings], head);
+    expect(selectMergeableFactoryReview(withFindings, [], head)).toBeNull();
+    expect(selectActionableFactoryReview(withFindings, [], head)).toMatchObject({ id: 13, state: 'CHANGES_REQUESTED' });
+    expect(selectActionableFactoryReview(reviewsWithCodexComments([], [suggestions], head), [], head)?.id).toBe(14);
+
+    const rereviewed = reviewsWithCodexComments([], [
+      findings,
+      { ...breezy, id: 15, created_at: '2026-10-12T23:45:00Z' },
+    ], head);
+    expect(selectMergeableFactoryReview(rereviewed, [], head)?.id).toBe(15);
+    expect(selectActionableFactoryReview(rereviewed, [], head)).toBeNull();
+
+    const real = {
+      id: 9,
+      commit_id: head,
+      state: 'COMMENTED',
+      submitted_at: '2026-10-12T23:00:00Z',
+      user: bot,
+      body: 'Reviewed.',
+    };
+    expect(reviewsWithCodexComments([real], [findings], head)).toEqual([real]);
   });
 });

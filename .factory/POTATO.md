@@ -20,7 +20,7 @@ Practices below are the ones those sources actually describe. This repo implemen
 
 5. **Reproduce before you fix.** For a bug, run the app and show the current behavior before editing.
 
-6. **Autonomy scales with blast radius.** The same guide records Tan pulling back from full autopilot once the game was live, and a bad automated SQL change taking production down. pstack's README says "throughput without quality is not a goal i aspire to." This repo already encodes that: low-risk diffs can merge after the deterministic gate and current-head E2E evidence; payroll, auth, migrations, and control-plane files stay human-gated.
+6. **Autonomy scales with blast radius.** The same guide records Tan pulling back from full autopilot once the game was live, and a bad automated SQL change taking production down. pstack's README says "throughput without quality is not a goal i aspire to." This repo already encodes that: low-risk diffs can merge after the deterministic gate, current-head E2E evidence, and a trusted independent review. A Codex result posted as a pull request comment counts. `Codex Review: Didn't find any major issues`, or the Codex review-summary row showing Code Review Completed for the current head, is a pass. A Codex comment that reports issues is a finding and uses the existing repair path. Payroll, auth, migrations, and control-plane files stay human-gated after that review.
 
 7. **Make the right path the easy path.** The talk's order, when an agent keeps making the same mistake: make the bad pattern impossible in the code, else add a lint, else write a rule. Comments that explain a workaround are called out as something agents copy. `pnpm lint` fails on `console.*`, `TODO` / `FIXME` / `HACK`, and "workaround" in `src/`.
 

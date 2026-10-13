@@ -1,0 +1,39 @@
+name: Factory Review Comment
+on:
+  issue_comment:
+    types: [created, edited]
+permissions:
+  contents: read
+  pull-requests: read
+  actions: write
+jobs:
+  signal:
+    if: >-
+      github.event.issue.pull_request != null &&
+      github.event.comment.user.type == 'Bot' &&
+      github.event.comment.user.login == 'chatgpt-codex-connector[bot]' &&
+      (
+        startsWith(github.event.comment.body, 'Codex Review') ||
+        contains(github.event.comment.body, 'codex-pull-request-review-summary') ||
+        contains(github.event.comment.body, 'automated review suggestions')
+      )
+    name: Factory review comment
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/factory-review-comment"
+          printf '%s\n' "$PR" > "$RUNNER_TEMP/factory-review-comment/pr.txt"
+          gh api "repos/$REPOSITORY/pulls/$PR" --jq .head.sha > "$RUNNER_TEMP/factory-review-comment/head.txt"
+      - name: Upload review comment signal
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: factory-review-comment
+          path: ${{ runner.temp }}/factory-review-comment
+          if-no-files-found: error
+          retention-days: 1
