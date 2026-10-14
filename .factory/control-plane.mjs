@@ -41,14 +41,46 @@ export function extractTrustedAgentId(comments) {
 }
 
 export const DEFAULT_STALE_RUN_MS = 24 * 60 * 60 * 1000;
+export const DEFAULT_STALE_RUN_HOURS = 24;
 
-const ACTIVE_RUN_STATUSES = new Set(['QUEUED', 'CREATING', 'RUNNING']);
-const TERMINAL_RUN_STATUSES = new Set(['FINISHED', 'ERROR', 'FAILED', 'CANCELLED', 'CANCELED', 'EXPIRED']);
-const TERMINAL_AGENT_STATUSES = new Set(['IDLE', 'ARCHIVED', 'ERROR', 'FINISHED']);
-const RUNNING_AGENT_STATUSES = new Set(['ACTIVE', 'RUNNING', 'CREATING']);
+// Cloud Agents API (https://cursor.com/docs/cloud-agent/api/endpoints) plus the
+// SDK run lifecycle QUEUED | CREATING | RUNNING | FINISHED | ERROR | CANCELLED | EXPIRED.
+// Agent lifecycle on GET /v1/agents/{id} is ACTIVE | IDLE | ARCHIVED.
+// IDLE means the last turn finished; run-level outcome stays on Get A Run.
+// IDLE with no run status is unknown, not terminal.
+export const ACTIVE_RUN_STATUSES = Object.freeze(['QUEUED', 'CREATING', 'RUNNING']);
+export const TERMINAL_RUN_STATUSES = Object.freeze(['FINISHED', 'ERROR', 'CANCELLED', 'EXPIRED']);
+export const RUNNING_AGENT_STATUSES = Object.freeze(['ACTIVE']);
+export const TERMINAL_AGENT_STATUSES = Object.freeze(['ARCHIVED']);
+
+const ACTIVE_RUN_STATUS_SET = new Set(ACTIVE_RUN_STATUSES);
+const TERMINAL_RUN_STATUS_SET = new Set(TERMINAL_RUN_STATUSES);
+const RUNNING_AGENT_STATUS_SET = new Set(RUNNING_AGENT_STATUSES);
+const TERMINAL_AGENT_STATUS_SET = new Set(TERMINAL_AGENT_STATUSES);
 
 function upperStatus(value) {
   return typeof value === 'string' ? value.trim().toUpperCase() : '';
+}
+
+function warnFactory(message) {
+  process.stderr.write(`${message}\n`);
+}
+
+export function parseStaleRunHours(value, fallback = DEFAULT_STALE_RUN_HOURS) {
+  if (value == null) return fallback;
+  const text = String(value).trim();
+  if (!/^[0-9]+$/.test(text)) return fallback;
+  const hours = Number(text);
+  if (!Number.isInteger(hours) || hours < 1) return fallback;
+  return hours;
+}
+
+function resolveStaleThresholdMs(input) {
+  if (Number.isFinite(input?.staleAfterMs)) return input.staleAfterMs;
+  if (input && Object.prototype.hasOwnProperty.call(input, 'staleHours')) {
+    return parseStaleRunHours(input.staleHours) * 60 * 60 * 1000;
+  }
+  return DEFAULT_STALE_RUN_MS;
 }
 
 export function classifyHarnessLiveness(agent) {
@@ -60,10 +92,13 @@ export function classifyHarnessLiveness(agent) {
   if (!status && !runStatus) {
     return { known: false, running: false, terminal: false, status: null, runStatus: null };
   }
-  const running = ACTIVE_RUN_STATUSES.has(runStatus) || (!runStatus && RUNNING_AGENT_STATUSES.has(status));
-  const terminal = !running && (TERMINAL_RUN_STATUSES.has(runStatus) || TERMINAL_AGENT_STATUSES.has(status));
+  if (status === 'IDLE' && !runStatus) {
+    return { known: false, running: false, terminal: false, status: 'IDLE', runStatus: null };
+  }
+  const running = ACTIVE_RUN_STATUS_SET.has(runStatus) || (!runStatus && RUNNING_AGENT_STATUS_SET.has(status));
+  const terminal = !running && (TERMINAL_RUN_STATUS_SET.has(runStatus) || TERMINAL_AGENT_STATUS_SET.has(status));
   return {
-    known: true,
+    known: running || terminal,
     running,
     terminal,
     status: status || null,
@@ -90,15 +125,23 @@ export function isFactoryRunStale(run, agent, nowMs, thresholdMs = DEFAULT_STALE
   return nowMs - activity >= thresholdMs;
 }
 
-function recordedAgentId(run, comments) {
-  return run?.agent_id || extractTrustedAgentId(comments) || null;
+function recordedAgentId(run) {
+  return run?.agent_id || null;
 }
 
-function agentForRun(run, comments, agent) {
-  if (!agent || typeof agent !== 'object' || Array.isArray(agent)) return null;
-  const recorded = recordedAgentId(run, comments);
-  if (agent.id && recorded && agent.id !== recorded) return null;
-  return agent;
+function attributedAgent(run, agent) {
+  if (!agent || typeof agent !== 'object' || Array.isArray(agent)) return { agent: null, unusable: false };
+  if (agent.lookupFailed) return { agent: null, unusable: true };
+  const recorded = recordedAgentId(run);
+  if (!agent.id) {
+    warnFactory(`Factory agent inspection has no id; ignoring Agents API record for run.agent_id=${recorded ?? 'none'}.`);
+    return { agent: null, unusable: Boolean(recorded) };
+  }
+  if (!recorded || agent.id !== recorded) {
+    warnFactory(`Factory agent id mismatch: run.agent_id=${recorded ?? 'none'} inspection=${agent.id}.`);
+    return { agent: null, unusable: Boolean(recorded) };
+  }
+  return { agent, unusable: false };
 }
 
 function supersedeReason(liveness, stale) {
@@ -385,7 +428,7 @@ export function loadRunSnapshot(snapshot) {
   return snapshot;
 }
 
-export function parseTrustedControlPlane(comments) {
+export function parseTrustedControlPlane(comments, factoryRunId) {
   const trusted = (comments ?? []).filter(isTrustedFactoryComment);
   const payloads = [];
   for (const comment of trusted) {
@@ -398,12 +441,31 @@ export function parseTrustedControlPlane(comments) {
       }
     }
   }
-  if (payloads.length === 0) {
+  const selected = factoryRunId
+    ? payloads.filter((item) => item.run.factory_run_id === factoryRunId)
+    : payloads;
+  if (selected.length === 0) {
+    if (factoryRunId) return { ok: false, code: 'MISSING_RUN', error: 'factory run id not found' };
     const markerId = trusted.map((comment) => extractRunIdMarker(comment.body)).filter(Boolean).at(-1);
     if (markerId) return { ok: false, code: 'MALFORMED_CONTROL_PLANE', error: 'run marker without payload' };
     return { ok: false, code: 'MISSING_RUN' };
   }
-  return { ok: true, run: payloads.at(-1).run, comment: payloads.at(-1).comment };
+  return { ok: true, run: selected.at(-1).run, comment: selected.at(-1).comment };
+}
+
+export function associateFactoryAgent(input) {
+  const factoryRunId = typeof input?.factory_run_id === 'string' && input.factory_run_id ? input.factory_run_id : undefined;
+  const parsed = parseTrustedControlPlane(input?.comments ?? [], factoryRunId);
+  if (!parsed.ok) return { ok: false, action: 'fail_closed', code: parsed.code };
+  const run = associateGithub(parsed.run, {
+    agent_id: input.agent_id,
+    pull_request: input.pull_request,
+    commit_sha: input.commit_sha,
+    cursor_run_id: input.cursor_run_id,
+    repository: input.repository,
+    issue: input.issue,
+  }, { actor: input.actor });
+  return resultFor(run, { comments: input.comments, result: { action: 'associated' } });
 }
 
 export function planStatusUpsert(comments, run) {
@@ -445,16 +507,20 @@ function supersedeFactoryRun(existing, input, { actor, ids, now, comments, reaso
     now,
   });
   created = startHappyPath(created, { provider: input.provider, actor, ids, now });
+  const metadata = {
+    reason,
+    agent_id: agentId,
+    agent_status: liveness.status,
+    run_status: liveness.runStatus,
+    successor_factory_run_id: created.factory_run_id,
+  };
+  if (input.relabelled) metadata.trigger = 'factory:ready';
+  if (input.agentRetirement === 'retired' || input.agentRetirement === 'left_running') {
+    metadata.old_agent_left_running = input.agentRetirement === 'left_running';
+  }
   const superseded = applyTransition(existing, 'CANCELLED', {
     event_type: 'run.superseded',
-    metadata: {
-      reason,
-      trigger: input.relabelled ? 'factory:ready' : 'intake',
-      agent_id: agentId,
-      agent_status: liveness.status,
-      run_status: liveness.runStatus,
-      successor_factory_run_id: created.factory_run_id,
-    },
+    metadata,
     actor,
     ids,
     now,
@@ -500,14 +566,34 @@ export function intakeFactoryRun(input) {
       return resultFor(parsed.run, { comments, result: { action: 'skip', reason: 'human_gate' } });
     }
     if (isInProgressState(parsed.run.state) || parsed.run.state === 'BLOCKED') {
-      const observed = input.provider === 'codex' ? null : agentForRun(parsed.run, comments, input.agent);
-      const liveness = classifyHarnessLiveness(observed);
-      const thresholdMs = Number.isFinite(input.staleAfterMs) ? input.staleAfterMs : DEFAULT_STALE_RUN_MS;
+      const observed = input.provider === 'codex'
+        ? { agent: null, unusable: false }
+        : attributedAgent(parsed.run, input.agent);
+      if (observed.unusable) {
+        return resultFor(parsed.run, { comments, result: { action: 'skip', reason: 'agent_lookup_failed' } });
+      }
+      const liveness = classifyHarnessLiveness(observed.agent);
+      const thresholdMs = resolveStaleThresholdMs(input);
       const stale = input.provider === 'codex'
         ? false
-        : isFactoryRunStale(parsed.run, observed, Date.parse(nowIso(now)), thresholdMs);
+        : isFactoryRunStale(parsed.run, observed.agent, Date.parse(nowIso(now)), thresholdMs);
       const hasPullRequest = Number.isInteger(parsed.run.github?.pull_request);
       const reason = hasPullRequest ? null : supersedeReason(liveness, stale);
+      if (reason === 'stale_run' && liveness.running) {
+        const retirement = input.agentRetirement;
+        if (retirement !== 'retired' && retirement !== 'left_running') {
+          return resultFor(parsed.run, {
+            comments,
+            result: {
+              action: 'retire_agent',
+              reason: 'stale_run',
+              retire_agent_id: recordedAgentId(parsed.run),
+              retire_run_id: observed.agent?.latestRunId ?? null,
+              retire_run_status: liveness.runStatus,
+            },
+          });
+        }
+      }
       if (reason) {
         return supersedeFactoryRun(parsed.run, input, {
           actor,
@@ -516,7 +602,7 @@ export function intakeFactoryRun(input) {
           comments,
           reason,
           liveness,
-          agentId: recordedAgentId(parsed.run, comments),
+          agentId: recordedAgentId(parsed.run),
         });
       }
       return resultFor(parsed.run, {
@@ -773,23 +859,9 @@ async function main() {
     case 'parse':
       result = parseTrustedControlPlane(input.comments ?? input);
       break;
-    case 'associate': {
-      const parsed = parseTrustedControlPlane(input.comments ?? []);
-      if (!parsed.ok) {
-        result = { ok: false, action: 'fail_closed', code: parsed.code };
-        break;
-      }
-      const run = associateGithub(parsed.run, {
-        agent_id: input.agent_id,
-        pull_request: input.pull_request,
-        commit_sha: input.commit_sha,
-        cursor_run_id: input.cursor_run_id,
-        repository: input.repository,
-        issue: input.issue,
-      }, { actor: input.actor });
-      result = resultFor(run, { comments: input.comments, result: { action: 'associated' } });
+    case 'associate':
+      result = associateFactoryAgent(input);
       break;
-    }
     case 'advance':
       result = advanceFactoryRun(input);
       break;
