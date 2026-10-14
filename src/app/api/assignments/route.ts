@@ -7,7 +7,11 @@ import { createAssignment, listAssignments } from "@/services/timesheet";
 export async function GET(request: Request) {
   const access = await authorize(request);
   if ("response" in access) return access.response;
-  return noStoreJson({ assignments: await listAssignments(db, access.user.id) });
+  try {
+    return noStoreJson({ assignments: await listAssignments(db, access.user.id) });
+  } catch (error) {
+    return await apiError(error, request);
+  }
 }
 
 export async function POST(request: Request) {
@@ -20,6 +24,6 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof Error && error.message === "not_found") return noStoreJson({ error: "not_found" }, 404);
     if (error instanceof Error && error.message === "duplicate_assignment") return noStoreJson({ error: "duplicate_assignment" }, 409);
-    return apiError(error);
+    return await apiError(error, request);
   }
 }

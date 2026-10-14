@@ -15,6 +15,6 @@ export async function POST(request: Request) {
     if (error instanceof Error && error.message === "invalid_shift") return noStoreJson({ error: "invalid_shift" }, 400);
     if (error instanceof Error && error.message === "duplicate_entry") return noStoreJson({ error: "duplicate_entry" }, 409);
     if (error instanceof Error && error.message === "week_locked") return noStoreJson({ error: "week_locked" }, 409);
-    return apiError(error);
+    return await apiError(error, request);
   }
 }

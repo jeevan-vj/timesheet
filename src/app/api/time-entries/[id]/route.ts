@@ -9,8 +9,12 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   if ("response" in access) return access.response;
   const { id } = await context.params;
   if (!id || id.length > 64) return noStoreJson({ error: "invalid_request" }, 400);
-  const entry = await getTimeEntry(db, access.user.id, id);
-  return entry ? noStoreJson(entry) : noStoreJson({ error: "not_found" }, 404);
+  try {
+    const entry = await getTimeEntry(db, access.user.id, id);
+    return entry ? noStoreJson(entry) : noStoreJson({ error: "not_found" }, 404);
+  } catch (error) {
+    return await apiError(error, request);
+  }
 }
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -26,7 +30,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     if (error instanceof Error && error.message === "invalid_shift") return noStoreJson({ error: "invalid_shift" }, 400);
     if (error instanceof Error && error.message === "duplicate_entry") return noStoreJson({ error: "duplicate_entry" }, 409);
     if (error instanceof Error && error.message === "week_locked") return noStoreJson({ error: "week_locked" }, 409);
-    return apiError(error);
+    return await apiError(error, request);
   }
 }
 
@@ -40,6 +44,6 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
     return deleted ? noStoreJson({ ok: true }) : noStoreJson({ error: "not_found" }, 404);
   } catch (error) {
     if (error instanceof Error && error.message === "week_locked") return noStoreJson({ error: "week_locked" }, 409);
-    return apiError(error);
+    return await apiError(error, request);
   }
 }

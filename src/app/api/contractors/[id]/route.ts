@@ -13,7 +13,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   try {
     return noStoreJson(await getContractor(db, access.user.id, id));
   } catch (error) {
-    return apiError(error);
+    return await apiError(error, request);
   }
 }
 
@@ -27,6 +27,6 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     if (!parsed.success) return noStoreJson(invalidRequestFromZod(parsed.error), 400);
     return noStoreJson(await updateContractor(db, access.user.id, id, parsed.data));
   } catch (error) {
-    return apiError(error);
+    return await apiError(error, request);
   }
 }

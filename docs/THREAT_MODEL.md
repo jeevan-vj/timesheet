@@ -43,7 +43,8 @@ Contractor identity/contact data, site locations, rates, work notes, time record
 | Apply restores an archived assignment | Apply inner-joins `assignment.active = true` with active owned contractor and site; archived assignments are skipped and historical entries remain |
 | Site rollup or week brief recomputes pay from current rates | Both are derived from the owner-scoped dashboard entries already loaded; positive minutes use `calculateEntryPayCents` on the snapshotted `rateCents`. No new route, write, or log |
 | Week brief leaves the browser | Copy is an explicit owner action of names, durations, and totals already on screen. The text omits rates, notes, email, and phone, and it is not sent to an API |
-| Sensitive data reaches logs | No request-body, site name/address, PDF bytes, contractor, rate, or pay logging; automated boundary test |
+| Unexpected server error returns driver text | JSON API failures return `500 { error: "internal_error", correlationId }` and do not return driver text. Logs and optional Sentry events are scrubbed |
+| Sensitive data reaches logs | No request-body, site name/address, PDF bytes, contractor, rate, or pay logging. Query failures are redacted to `query_failed` without SQL or bound values. Optional `SENTRY_DSN` is a Worker secret and receives the same scrub; automated boundary test |
 | Cloud agent reaches production | Cursor receives no production secrets; trusted GitHub workflows own merge/deploy gates |
 
 ## Residual risks

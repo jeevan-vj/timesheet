@@ -1,11 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 
+const consoleRule = {
+  re: /\bconsole\.(log|info|debug|warn|error)\s*\(/,
+  message: "console output is banned in src; it can leak contractor, rate, note, or request data",
+};
+
 const rules = [
-  {
-    re: /\bconsole\.(log|info|debug|warn|error)\s*\(/,
-    message: "console output is banned in src; it can leak contractor, rate, note, or request data",
-  },
+  consoleRule,
   {
     re: /\b(TODO|FIXME|HACK|XXX)\b/,
     message: "leave no TODO/FIXME/HACK markers; encode the constraint in code or a test",
@@ -15,6 +17,14 @@ const rules = [
     message: "workaround comments spread; fix the cause or make the bad pattern impossible",
   },
 ];
+
+function rulesFor(file) {
+  const normalized = file.split(path.sep).join("/");
+  if (normalized.endsWith("src/lib/report-server-error.ts")) {
+    return rules.filter((rule) => rule !== consoleRule);
+  }
+  return rules;
+}
 
 function walk(dir, files = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -30,7 +40,7 @@ const failures = [];
 for (const file of files) {
   const lines = fs.readFileSync(file, "utf8").split("\n");
   lines.forEach((line, index) => {
-    for (const rule of rules) {
+    for (const rule of rulesFor(file)) {
       if (rule.re.test(line)) failures.push(`${file}:${index + 1}: ${rule.message}`);
     }
   });

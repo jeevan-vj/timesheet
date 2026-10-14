@@ -52,7 +52,7 @@ The unique index `contractor_owner_name_uq` on `(owner_user_id, name)` includes 
 | POST | `/api/contractors/[id]/restore` | yes | `200 ContractorResource` `active: true` |
 | GET | `/api/contractors/[id]/remittance` | no | `200` PDF (`?week=YYYY-MM-DD` Monday) |
 
-There is no DELETE on contractors. Cookie-authenticated mutations use `authorize(request, true)`. Errors: `401 unauthorized`, `403 forbidden`, `404 not_found`, `409 duplicate_contractor`, `413 payload_too_large`, `400 invalid_request` (optional `fields` on create/patch Zod failures only).
+There is no DELETE on contractors. Cookie-authenticated mutations use `authorize(request, true)`. Errors: `401 unauthorized`, `403 forbidden`, `404 not_found`, `409 duplicate_contractor`, `413 payload_too_large`, `400 invalid_request` (optional `fields` on create/patch Zod failures only), `500 internal_error` (correlation id) for unexpected failures.
 
 `GET /api/contractors/[id]/remittance?week=YYYY-MM-DD` is a cookie read (`authorize(request)` without mutation CSRF). Ownership comes from the session. The handler loads the contractor with `id` plus `owner_user_id`, then that owner's time entries for the Monday–Sunday week, inner-joining contractor and site by id and owner only (no `active` filter). The PDF is generated on read with `pdf-lib`; nothing is stored. Success headers: `Content-Type: application/pdf`, `Content-Disposition: attachment; filename="remittance-<slug>-<weekEnd>.pdf"`, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`. Empty weeks return `400 { error: "no_entries" }` JSON, not a PDF. Cross-owner ids return `404 { error: "not_found" }`. Approved weeks stay readable: remittance does not call `assertUnlockedWeek`.
 
@@ -85,7 +85,7 @@ The dashboard continues to load only `sites.active = true` and `assignments.acti
 | POST | `/api/weeks/approve` | yes | `200 WeekApprovalResource` |
 | POST | `/api/weeks/reopen` | yes | `200 WeekApprovalResource` |
 
-Cookie-authenticated mutations use `authorize(request, true)`. Errors: `401 unauthorized`, `403 forbidden`, `400 invalid_week` (non-Monday), `400 invalid_request` (malformed totals), `409 stale_week`, `409 week_not_approved`. Time-entry POST/PATCH/DELETE map `week_locked` to `409`.
+Cookie-authenticated mutations use `authorize(request, true)`. Errors: `401 unauthorized`, `403 forbidden`, `400 invalid_week` (non-Monday), `400 invalid_request` (malformed totals), `409 stale_week`, `409 week_not_approved`, `500 internal_error` (correlation id) for unexpected failures. Time-entry POST/PATCH/DELETE map `week_locked` to `409`.
 
 ### Recurring schedule HTTP contract
 
@@ -99,4 +99,4 @@ Open schedule view omits `ownerUserId`: `{ id, weekdays, paidMinutes, effectiveF
 | POST | `/api/weeks/apply-schedule` | yes | `200 { weekStart, inserted }` |
 | POST | `/api/time-entries/[id]/exception` | yes | `200` dashboard-shaped entry |
 
-GET `/api/assignments` and GET `/api/assignments/[id]` include `schedule` as the current open version or `null`. PATCH `/api/assignments/[id]` remains rate-only. Cookie-authenticated mutations use `authorize(request, true)`. Errors: `401 unauthorized`, `403 forbidden`, `400 invalid_week` (non-Monday `weekStart`), `400 invalid_request`, `404 not_found` (missing or cross-owner), `409 schedule_exists`, `409 no_schedule`, `409 week_locked`, `409 duplicate_entry`, `413 payload_too_large`.
+GET `/api/assignments` and GET `/api/assignments/[id]` include `schedule` as the current open version or `null`. PATCH `/api/assignments/[id]` remains rate-only. Cookie-authenticated mutations use `authorize(request, true)`. Errors: `401 unauthorized`, `403 forbidden`, `400 invalid_week` (non-Monday `weekStart`), `400 invalid_request`, `404 not_found` (missing or cross-owner), `409 schedule_exists`, `409 no_schedule`, `409 week_locked`, `409 duplicate_entry`, `413 payload_too_large`, `500 internal_error` (correlation id) for unexpected failures.

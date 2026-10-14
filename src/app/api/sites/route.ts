@@ -11,7 +11,7 @@ export async function GET(request: Request) {
     const includeArchived = parseIncludeArchived(new URL(request.url).searchParams.get("includeArchived"));
     return noStoreJson(await listSites(db, access.user.id, includeArchived));
   } catch (error) {
-    return apiError(error);
+    return await apiError(error, request);
   }
 }
 
@@ -23,6 +23,6 @@ export async function POST(request: Request) {
     return noStoreJson(await createSite(db, access.user.id, input), 201);
   } catch (error) {
     if (error instanceof Error && error.message === "duplicate_site") return noStoreJson({ error: "duplicate_site" }, 409);
-    return apiError(error);
+    return await apiError(error, request);
   }
 }

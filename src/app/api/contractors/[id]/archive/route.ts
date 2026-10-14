@@ -12,6 +12,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   try {
     return noStoreJson(await archiveContractor(db, access.user.id, id));
   } catch (error) {
-    return apiError(error);
+    return await apiError(error, request);
   }
 }

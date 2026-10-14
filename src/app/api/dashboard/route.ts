@@ -1,4 +1,4 @@
-import { authorize } from "@/lib/api";
+import { apiError, authorize } from "@/lib/api";
 import { noStoreJson } from "@/lib/accounts-config";
 import { weekStartInput } from "@/lib/validation";
 import { getDashboard } from "@/services/timesheet";
@@ -10,5 +10,9 @@ export async function GET(request: Request) {
   const week = new URL(request.url).searchParams.get("week") ?? "";
   const parsed = weekStartInput.safeParse(week);
   if (!parsed.success) return noStoreJson({ error: "invalid_week" }, 400);
-  return noStoreJson(await getDashboard(db, access.user.id, parsed.data));
+  try {
+    return noStoreJson(await getDashboard(db, access.user.id, parsed.data));
+  } catch (error) {
+    return await apiError(error, request);
+  }
 }
