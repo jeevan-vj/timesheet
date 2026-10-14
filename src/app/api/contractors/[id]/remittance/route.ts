@@ -42,6 +42,6 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     if (error instanceof Error && error.message === "business_required") return noStoreJson({ error: "not_found" }, 404);
     if (error instanceof Error && error.message === "no_entries") return noStoreJson({ error: "no_entries" }, 400);
     if (error instanceof Error && error.message === "missing_remitter") return noStoreJson({ error: "missing_remitter" }, 400);
-    return apiError(error);
+    return await apiError(error, request);
   }
 }

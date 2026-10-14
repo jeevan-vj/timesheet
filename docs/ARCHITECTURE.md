@@ -8,7 +8,7 @@ The active business is the session user's single active `business_member` row wi
 
 `POST /api/business` inserts `biz_<user id>` and `mem_<user id>` and leaves `onboarding_completed_at` null. A second POST, including after a unique-key race, returns the stored profile and does not overwrite it. If the business row exists and the membership does not, the handler inserts only the membership. `POST /api/business/onboarding/complete` sets the completion timestamp once.
 
-`GET /api/dashboard` adds `business: null` or the profile resource. With no membership the week payload is empty and `approval.status` is `open`. Collection list routes used by the dashboard return their existing empty `200` bodies. Other domain mutations return `409 business_required` and write nothing. Item reads stay `404 not_found`.
+`GET /api/dashboard` adds `business: null` or the profile resource. With no membership the week payload is empty and `approval.status` is `open`. Collection list routes used by the dashboard return their existing empty `200` bodies. Other domain mutations return `409 business_required` and write nothing. Item reads stay `404 not_found`. Unexpected JSON API failures return `500 internal_error` with a server correlation id.
 
 Migration `0004_business_workspace.sql` creates those tables, backfills one completed business per existing user, and sets `business_id` from that user's single active owner membership. A scalar subquery that matches more than one membership aborts. A guard table then rejects blank user names or emails, a user whose active membership count is not 1, owner mismatches between an assignment and its site or contractor, a schedule version whose owner differs from its assignment, a time entry whose owner differs from its site or contractor, or a null `business_id`. Triggers then abort inserts and updates that would store a null `business_id`. The migration does not assign `rate_cents`, `paid_minutes`, approval status, or approval timestamps. `owner_user_id` columns and the existing unique indexes stay.
 
@@ -60,7 +60,7 @@ The unique index `contractor_owner_name_uq` on `(owner_user_id, name)` includes 
 | POST | `/api/contractors/[id]/restore` | yes | `200 ContractorResource` `active: true` |
 | GET | `/api/contractors/[id]/remittance` | no | `200` PDF (`?week=YYYY-MM-DD` Monday) |
 
-There is no DELETE on contractors. Cookie-authenticated mutations use `authorize(request, true)`. Errors: `401 unauthorized`, `403 forbidden`, `404 not_found`, `409 duplicate_contractor`, `413 payload_too_large`, `400 invalid_request` (optional `fields` on create/patch Zod failures only).
+There is no DELETE on contractors. Cookie-authenticated mutations use `authorize(request, true)`. Errors: `401 unauthorized`, `403 forbidden`, `404 not_found`, `409 duplicate_contractor`, `413 payload_too_large`, `400 invalid_request` (optional `fields` on create/patch Zod failures only), `500 internal_error` (correlation id) for unexpected failures.
 
 `GET /api/contractors/[id]/remittance?week=YYYY-MM-DD` is a cookie read (`authorize(request)` without mutation CSRF). Ownership comes from the session. The handler loads the contractor with `id` plus `owner_user_id`, then that owner's time entries for the Monday–Sunday week, inner-joining contractor and site by id and owner only (no `active` filter). The PDF is generated on read with `pdf-lib`; nothing is stored. Success headers: `Content-Type: application/pdf`, `Content-Disposition: attachment; filename="remittance-<slug>-<weekEnd>.pdf"`, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`. Empty weeks return `400 { error: "no_entries" }` JSON, not a PDF. Cross-owner ids return `404 { error: "not_found" }`. Approved weeks stay readable: remittance does not call `assertUnlockedWeek`.
 
@@ -93,7 +93,7 @@ The dashboard continues to load only `sites.active = true` and `assignments.acti
 | POST | `/api/weeks/approve` | yes | `200 WeekApprovalResource` |
 | POST | `/api/weeks/reopen` | yes | `200 WeekApprovalResource` |
 
-Cookie-authenticated mutations use `authorize(request, true)`. Errors: `401 unauthorized`, `403 forbidden`, `400 invalid_week` (non-Monday), `400 invalid_request` (malformed totals), `409 stale_week`, `409 week_not_approved`. Time-entry POST/PATCH/DELETE map `week_locked` to `409`.
+Cookie-authenticated mutations use `authorize(request, true)`. Errors: `401 unauthorized`, `403 forbidden`, `400 invalid_week` (non-Monday), `400 invalid_request` (malformed totals), `409 stale_week`, `409 week_not_approved`, `500 internal_error` (correlation id) for unexpected failures. Time-entry POST/PATCH/DELETE map `week_locked` to `409`.
 
 ### Recurring schedule HTTP contract
 
@@ -107,7 +107,7 @@ Open schedule view omits `ownerUserId`: `{ id, weekdays, paidMinutes, effectiveF
 | POST | `/api/weeks/apply-schedule` | yes | `200 { weekStart, inserted }` |
 | POST | `/api/time-entries/[id]/exception` | yes | `200` dashboard-shaped entry |
 
-GET `/api/assignments` and GET `/api/assignments/[id]` include `schedule` as the current open version or `null`. PATCH `/api/assignments/[id]` remains rate-only. Cookie-authenticated mutations use `authorize(request, true)`. Errors: `401 unauthorized`, `403 forbidden`, `400 invalid_week` (non-Monday `weekStart`), `400 invalid_request`, `404 not_found` (missing or cross-owner), `409 schedule_exists`, `409 no_schedule`, `409 week_locked`, `409 duplicate_entry`, `409 business_required`, `413 payload_too_large`.
+GET `/api/assignments` and GET `/api/assignments/[id]` include `schedule` as the current open version or `null`. PATCH `/api/assignments/[id]` remains rate-only. Cookie-authenticated mutations use `authorize(request, true)`. Errors: `401 unauthorized`, `403 forbidden`, `400 invalid_week` (non-Monday `weekStart`), `400 invalid_request`, `404 not_found` (missing or cross-owner), `409 schedule_exists`, `409 no_schedule`, `409 week_locked`, `409 duplicate_entry`, `409 business_required`, `413 payload_too_large`, `500 internal_error` (correlation id) for unexpected failures.
 
 ### Business HTTP contract
 
@@ -120,4 +120,4 @@ GET `/api/assignments` and GET `/api/assignments/[id]` include `schedule` as the
 | POST | `/api/business` | yes | `201` on first create, `200` when the owner membership already exists |
 | POST | `/api/business/onboarding/complete` | yes | `200 BusinessResource` |
 
-Cookie-authenticated mutations use `authorize(request, true)`. A forged `businessId` in the JSON is ignored. Errors: `401 unauthorized`, `403 forbidden`, `400 invalid_request`, `409 business_required` (complete with no membership), `413 payload_too_large`. Timezone must be `Pacific/Auckland`, currency `NZD`, and week start `monday`. NZBN is empty or 13 digits.
+Cookie-authenticated mutations use `authorize(request, true)`. A forged `businessId` in the JSON is ignored. Errors: `401 unauthorized`, `403 forbidden`, `400 invalid_request`, `409 business_required` (complete with no membership), `413 payload_too_large`, `500 internal_error` (correlation id) for unexpected failures. Timezone must be `Pacific/Auckland`, currency `NZD`, and week start `monday`. NZBN is empty or 13 digits.

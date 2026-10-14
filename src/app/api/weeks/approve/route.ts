@@ -20,6 +20,6 @@ export async function POST(request: Request) {
     return noStoreJson(await approveWeek(db, access.user.id, parsed.data));
   } catch (error) {
     if (error instanceof Error && error.message === "stale_week") return noStoreJson({ error: "stale_week" }, 409);
-    return apiError(error);
+    return await apiError(error, request);
   }
 }

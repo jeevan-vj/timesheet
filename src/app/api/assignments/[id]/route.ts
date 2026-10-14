@@ -12,7 +12,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   try {
     return noStoreJson(await getAssignment(db, access.user.id, id));
   } catch (error) {
-    return readItemError(error);
+    return await readItemError(error, request);
   }
 }
 
@@ -26,7 +26,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     return noStoreJson(await updateAssignmentRate(db, access.user.id, id, input));
   } catch (error) {
     if (error instanceof Error && error.message === "not_found") return noStoreJson({ error: "not_found" }, 404);
-    return apiError(error);
+    return await apiError(error, request);
   }
 }
 
@@ -39,6 +39,6 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
     const ok = await unassignAssignment(db, access.user.id, id);
     return ok ? noStoreJson({ ok: true }) : noStoreJson({ error: "not_found" }, 404);
   } catch (error) {
-    return apiError(error);
+    return await apiError(error, request);
   }
 }

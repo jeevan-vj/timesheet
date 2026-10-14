@@ -17,6 +17,7 @@ Non-negotiable rules:
 9. Do not weaken authentication, authorization, validation, migrations, headers, or tests to make a change pass.
 10. `AGENTS.md`, `.github/**`, and `.factory/**` are protected control-plane code and require human merge approval.
 11. Weekly remittance PDFs are owner-only downloads of pay data. Serve them `Cache-Control: no-store`. Cross-owner contractor ids return identical `404 { error: "not_found" }`. Do not log PDF bytes, contractor details, rates, notes, or pay totals.
+12. Unexpected JSON API failures return `500` with `{"error":"internal_error","correlationId":"<uuid>"}`. The correlation id is generated on the server. The log is one JSON object: route, method, correlation id, safe name, message, stack, and release. Query failures are logged as `query_failed` without SQL or bound values. Optional `SENTRY_DSN` is a Worker secret; capture is off when it is unset; the same scrub applies before send. Never log request bodies, business profile fields, contractor details, rates, notes, pay totals, cookies, tokens, or secrets.
 
 ## Secrets
 

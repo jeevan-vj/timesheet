@@ -12,6 +12,6 @@ export async function POST(request: Request) {
     const result = await createOwnerBusiness(db, access.user.id, input);
     return noStoreJson(result.resource, result.created ? 201 : 200);
   } catch (error) {
-    return apiError(error);
+    return await apiError(error, request);
   }
 }

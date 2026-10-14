@@ -1,4 +1,4 @@
-import { authorize } from "@/lib/api";
+import { apiError, authorize } from "@/lib/api";
 import { noStoreJson } from "@/lib/accounts-config";
 import { summarizeWeek, weekEnd } from "@/lib/payroll";
 import { weekStartInput } from "@/lib/validation";
@@ -32,6 +32,6 @@ export async function GET(request: Request) {
         business: null,
       });
     }
-    throw error;
+    return await apiError(error, request);
   }
 }

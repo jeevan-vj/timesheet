@@ -13,6 +13,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   } catch (error) {
     if (error instanceof Error && error.message === "not_found") return noStoreJson({ error: "not_found" }, 404);
     if (error instanceof Error && error.message === "duplicate_site") return noStoreJson({ error: "duplicate_site" }, 409);
-    return apiError(error);
+    return await apiError(error, request);
   }
 }

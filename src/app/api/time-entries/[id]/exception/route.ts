@@ -18,6 +18,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (error instanceof Error && error.message === "no_schedule") return noStoreJson({ error: "no_schedule" }, 409);
     if (error instanceof Error && error.message === "week_locked") return noStoreJson({ error: "week_locked" }, 409);
     if (error instanceof Error && error.message === "duplicate_entry") return noStoreJson({ error: "duplicate_entry" }, 409);
-    return apiError(error);
+    return await apiError(error, request);
   }
 }

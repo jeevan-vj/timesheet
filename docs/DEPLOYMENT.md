@@ -8,6 +8,8 @@
 
 `BETTER_AUTH_SECRET` is a Worker runtime secret. Keep it in Cloudflare and never copy it into GitHub. `BETTER_AUTH_URL`, `AUTH_TRUSTED_ORIGINS`, and `RELEASE_SHA` are non-secret deployment variables supplied by the release workflow.
 
+`SENTRY_DSN` is an optional Worker secret. Set it with `wrangler secret put SENTRY_DSN` on production and preview. When it is unset, error capture is off and existing deploys succeed without it. Do not copy `SENTRY_DSN` into GitHub. `RELEASE_SHA` is the non-secret release marker on the unexpected-error log and on the optional capture event. Error capture adds no migration.
+
 Weekly remittance advice is generated on read in the Worker with `pdf-lib`. Remittance itself adds no D1 migration, secrets, or bindings. Weekly approval still requires `0002_week_approval.sql`. Recurring assignment schedules require `0003_recurring_schedules.sql`. Business workspaces require `0004_business_workspace.sql` in this release.
 
 ## Manual release
@@ -52,5 +54,6 @@ Cloudflare, not GitHub:
 | Name | Where | Purpose |
 | --- | --- | --- |
 | `BETTER_AUTH_SECRET` | Worker secret on `cleantrack-timesheet-preview` | Auth signing secret. Set with `wrangler secret put BETTER_AUTH_SECRET`. Do not copy it into GitHub or Cursor |
+| `SENTRY_DSN` | Optional Worker secret on `cleantrack-timesheet-preview` | Error capture. Set with `wrangler secret put SENTRY_DSN`. Unset means capture is off. Do not copy it into GitHub |
 
 Create the preview database with `pnpm exec wrangler d1 create cleantrack-timesheet-preview`, put its id in `PREVIEW_D1_DATABASE_ID`, and set `PREVIEW_URL` to the workers.dev (or custom) origin before the first deploy. The workflow rewrites the built `dist/server/wrangler.json` to the preview name and database, applies migrations there, and deploys. It does not read or write the production D1 database.

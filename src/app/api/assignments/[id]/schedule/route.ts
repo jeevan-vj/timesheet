@@ -21,7 +21,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     if (error instanceof Error && (error.message === "not_found" || error.message === "business_required")) {
       return noStoreJson({ error: "not_found" }, 404);
     }
-    return apiError(error);
+    return await apiError(error, request);
   }
 }
 
@@ -42,7 +42,7 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
     if (error instanceof Error && error.message === "schedule_exists") return noStoreJson({ error: "schedule_exists" }, 409);
     if (error instanceof Error && error.message === "week_locked") return noStoreJson({ error: "week_locked" }, 409);
     if (error instanceof Error && error.message === "no_schedule") return noStoreJson({ error: "no_schedule" }, 409);
-    return apiError(error);
+    return await apiError(error, request);
   }
 }
 
@@ -63,6 +63,6 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
     if (error instanceof Error && error.message === "schedule_exists") return noStoreJson({ error: "schedule_exists" }, 409);
     if (error instanceof Error && error.message === "week_locked") return noStoreJson({ error: "week_locked" }, 409);
     if (error instanceof Error && error.message === "no_schedule") return noStoreJson({ error: "no_schedule" }, 409);
-    return apiError(error);
+    return await apiError(error, request);
   }
 }

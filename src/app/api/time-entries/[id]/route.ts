@@ -13,7 +13,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     const entry = await getTimeEntry(db, access.user.id, id);
     return entry ? noStoreJson(entry) : noStoreJson({ error: "not_found" }, 404);
   } catch (error) {
-    return readItemError(error);
+    return await readItemError(error, request);
   }
 }
 
@@ -30,7 +30,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     if (error instanceof Error && error.message === "invalid_shift") return noStoreJson({ error: "invalid_shift" }, 400);
     if (error instanceof Error && error.message === "duplicate_entry") return noStoreJson({ error: "duplicate_entry" }, 409);
     if (error instanceof Error && error.message === "week_locked") return noStoreJson({ error: "week_locked" }, 409);
-    return apiError(error);
+    return await apiError(error, request);
   }
 }
 
@@ -44,6 +44,6 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
     return deleted ? noStoreJson({ ok: true }) : noStoreJson({ error: "not_found" }, 404);
   } catch (error) {
     if (error instanceof Error && error.message === "week_locked") return noStoreJson({ error: "week_locked" }, 409);
-    return apiError(error);
+    return await apiError(error, request);
   }
 }

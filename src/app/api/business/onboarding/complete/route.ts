@@ -9,6 +9,6 @@ export async function POST(request: Request) {
   try {
     return noStoreJson(await completeOnboarding(db, access.user.id));
   } catch (error) {
-    return apiError(error);
+    return await apiError(error, request);
   }
 }
