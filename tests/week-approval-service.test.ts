@@ -6,8 +6,10 @@ import initSqlJs, { type Database as SqlJsDatabase } from "sql.js";
 import { describe, expect, it } from "vitest";
 import { assignments, contractors, timeEntries, weekApprovals } from "../src/db/schema";
 import { calculateEntryPayCents } from "../src/lib/payroll";
+import { businessIdForUser } from "../src/lib/business";
 import { findWeekApproval } from "../src/lib/week-approval-query";
 import { createSite } from "../src/services/sites";
+import { seedOwnerWorkspace } from "./owner-workspace";
 import {
   createAssignment,
   createContractor,
@@ -34,15 +36,13 @@ async function openMemoryDb() {
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0001_entry_mode.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0002_week_approval.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0003_recurring_schedules.sql"), "utf8"));
+  sqlite.exec(fs.readFileSync(path.resolve("drizzle/0004_business_workspace.sql"), "utf8"));
   const database = drizzle(sqlite) as unknown as TimesheetDb;
   return { sqlite, database };
 }
 
 function insertUser(sqlite: SqlJsDatabase, id: string) {
-  sqlite.run(
-    "INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 0, 1700000000, 1700000000)",
-    [id, id, `${id}@example.test`],
-  );
+  seedOwnerWorkspace(sqlite, id);
 }
 
 async function seedOwner(database: TimesheetDb, sqlite: SqlJsDatabase, ownerUserId: string) {
@@ -127,7 +127,7 @@ describe("week approval service", () => {
       expectedPaidMinutes: 480,
       expectedPayCents,
     });
-    const stored = await findWeekApproval(database, "owner-a", MONDAY);
+    const stored = await findWeekApproval(database, "owner-a", MONDAY, businessIdForUser("owner-a"));
     expect(first.status).toBe("approved");
     expect(first.approvedAt).toBe(stored?.approvedAt.toISOString());
 
@@ -137,7 +137,7 @@ describe("week approval service", () => {
       expectedPayCents,
     });
     expect(second).toEqual(first);
-    const after = await findWeekApproval(database, "owner-a", MONDAY);
+    const after = await findWeekApproval(database, "owner-a", MONDAY, businessIdForUser("owner-a"));
     expect(after?.approvedAt).toEqual(stored?.approvedAt);
     expect(after?.updatedAt).toEqual(stored?.updatedAt);
   });
@@ -152,7 +152,7 @@ describe("week approval service", () => {
       expectedPaidMinutes: 0,
       expectedPayCents: 0,
     })).rejects.toThrow("stale_week");
-    expect(await findWeekApproval(database, "owner-a", MONDAY)).toBeNull();
+    expect(await findWeekApproval(database, "owner-a", MONDAY, businessIdForUser("owner-a"))).toBeNull();
     expect(await database.select().from(weekApprovals)).toHaveLength(0);
   });
 
@@ -245,7 +245,7 @@ describe("week approval service", () => {
     const { sqlite, database } = await openMemoryDb();
     insertUser(sqlite, "owner-a");
     await expect(reopenWeek(database, "owner-a", { weekStart: MONDAY })).rejects.toThrow("week_not_approved");
-    expect(await findWeekApproval(database, "owner-a", MONDAY)).toBeNull();
+    expect(await findWeekApproval(database, "owner-a", MONDAY, businessIdForUser("owner-a"))).toBeNull();
   });
 
   it("is idempotent on reopen and does not rewrite timestamps", async () => {
@@ -253,10 +253,10 @@ describe("week approval service", () => {
     insertUser(sqlite, "owner-a");
     await approveWeek(database, "owner-a", { weekStart: MONDAY, expectedPaidMinutes: 0, expectedPayCents: 0 });
     const first = await reopenWeek(database, "owner-a", { weekStart: MONDAY });
-    const stored = await findWeekApproval(database, "owner-a", MONDAY);
+    const stored = await findWeekApproval(database, "owner-a", MONDAY, businessIdForUser("owner-a"));
     const second = await reopenWeek(database, "owner-a", { weekStart: MONDAY });
     expect(second).toEqual(first);
-    const after = await findWeekApproval(database, "owner-a", MONDAY);
+    const after = await findWeekApproval(database, "owner-a", MONDAY, businessIdForUser("owner-a"));
     expect(after?.reopenedAt).toEqual(stored?.reopenedAt);
     expect(after?.approvedAt).toEqual(stored?.approvedAt);
     expect(after?.updatedAt).toEqual(stored?.updatedAt);
@@ -298,8 +298,8 @@ describe("week approval service", () => {
     });
     expect(bApproved.id).not.toBe(aApproved.id);
 
-    const aRow = await findWeekApproval(database, "owner-a", MONDAY);
-    const bRow = await findWeekApproval(database, "owner-b", MONDAY);
+    const aRow = await findWeekApproval(database, "owner-a", MONDAY, businessIdForUser("owner-a"));
+    const bRow = await findWeekApproval(database, "owner-b", MONDAY, businessIdForUser("owner-b"));
     expect(aRow?.id).toBe(aApproved.id);
     expect(bRow?.id).toBe(bApproved.id);
     expect(aRow?.status).toBe("approved");

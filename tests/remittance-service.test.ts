@@ -8,13 +8,19 @@ import { contractors, timeEntries } from "../src/db/schema";
 import { calculateEntryPayCents } from "../src/lib/payroll";
 import { clockFieldsForWrite } from "../src/lib/time-entry-write";
 import { getContractorWeekRemittance } from "../src/services/remittance";
-import { createSite } from "../src/services/sites";
+import { createSite, getSite, listSites, updateSite } from "../src/services/sites";
 import {
   createAssignment,
   createContractor,
   createTimeEntry,
   deleteTimeEntry,
+  getAssignment,
+  getContractor,
+  listAssignments,
+  listContractors,
+  updateContractor,
 } from "../src/services/timesheet";
+import { seedOwnerWorkspace } from "./owner-workspace";
 import { approveWeek } from "../src/services/week-approval";
 
 type RemittanceDb = Parameters<typeof getContractorWeekRemittance>[0];
@@ -28,15 +34,13 @@ async function openMemoryDb() {
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0001_entry_mode.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0002_week_approval.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0003_recurring_schedules.sql"), "utf8"));
+  sqlite.exec(fs.readFileSync(path.resolve("drizzle/0004_business_workspace.sql"), "utf8"));
   const database = drizzle(sqlite) as unknown as RemittanceDb;
   return { sqlite, database };
 }
 
 function insertUser(sqlite: SqlJsDatabase, id: string) {
-  sqlite.run(
-    "INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 0, 1700000000, 1700000000)",
-    [id, id, `${id}@example.test`],
-  );
+  seedOwnerWorkspace(sqlite, id);
 }
 
 async function seedOwner(database: RemittanceDb, sqlite: SqlJsDatabase, ownerUserId: string) {
@@ -96,6 +100,32 @@ describe("contractor week remittance query", () => {
 
     await expect(getContractorWeekRemittance(database, "owner-a", other.contractor.id, weekStart)).rejects.toThrow("not_found");
     await expect(getContractorWeekRemittance(database, "owner-b", owner.contractor.id, weekStart)).rejects.toThrow("not_found");
+
+    const ownerSites = await listSites(database, "owner-a");
+    expect(ownerSites.map((site) => site.id)).toContain(owner.harbour.id);
+    expect(ownerSites.map((site) => site.id)).not.toContain(other.harbour.id);
+    await expect(getSite(database, "owner-a", other.harbour.id)).rejects.toThrow("not_found");
+    await expect(updateSite(database, "owner-a", other.harbour.id, { name: "Stolen Hall", address: "" })).rejects.toThrow("not_found");
+    expect((await getSite(database, "owner-b", other.harbour.id)).name).toBe("owner-b-harbour");
+
+    const ownerContractors = await listContractors(database, "owner-a", false);
+    expect(ownerContractors.map((contractor) => contractor.id)).toEqual([owner.contractor.id]);
+    await expect(getContractor(database, "owner-a", other.contractor.id)).rejects.toThrow("not_found");
+    await expect(updateContractor(database, "owner-a", other.contractor.id, {
+      name: "Stolen Crew",
+      email: "",
+      phone: "",
+      defaultRateCents: 4_500,
+    })).rejects.toThrow("not_found");
+
+    const ownerAssignments = await listAssignments(database, "owner-a");
+    expect(ownerAssignments.every((assignment) => assignment.contractorId === owner.contractor.id)).toBe(true);
+    await expect(getAssignment(database, "owner-a", ownerAssignments[0]?.id ?? "missing")).resolves.toMatchObject({
+      contractorId: owner.contractor.id,
+    });
+
+    const businessIds = sqlite.exec("SELECT DISTINCT business_id FROM site ORDER BY business_id")[0]?.values.map((row) => row[0]);
+    expect(businessIds).toEqual(["biz_owner-a", "biz_owner-b"]);
   });
 
   it("loads an archived contractor's historical week rows", async () => {
@@ -210,6 +240,7 @@ describe("contractor week remittance query", () => {
     await database.insert(timeEntries).values({
       id: crypto.randomUUID(),
       ownerUserId: "owner-a",
+      businessId: "biz_owner-a",
       contractorId: owner.contractor.id,
       siteId: owner.harbour.id,
       workDate: weekStart,

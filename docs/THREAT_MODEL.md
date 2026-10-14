@@ -8,8 +8,12 @@ Contractor identity/contact data, site locations, rates, work notes, time record
 
 | Risk | Mitigation |
 | --- | --- |
-| One owner reads or mutates another owner's data | Server-derived owner ID plus owner predicates on every query and relation lookup |
-| Client forges ownership or a relationship | APIs do not accept owner IDs; assignment and entry services verify owner-scoped contractor/site rows. Cross-owner assignment ids return `not_found` |
+| One owner reads or mutates another owner's data | Server-derived owner ID plus owner and business predicates on every query and relation lookup |
+| Client forges a business id | APIs ignore `businessId` in JSON. The active business comes from the session user's owner membership. Phase-1 ids are `biz_<user id>` and `mem_<user id>` |
+| Client forges ownership or a relationship | APIs do not accept owner IDs; assignment and entry services verify owner-scoped and business-scoped contractor/site rows. Cross-business ids return `not_found` |
+| User with no business mutates domain rows | Mutations other than `POST /api/business` return `409 business_required` and write nothing. Dashboard and collection reads stay empty `200` responses |
+| Migration maps an owner to the wrong business | `0004` uses one scalar membership lookup per row and aborts when that lookup is ambiguous, a user has not exactly one active membership, related rows disagree on owner, or any `business_id` stays null. It does not rewrite rate snapshots or approval timestamps |
+| Business profile reaches logs | No request-body, business name, NZBN, address, contact email, or phone logging |
 | Cross-owner contractor get, update, archive, or restore | Identical `404 { error: "not_found" }` with no writes; owner predicates on every contractor and assignment query |
 | Cross-owner site get, edit, archive, or restore | Owner-scoped site lookup returns `not_found`; no writes and no mention of other owners |
 | Same-owner duplicate contractor name, including archived | Unique `(owner, name)` index; `409 { error: "duplicate_contractor" }` is same-owner only |
@@ -43,7 +47,7 @@ Contractor identity/contact data, site locations, rates, work notes, time record
 | Apply restores an archived assignment | Apply inner-joins `assignment.active = true` with active owned contractor and site; archived assignments are skipped and historical entries remain |
 | Site rollup or week brief recomputes pay from current rates | Both are derived from the owner-scoped dashboard entries already loaded; positive minutes use `calculateEntryPayCents` on the snapshotted `rateCents`. No new route, write, or log |
 | Week brief leaves the browser | Copy is an explicit owner action of names, durations, and totals already on screen. The text omits rates, notes, email, and phone, and it is not sent to an API |
-| Sensitive data reaches logs | No request-body, site name/address, PDF bytes, contractor, rate, or pay logging; automated boundary test |
+| Sensitive data reaches logs | No request-body, business profile, site name/address, PDF bytes, contractor, rate, or pay logging; automated boundary test |
 | Cloud agent reaches production | Cursor receives no production secrets; trusted GitHub workflows own merge/deploy gates |
 
 ## Residual risks

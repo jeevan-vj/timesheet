@@ -13,7 +13,7 @@ const ownerA = "owner-a";
 const ownerB = "owner-b";
 
 type Row = Record<string, unknown>;
-type TableName = "site" | "assignment" | "contractor" | "time_entry" | "week_approval" | "assignment_schedule_version";
+type TableName = "site" | "assignment" | "contractor" | "time_entry" | "week_approval" | "assignment_schedule_version" | "business" | "business_member";
 type Store = Record<TableName, Row[]>;
 type ColRef = { tableName: string; key: string };
 type Token = { kind: "col"; tableName: string; key: string } | { kind: "val"; value: unknown } | { kind: "op"; op: string };
@@ -25,6 +25,8 @@ const uniqueKeys: Record<TableName, string[]> = {
   contractor: ["ownerUserId", "name"],
   week_approval: ["ownerUserId", "weekStart"],
   assignment_schedule_version: ["id"],
+  business: ["id"],
+  business_member: ["id"],
 };
 
 function columnRef(column: Column): ColRef {
@@ -90,7 +92,16 @@ function thenable<T>(run: () => T) {
 }
 
 function createMemoryDb() {
-  const store: Store = { site: [], assignment: [], contractor: [], time_entry: [], week_approval: [], assignment_schedule_version: [] };
+  const store: Store = {
+    site: [],
+    assignment: [],
+    contractor: [],
+    time_entry: [],
+    week_approval: [],
+    assignment_schedule_version: [],
+    business: [],
+    business_member: [],
+  };
 
   function cloneStore(): Store {
     return structuredClone(store);
@@ -274,8 +285,70 @@ function createMemoryDb() {
 
 type MemoryDb = ReturnType<typeof createMemoryDb>;
 
+function seedMemoryOwner(memory: MemoryDb, userId: string) {
+  const now = new Date(0);
+  memory.store.business.push({
+    id: `biz_${userId}`,
+    name: userId,
+    nzbn: "",
+    address: "",
+    contactEmail: `${userId}@example.test`,
+    contactPhone: "",
+    timezone: "Pacific/Auckland",
+    currency: "NZD",
+    weekStart: "monday",
+    onboardingCompletedAt: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  memory.store.business_member.push({
+    id: `mem_${userId}`,
+    businessId: `biz_${userId}`,
+    userId,
+    role: "owner",
+    active: 1,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
 function asDb(database: MemoryDb) {
   return database as never;
+}
+
+function databaseThatRejectsSecondInsert(constraint: string) {
+  const persisted: string[] = [];
+  const membership = [{
+    id: `mem_${ownerA}`,
+    businessId: `biz_${ownerA}`,
+    userId: ownerA,
+    role: "owner",
+    active: 1,
+  }];
+  const selectApi = {
+    from() { return selectApi; },
+    where() { return selectApi; },
+    then(onFulfilled?: (value: typeof membership) => unknown, onRejected?: (reason: unknown) => unknown) {
+      return Promise.resolve(membership).then(onFulfilled, onRejected);
+    },
+  };
+  const database = {
+    select() { return selectApi; },
+    insert() {
+      return {
+        values(row: { name?: string }) {
+          if (persisted.length > 0) {
+            return Promise.reject(new Error("Failed query: insert\nparams: []", {
+              cause: new Error(`UNIQUE constraint failed: ${constraint}`),
+            }));
+          }
+          persisted.push(row.name ?? "");
+          return Promise.resolve();
+        },
+      };
+    },
+  };
+  return { persisted, database: database as never };
 }
 
 async function waitForClock() {
@@ -287,6 +360,8 @@ describe("site service", () => {
 
   beforeEach(() => {
     memory = createMemoryDb();
+    seedMemoryOwner(memory, ownerA);
+    seedMemoryOwner(memory, ownerB);
   });
 
   it("creates, lists, gets, updates, archives, and restores a site", async () => {
@@ -345,7 +420,7 @@ describe("site service", () => {
     const pat = await createContractor(asDb(memory), ownerB, { name: "Pat", email: "", phone: "", defaultRateCents: 3300 });
 
     const harbourActive = await createAssignment(asDb(memory), ownerA, { contractorId: aroha.id, siteId: harbour.id, rateCents: 3500 });
-    const harbourInactive = { id: "assign-inactive", ownerUserId: ownerA, contractorId: moana.id, siteId: harbour.id, rateCents: 3400, active: false, createdAt: new Date(), updatedAt: new Date() };
+    const harbourInactive = { id: "assign-inactive", ownerUserId: ownerA, businessId: `biz_${ownerA}`, contractorId: moana.id, siteId: harbour.id, rateCents: 3400, active: false, createdAt: new Date(), updatedAt: new Date() };
     memory.store.assignment.push(harbourInactive);
     const quayActive = await createAssignment(asDb(memory), ownerA, { contractorId: aroha.id, siteId: quay.id, rateCents: null });
     const otherActive = await createAssignment(asDb(memory), ownerB, { contractorId: pat.id, siteId: other.id, rateCents: 3600 });
@@ -396,6 +471,18 @@ describe("site service", () => {
     const quay = await createSite(asDb(memory), ownerA, { name: "Quay Shed", address: "" });
     await expect(updateSite(asDb(memory), ownerA, quay.id, { name: "Harbour Offices", address: "" })).rejects.toThrow("duplicate_site");
     expect(memory.store.site.find((row) => row.id === quay.id)?.name).toBe("Quay Shed");
+  });
+
+  it("maps a Drizzle-wrapped unique failure to duplicate_site and duplicate_contractor without a second row", async () => {
+    const sites = databaseThatRejectsSecondInsert("site.owner_user_id, site.name");
+    await createSite(sites.database, ownerA, { name: "Harbour Offices", address: "" });
+    await expect(createSite(sites.database, ownerA, { name: "Harbour Offices", address: "2 Quay" })).rejects.toThrow("duplicate_site");
+    expect(sites.persisted).toEqual(["Harbour Offices"]);
+
+    const contractors = databaseThatRejectsSecondInsert("contractor.owner_user_id, contractor.name");
+    await createContractor(contractors.database, ownerA, { name: "Aroha", email: "", phone: "", defaultRateCents: 3200 });
+    await expect(createContractor(contractors.database, ownerA, { name: "Aroha", email: "", phone: "", defaultRateCents: 3200 })).rejects.toThrow("duplicate_contractor");
+    expect(contractors.persisted).toEqual(["Aroha"]);
   });
 
   it("throws duplicate_site on restore name clash and writes nothing", async () => {
@@ -476,7 +563,7 @@ describe("site service", () => {
     const fn = source.slice(start, next === -1 ? undefined : next);
     expect(fn).toContain("eq(sites.active, true)");
     expect(fn).toContain("eq(assignments.active, true)");
-    expect(fn).toMatch(/innerJoin\(sites, and\(eq\(sites\.id, timeEntries\.siteId\), eq\(sites\.ownerUserId, ownerUserId\)\)\)/);
+    expect(fn).toMatch(/innerJoin\(sites, and\(eq\(sites\.id, timeEntries\.siteId\), eq\(sites\.ownerUserId, ownerUserId\), eq\(sites\.businessId, businessId\)\)\)/);
   });
 
   it("rejects already-archived delete and already-active restore without writing", async () => {

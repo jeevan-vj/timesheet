@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import initSqlJs, { type Database as SqlJsDatabase } from "sql.js";
 import { describe, expect, it } from "vitest";
 import { assignments, contractors, timeEntries } from "../src/db/schema";
+import { seedOwnerWorkspace } from "./owner-workspace";
 import { createSite } from "../src/services/sites";
 import {
   createAssignment,
@@ -24,15 +25,13 @@ async function openMemoryDb() {
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0001_entry_mode.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0002_week_approval.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0003_recurring_schedules.sql"), "utf8"));
+  sqlite.exec(fs.readFileSync(path.resolve("drizzle/0004_business_workspace.sql"), "utf8"));
   const database = drizzle(sqlite) as unknown as TimesheetDb;
   return { sqlite, database };
 }
 
 function insertUser(sqlite: SqlJsDatabase, id: string) {
-  sqlite.run(
-    "INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 0, 1700000000, 1700000000)",
-    [id, id, `${id}@example.test`],
-  );
+  seedOwnerWorkspace(sqlite, id);
 }
 
 async function seedOwner(database: TimesheetDb, sqlite: SqlJsDatabase, ownerUserId: string) {

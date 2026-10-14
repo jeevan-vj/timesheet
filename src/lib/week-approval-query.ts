@@ -4,11 +4,15 @@ import { weekApprovals } from "@/db/schema";
 
 type Database = typeof db;
 
-export async function findWeekApproval(database: Database, ownerUserId: string, weekStart: string) {
+export async function findWeekApproval(database: Database, ownerUserId: string, weekStart: string, businessId: string) {
   const [row] = await database
     .select()
     .from(weekApprovals)
-    .where(and(eq(weekApprovals.ownerUserId, ownerUserId), eq(weekApprovals.weekStart, weekStart)))
+    .where(and(
+      eq(weekApprovals.ownerUserId, ownerUserId),
+      eq(weekApprovals.businessId, businessId),
+      eq(weekApprovals.weekStart, weekStart),
+    ))
     .limit(1);
   return row ?? null;
 }

@@ -8,18 +8,20 @@
 
 `BETTER_AUTH_SECRET` is a Worker runtime secret. Keep it in Cloudflare and never copy it into GitHub. `BETTER_AUTH_URL`, `AUTH_TRUSTED_ORIGINS`, and `RELEASE_SHA` are non-secret deployment variables supplied by the release workflow.
 
-Weekly remittance advice is generated on read in the Worker with `pdf-lib`. Remittance itself adds no D1 migration, secrets, or bindings. Weekly approval still requires `0002_week_approval.sql`. Recurring assignment schedules require `0003_recurring_schedules.sql` in this release.
+Weekly remittance advice is generated on read in the Worker with `pdf-lib`. Remittance itself adds no D1 migration, secrets, or bindings. Weekly approval still requires `0002_week_approval.sql`. Recurring assignment schedules require `0003_recurring_schedules.sql`. Business workspaces require `0004_business_workspace.sql` in this release.
 
 ## Manual release
 
 1. Run `pnpm install --frozen-lockfile` and `pnpm verify`.
-2. Apply migrations with `pnpm exec wrangler d1 migrations apply cleantrack-timesheet --remote --config wrangler.jsonc`. This release includes `0003_recurring_schedules.sql` (and still requires `0002_week_approval.sql`). Deploy the Worker and `0003` together. Existing `time_entry` rows stay `occurrence_kind = manual` with `schedule_version_id` NULL; there is no pay backfill.
+2. Apply migrations with `pnpm exec wrangler d1 migrations apply cleantrack-timesheet --remote --config wrangler.jsonc`. This release includes `0004_business_workspace.sql` (and still requires `0002_week_approval.sql` and `0003_recurring_schedules.sql`). Deploy the Worker and `0004` together. The migration adds `business` and `business_member`, backfills one owner business per existing user (`biz_<user id>`, `mem_<user id>`), and sets `business_id` on existing domain rows. It does not rewrite `time_entry.rate_cents`, paid minutes, or week-approval status and timestamps. It aborts if an owner cannot be mapped deterministically, if a user name or email is blank, or if any domain `business_id` would stay null. After it commits, inserts and updates that omit `business_id` fail with `business_required`.
 3. Deploy the generated Worker with `pnpm exec wrangler deploy --config dist/server/wrangler.json`, supplying the exact HTTPS `BETTER_AUTH_URL`, an empty or explicitly approved `AUTH_TRUSTED_ORIGINS`, and a safe `RELEASE_SHA` variable.
 4. Verify `/api/health` reports D1 health and the expected release, then verify sign-up/sign-in, owner isolation, mutation origin checks, a rate override, and a weekly total using synthetic data only.
 
 Rollback of weekly approval: leave the `week_approval` table in place. Do not `DROP` it without a backup. A Worker rollback that no longer writes the table is safe; existing Open weeks remain Open.
 
 Rollback of recurring schedules: leave the `assignment_schedule_version` table and the `time_entry.occurrence_kind` / `schedule_version_id` columns in place. Do not DROP them. A Worker that does not read the new columns remains compatible with extra nullable/defaulted fields. Restoring a pre-`0003` Worker that SELECTs unknown columns would fail; deploy schema and Worker together.
+
+Rollback of business workspaces: do not drop `business`, `business_member`, `business_backfill_guard`, the `business_id` columns, or the `business_required` triggers. Do not roll a pre-`0004` Worker back onto a database that has this migration. Old inserts omit `business_id` and the triggers abort them. Extra columns are ignored by an old `SELECT`, but the triggers make that rollback unsafe. Forward-fix instead.
 
 ## Continuous delivery
 

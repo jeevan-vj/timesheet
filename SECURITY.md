@@ -7,9 +7,9 @@ Contractor identity, contact details, rates, hours, notes, and pay totals are co
 Non-negotiable rules:
 
 1. Every domain read and write requires a valid server-side session.
-2. `owner_user_id` is derived only from that session, never from request JSON or query parameters.
-3. Every referenced site, contractor, assignment, assignment_schedule_version, time entry, and week_approval is filtered by the same owner.
-4. Do not log request bodies, contact details, rates, notes, session tokens, passwords, or authentication URLs.
+2. `owner_user_id` and `business_id` are derived only from that session and its active owner membership, never from request JSON or query parameters.
+3. Every referenced site, contractor, assignment, assignment_schedule_version, time entry, and week_approval is filtered by the same owner and the same business.
+4. Do not log request bodies, business profile fields, contact details, rates, notes, session tokens, passwords, or authentication URLs.
 5. Store currency as integer cents and time as integer minutes; never persist calculated floating-point hours.
 6. Snapshot the effective rate on each time entry to protect historical totals.
 7. Validate all untrusted input at the API boundary and return non-disclosing errors. Contractor create/patch field messages are canned and do not disclose whether another owner's contractor exists.

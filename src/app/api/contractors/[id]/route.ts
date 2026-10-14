@@ -1,5 +1,5 @@
 import { db } from "@/db/client";
-import { apiError, authorize, readJson } from "@/lib/api";
+import { apiError, authorize, readItemError, readJson } from "@/lib/api";
 import { noStoreJson } from "@/lib/accounts-config";
 import { isValidContractorId } from "@/lib/contractor-lifecycle";
 import { contractorInput, invalidRequestFromZod } from "@/lib/validation";
@@ -13,7 +13,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   try {
     return noStoreJson(await getContractor(db, access.user.id, id));
   } catch (error) {
-    return apiError(error);
+    return readItemError(error);
   }
 }
 

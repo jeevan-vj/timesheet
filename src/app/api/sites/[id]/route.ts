@@ -16,7 +16,9 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   try {
     return noStoreJson(await getSite(db, access.user.id, id));
   } catch (error) {
-    if (error instanceof Error && error.message === "not_found") return noStoreJson({ error: "not_found" }, 404);
+    if (error instanceof Error && (error.message === "not_found" || error.message === "business_required")) {
+      return noStoreJson({ error: "not_found" }, 404);
+    }
     return apiError(error);
   }
 }

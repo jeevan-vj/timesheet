@@ -22,7 +22,13 @@ export function apiError(error: unknown): Response {
   if (error instanceof Error) {
     if (error.message === "payload_too_large") return noStoreJson({ error: "payload_too_large" }, 413);
     if (error.message === "not_found") return noStoreJson({ error: "not_found" }, 404);
+    if (error.message === "business_required") return noStoreJson({ error: "business_required" }, 409);
     if (error.message === "duplicate_contractor") return noStoreJson({ error: "duplicate_contractor" }, 409);
   }
   return noStoreJson({ error: "invalid_request" }, 400);
+}
+
+export function readItemError(error: unknown): Response {
+  if (error instanceof Error && error.message === "business_required") return noStoreJson({ error: "not_found" }, 404);
+  return apiError(error);
 }
