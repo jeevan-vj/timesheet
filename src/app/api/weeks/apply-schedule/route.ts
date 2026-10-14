@@ -22,6 +22,6 @@ export async function POST(request: Request) {
     if (error instanceof Error && error.message === "not_found") return noStoreJson({ error: "not_found" }, 404);
     if (error instanceof Error && error.message === "week_locked") return noStoreJson({ error: "week_locked" }, 409);
     if (error instanceof Error && error.message === "duplicate_entry") return noStoreJson({ error: "duplicate_entry" }, 409);
-    return apiError(error);
+    return await apiError(error, request);
   }
 }

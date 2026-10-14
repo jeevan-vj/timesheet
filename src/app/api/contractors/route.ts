@@ -10,7 +10,11 @@ export async function GET(request: Request) {
   if ("response" in access) return access.response;
   const parsed = parseIncludeArchived(new URL(request.url).searchParams.get("includeArchived"));
   if (!parsed.ok) return noStoreJson({ error: "invalid_request" }, 400);
-  return noStoreJson({ contractors: await listContractors(db, access.user.id, parsed.includeArchived) });
+  try {
+    return noStoreJson({ contractors: await listContractors(db, access.user.id, parsed.includeArchived) });
+  } catch (error) {
+    return await apiError(error, request);
+  }
 }
 
 export async function POST(request: Request) {
@@ -21,6 +25,6 @@ export async function POST(request: Request) {
     if (!parsed.success) return noStoreJson(invalidRequestFromZod(parsed.error), 400);
     return noStoreJson(await createContractor(db, access.user.id, parsed.data), 201);
   } catch (error) {
-    return apiError(error);
+    return await apiError(error, request);
   }
 }

@@ -13,6 +13,6 @@ export async function POST(request: Request) {
     return noStoreJson(await reopenWeek(db, access.user.id, parsed.data));
   } catch (error) {
     if (error instanceof Error && error.message === "week_not_approved") return noStoreJson({ error: "week_not_approved" }, 409);
-    return apiError(error);
+    return await apiError(error, request);
   }
 }

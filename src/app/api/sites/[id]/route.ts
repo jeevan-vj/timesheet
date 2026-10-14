@@ -17,7 +17,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     return noStoreJson(await getSite(db, access.user.id, id));
   } catch (error) {
     if (error instanceof Error && error.message === "not_found") return noStoreJson({ error: "not_found" }, 404);
-    return apiError(error);
+    return await apiError(error, request);
   }
 }
 
@@ -32,7 +32,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   } catch (error) {
     if (error instanceof Error && error.message === "not_found") return noStoreJson({ error: "not_found" }, 404);
     if (error instanceof Error && error.message === "duplicate_site") return noStoreJson({ error: "duplicate_site" }, 409);
-    return apiError(error);
+    return await apiError(error, request);
   }
 }
 
@@ -45,6 +45,6 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
     return noStoreJson(await archiveSite(db, access.user.id, id));
   } catch (error) {
     if (error instanceof Error && error.message === "not_found") return noStoreJson({ error: "not_found" }, 404);
-    return apiError(error);
+    return await apiError(error, request);
   }
 }

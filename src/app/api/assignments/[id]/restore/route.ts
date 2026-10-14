@@ -12,6 +12,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     return noStoreJson(await restoreAssignment(db, access.user.id, id));
   } catch (error) {
     if (error instanceof Error && error.message === "not_found") return noStoreJson({ error: "not_found" }, 404);
-    return apiError(error);
+    return await apiError(error, request);
   }
 }
