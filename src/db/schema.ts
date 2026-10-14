@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const user = sqliteTable("user", {
@@ -54,8 +55,38 @@ export const rateLimit = sqliteTable("rate_limit", {
   lastRequest: integer("last_request").notNull(),
 }, (t) => [uniqueIndex("rate_limit_key_uq").on(t.key)]);
 
+export const business = sqliteTable("business", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  nzbn: text("nzbn").notNull().default(""),
+  address: text("address").notNull().default(""),
+  contactEmail: text("contact_email").notNull(),
+  contactPhone: text("contact_phone").notNull().default(""),
+  timezone: text("timezone").notNull().default("Pacific/Auckland"),
+  currency: text("currency").notNull().default("NZD"),
+  weekStart: text("week_start").notNull().default("monday"),
+  onboardingCompletedAt: integer("onboarding_completed_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+export const businessMember = sqliteTable("business_member", {
+  id: text("id").primaryKey(),
+  businessId: text("business_id").notNull().references(() => business.id, { onDelete: "restrict" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  role: text("role").notNull(),
+  active: integer("active").notNull().default(1),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (t) => [
+  uniqueIndex("business_member_business_user_uq").on(t.businessId, t.userId),
+  index("business_member_user_id_idx").on(t.userId),
+  uniqueIndex("business_member_active_user_uq").on(t.userId).where(sql`${t.active} = 1`),
+]);
+
 const ownedFields = {
   ownerUserId: text("owner_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  businessId: text("business_id").notNull().references(() => business.id, { onDelete: "restrict" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 };
