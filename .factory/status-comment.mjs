@@ -62,6 +62,17 @@ function stepIcon(state, stepStates, stepIndex) {
 }
 
 function currentActivity(run) {
+  const superseded = [...(run.events ?? [])].reverse().find((event) => event.event_type === 'run.superseded');
+  if (superseded && run.state === 'CANCELLED') {
+    const successor = superseded.metadata?.successor_factory_run_id;
+    const base = successor
+      ? `This run was superseded by \`${successor}\`.`
+      : 'This run was superseded by a new factory run.';
+    if (superseded.metadata?.old_agent_left_running === true) {
+      return `${base} The previous Cursor agent was still running and could not be cancelled or archived.`;
+    }
+    return base;
+  }
   if (run.latest_recovery?.action && ['REPAIR', 'REBASE_REPAIR', 'RERUN_VERIFICATION', 'WAIT_AND_RETRY'].includes(run.latest_recovery.action)) {
     return `Recovery action \`${run.latest_recovery.action}\` via \`${run.latest_recovery.policy}\`.`;
   }

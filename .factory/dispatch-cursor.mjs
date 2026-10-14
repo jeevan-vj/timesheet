@@ -76,6 +76,86 @@ export async function getCursorAgent(agentId, { apiKey, apiUrl = API_URL, fetchI
   return readCursorResponse(response);
 }
 
+function warnCursor(message) {
+  process.stderr.write(`factory: ${message}\n`);
+}
+
+function retireSettled(status) {
+  return status === 404 || status === 409;
+}
+
+export async function inspectCursorAgent(agentId, { apiKey, apiUrl = API_URL, fetchImpl = fetch } = {}) {
+  const agent = await getCursorAgent(agentId, { apiKey, apiUrl, fetchImpl });
+  const latestRunId = agent?.latestRunId ?? null;
+  let run = null;
+  if (latestRunId) {
+    try {
+      const response = await fetchImpl(`${apiUrl}/${encodeURIComponent(agentId)}/runs/${encodeURIComponent(latestRunId)}`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+      if (response.ok) {
+        run = await readCursorResponse(response);
+      } else {
+        warnCursor(`Cursor agent run lookup returned HTTP ${response.status}`);
+      }
+    } catch (error) {
+      const name = error instanceof Error ? error.name : 'Error';
+      warnCursor(`Cursor agent run lookup failed (${name})`);
+    }
+  }
+  return {
+    id: agent?.id ?? agentId,
+    status: agent?.status ?? null,
+    updatedAt: agent?.updatedAt ?? null,
+    latestRunId,
+    runStatus: run?.status ?? null,
+    runUpdatedAt: run?.updatedAt ?? null,
+  };
+}
+
+async function postCursor(url, { apiKey, fetchImpl }) {
+  return fetchImpl(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+}
+
+export async function retireCursorAgent(agentId, { apiKey, apiUrl = API_URL, fetchImpl = fetch, runId = null, runStatus = null } = {}) {
+  if (!apiKey) throw new Error('CURSOR_API_KEY is required');
+  if (!/^bc-[A-Za-z0-9-]+$/.test(agentId)) throw new Error('Invalid Cursor agent ID');
+  const activeRun = new Set(['QUEUED', 'CREATING', 'RUNNING']);
+  const normalizedRun = typeof runStatus === 'string' ? runStatus.trim().toUpperCase() : '';
+  const shouldCancel = Boolean(runId) && (activeRun.has(normalizedRun) || !normalizedRun);
+  let cancelSettled = false;
+  let archiveSettled = false;
+  if (shouldCancel) {
+    try {
+      const response = await postCursor(`${apiUrl}/${encodeURIComponent(agentId)}/runs/${encodeURIComponent(runId)}/cancel`, { apiKey, fetchImpl });
+      if (response.ok || retireSettled(response.status)) cancelSettled = true;
+      else warnCursor(`Cursor agent run cancel returned HTTP ${response.status}`);
+    } catch (error) {
+      const name = error instanceof Error ? error.name : 'Error';
+      warnCursor(`Cursor agent run cancel failed (${name})`);
+    }
+  }
+  try {
+    const response = await postCursor(`${apiUrl}/${encodeURIComponent(agentId)}/archive`, { apiKey, fetchImpl });
+    if (response.ok || retireSettled(response.status)) archiveSettled = true;
+    else warnCursor(`Cursor agent archive returned HTTP ${response.status}`);
+  } catch (error) {
+    const name = error instanceof Error ? error.name : 'Error';
+    warnCursor(`Cursor agent archive failed (${name})`);
+  }
+  const stopped = (shouldCancel && cancelSettled) || archiveSettled;
+  return {
+    id: agentId,
+    cancelled: shouldCancel && cancelSettled,
+    archived: archiveSettled,
+    leftRunning: !stopped,
+  };
+}
+
 export function verifyCursorAgentRecord(agentId, record) {
   const returnedId = record?.id ?? record?.agent?.id ?? record?.run?.agentId;
   if (returnedId && returnedId !== agentId) throw new Error(`Cursor agent verification returned unexpected ID ${returnedId}`);
@@ -110,18 +190,77 @@ export async function dispatchCursorAgent(payload, { apiKey, apiUrl = API_URL, f
   };
 }
 
+const VALUE_FLAGS = {
+  '--repo': 'repo',
+  '--issue': 'issue',
+  '--title': 'title',
+  '--body': 'body',
+  '--body-file': 'bodyFile',
+  '--ref': 'ref',
+  '--factory-run-id': 'factoryRunId',
+  '--inspect-agent': 'inspectAgent',
+  '--retire-agent': 'retireAgent',
+  '--retire-run': 'retireRun',
+  '--retire-run-status': 'retireRunStatus',
+};
+
 function parseArgs(argv) {
-  const out = { dryRun:false, repo:'', issue:'', title:'', body:'', bodyFile:'', ref:'main', factoryRunId:'' };
-  for (let i=0;i<argv.length;i+=1) { const arg=argv[i]; const next=argv[i+1]; if (arg==='--dry-run') out.dryRun=true; else if (arg==='--repo') {out.repo=next;i+=1;} else if (arg==='--issue') {out.issue=next;i+=1;} else if (arg==='--title') {out.title=next;i+=1;} else if (arg==='--body') {out.body=next;i+=1;} else if (arg==='--body-file') {out.bodyFile=next;i+=1;} else if (arg==='--ref') {out.ref=next;i+=1;} else if (arg==='--factory-run-id') {out.factoryRunId=next;i+=1;} }
+  const out = {
+    dryRun: false,
+    repo: '',
+    issue: '',
+    title: '',
+    body: '',
+    bodyFile: '',
+    ref: 'main',
+    factoryRunId: '',
+    inspectAgent: '',
+    retireAgent: '',
+    retireRun: '',
+    retireRunStatus: '',
+  };
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === '--dry-run') {
+      out.dryRun = true;
+      continue;
+    }
+    const key = VALUE_FLAGS[arg];
+    if (!key) continue;
+    out[key] = argv[i + 1] ?? '';
+    i += 1;
+  }
   return out;
 }
 async function main() {
-  const args=parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2));
+  if (args.inspectAgent) {
+    const inspected = await inspectCursorAgent(args.inspectAgent, { apiKey: process.env.CURSOR_API_KEY });
+    process.stdout.write(`${JSON.stringify(inspected)}\n`);
+    return;
+  }
+  if (args.retireAgent) {
+    const retired = await retireCursorAgent(args.retireAgent, {
+      apiKey: process.env.CURSOR_API_KEY,
+      runId: args.retireRun || null,
+      runStatus: args.retireRunStatus || null,
+    });
+    process.stdout.write(`${JSON.stringify(retired)}\n`);
+    if (retired.leftRunning) process.exitCode = 1;
+    return;
+  }
   if (!args.repo || !args.issue || !args.title) throw new Error('Missing --repo, --issue, or --title');
-  const body=args.bodyFile ? fs.readFileSync(args.bodyFile,'utf8') : args.body;
-  const payload=buildAgentPayload({repository:args.repo,issueNumber:Number(args.issue),title:args.title,body,startingRef:args.ref,factoryRunId:args.factoryRunId||undefined});
-  const result=args.dryRun ? payload : await dispatchCursorAgent(payload,{apiKey:process.env.CURSOR_API_KEY});
-  process.stdout.write(`${JSON.stringify(result,null,2)}\n`);
+  const body = args.bodyFile ? fs.readFileSync(args.bodyFile, 'utf8') : args.body;
+  const payload = buildAgentPayload({
+    repository: args.repo,
+    issueNumber: Number(args.issue),
+    title: args.title,
+    body,
+    startingRef: args.ref,
+    factoryRunId: args.factoryRunId || undefined,
+  });
+  const result = args.dryRun ? payload : await dispatchCursorAgent(payload, { apiKey: process.env.CURSOR_API_KEY });
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }
 const self=fileURLToPath(import.meta.url);
 if (process.argv[1] && path.resolve(process.argv[1])===path.resolve(self)) await main();

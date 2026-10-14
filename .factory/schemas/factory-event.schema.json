@@ -74,6 +74,7 @@
         "human.approval.rejected",
         "run.completed",
         "run.cancelled",
+        "run.superseded",
         "run.blocked",
         "github.associated",
         "status.updated"

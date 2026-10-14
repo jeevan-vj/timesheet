@@ -10,11 +10,11 @@ on:
 permissions:
   contents: read
   issues: write
-concurrency:
-  group: factory-intake-${{ github.event.issue.number || inputs.issue_number }}
-  cancel-in-progress: true
 jobs:
   intake:
+    concurrency:
+      group: factory-intake-${{ github.event.issue.number || inputs.issue_number }}
+      cancel-in-progress: false
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issues' && github.event.issue.user.login == github.repository_owner && (
@@ -112,17 +112,69 @@ jobs:
           ISSUE: ${{ steps.issue.outputs.number }}
           PROVIDER: ${{ steps.gate.outputs.provider }}
           FORCE: ${{ github.event_name == 'workflow_dispatch' }}
+          RELABELLED: ${{ github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'factory:ready' }}
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          FACTORY_STALE_RUN_HOURS: ${{ vars.FACTORY_STALE_RUN_HOURS }}
         run: |
           set -euo pipefail
           comments="$RUNNER_TEMP/issue-comments.json"
           gh api --paginate "repos/$REPOSITORY/issues/$ISSUE/comments?per_page=100" | jq -s '[.[][]]' > "$comments"
+          agent_file="$RUNNER_TEMP/factory-agent.json"
+          printf 'null\n' > "$agent_file"
+          comment_agent="$(jq -r '[.[] | select(.user.login == "github-actions[bot]" and .user.type == "Bot") | (.body // "") | try capture("factory-agent-id:(?<id>bc-[A-Za-z0-9-]+)").id catch empty] | last // empty' "$comments")"
+          plane_agent=""
+          plane_ok=false
+          parsed="$RUNNER_TEMP/factory-parsed.json"
+          jq -n --slurpfile comments "$comments" '{comments:($comments[0] // [])}' > "$RUNNER_TEMP/factory-parse.json"
+          if node .factory/control-plane.mjs parse "$RUNNER_TEMP/factory-parse.json" > "$parsed"; then
+            plane_ok="$(jq -r '.ok // false' "$parsed")"
+            if [ "$plane_ok" = true ]; then
+              plane_agent="$(jq -r '.run.agent_id // empty' "$parsed")"
+            fi
+          fi
+          if [ "$plane_ok" = true ] && [ "$plane_agent" != "$comment_agent" ] && { [ -n "$plane_agent" ] || [ -n "$comment_agent" ]; }; then
+            echo "Factory agent id mismatch: run.agent_id=${plane_agent:-none} latest factory-agent-id comment=${comment_agent:-none}" >&2
+          fi
+          if [ -n "${CURSOR_API_KEY:-}" ] && [ -n "$plane_agent" ]; then
+            if ! node .factory/dispatch-cursor.mjs --inspect-agent "$plane_agent" > "$agent_file"; then
+              printf '%s\n' '{"lookupFailed":true}' > "$agent_file"
+            fi
+          fi
+          relabelled=false
+          if [ "$RELABELLED" = true ]; then relabelled=true; fi
           payload="$RUNNER_TEMP/factory-intake.json"
-          jq -n --slurpfile comments "$comments" --arg repo "$REPOSITORY" --arg issue "$ISSUE" --arg provider "$PROVIDER" --argjson force "$( [ "$FORCE" = true ] && echo true || echo false )" \
-            '{comments:($comments[0] // []), repository:$repo, issue:($issue|tonumber), provider:$provider, force:$force, actor:{type:"workflow",name:"Factory Intake",harness:(if $provider == "codex" then "codex" else "cursor" end)}}' > "$payload"
+          jq -n --slurpfile comments "$comments" --slurpfile agent "$agent_file" --arg repo "$REPOSITORY" --arg issue "$ISSUE" --arg provider "$PROVIDER" --arg staleHours "$FACTORY_STALE_RUN_HOURS" --argjson force "$( [ "$FORCE" = true ] && echo true || echo false )" --argjson relabelled "$relabelled" \
+            '{comments:($comments[0] // []), repository:$repo, issue:($issue|tonumber), provider:$provider, force:$force, relabelled:$relabelled, staleHours:$staleHours, agentRetirement:null, agent:($agent[0] // null), actor:{type:"workflow",name:"Factory Intake",harness:(if $provider == "codex" then "codex" else "cursor" end)}}' > "$payload"
           result="$RUNNER_TEMP/factory-plane.json"
           node .factory/control-plane.mjs intake "$payload" > "$result"
           ok="$(jq -r '.ok' "$result")"
           action="$(jq -r '.action // empty' "$result")"
+          if [ "$action" = retire_agent ]; then
+            retire_agent="$(jq -r '.retire_agent_id // empty' "$result")"
+            retire_run="$(jq -r '.retire_run_id // empty' "$result")"
+            retire_status="$(jq -r '.retire_run_status // empty' "$result")"
+            disposition=left_running
+            if [ -n "$retire_agent" ] && [ "$retire_agent" != null ]; then
+              retire_args=(--retire-agent "$retire_agent")
+              if [ -n "$retire_run" ] && [ "$retire_run" != null ]; then
+                retire_args+=(--retire-run "$retire_run")
+              fi
+              if [ -n "$retire_status" ] && [ "$retire_status" != null ]; then
+                retire_args+=(--retire-run-status "$retire_status")
+              fi
+              if node .factory/dispatch-cursor.mjs "${retire_args[@]}"; then
+                disposition=retired
+              else
+                echo "Cursor agent could not be cancelled or archived; recording old_agent_left_running." >&2
+              fi
+            else
+              echo "Cursor agent could not be cancelled or archived; recording old_agent_left_running." >&2
+            fi
+            jq --arg disposition "$disposition" '.agentRetirement = $disposition' "$payload" > "$RUNNER_TEMP/factory-intake-retry.json"
+            node .factory/control-plane.mjs intake "$RUNNER_TEMP/factory-intake-retry.json" > "$result"
+            ok="$(jq -r '.ok' "$result")"
+            action="$(jq -r '.action // empty' "$result")"
+          fi
           run_id="$(jq -r '.factory_run_id // empty' "$result")"
           echo "ok=$ok" >> "$GITHUB_OUTPUT"
           echo "action=$action" >> "$GITHUB_OUTPUT"
@@ -132,7 +184,7 @@ jobs:
             gh issue comment "$ISSUE" --repo "$REPOSITORY" --body "Factory intake failed closed (\`$(jq -r '.code // "unknown"' "$result")\`). Canonical factory state is missing or invalid; GitHub labels are not the source of truth."
             exit 0
           fi
-          if [ "$action" = cancel_and_recreate ]; then
+          if [ "$action" = cancel_and_recreate ] || [ "$action" = supersede ]; then
             prev_file="$RUNNER_TEMP/factory-status-previous.md"
             jq -r '.previous_status_markdown' "$result" > "$prev_file"
             prev_id="$(jq -r '.previous_status_comment_id // empty' "$result")"
@@ -172,12 +224,16 @@ jobs:
           comments="$RUNNER_TEMP/issue-comments.json"
           gh api --paginate "repos/$REPOSITORY/issues/$ISSUE/comments?per_page=100" | jq -s '[.[][]]' > "$comments"
           existing_agent="$(jq -r '[.[] | select(.user.login == "github-actions[bot]" and .user.type == "Bot") | (.body // "") | try capture("factory-agent-id:(?<id>bc-[A-Za-z0-9-]+)").id catch empty] | last // empty' "$comments")"
+          if [ "$PLANE_ACTION" = retire_agent ]; then
+            echo "Refusing dispatch; previous agent retirement did not finish." >&2
+            exit 1
+          fi
           if [ "$PLANE_ACTION" = skip ]; then
             echo "Skipping dispatch; durable factory agent already recorded (${existing_agent:-$FACTORY_RUN_ID})."
             gh issue edit "$ISSUE" --repo "$REPOSITORY" --remove-label factory:ready || true
             exit 0
           fi
-          if [ "$FORCE" != true ] && [ -n "$existing_agent" ]; then
+          if [ "$FORCE" != true ] && [ -n "$existing_agent" ] && [ "$PLANE_ACTION" != supersede ]; then
             echo "Skipping dispatch; durable factory agent already recorded ($existing_agent)."
             gh issue edit "$ISSUE" --repo "$REPOSITORY" --remove-label factory:ready || true
             exit 0
@@ -228,7 +284,7 @@ jobs:
             exit 0
           fi
           gh api --paginate "repos/$REPOSITORY/issues/$ISSUE/comments?per_page=100" | jq -s '[.[][]]' > "$comments"
-          jq -n --slurpfile comments "$comments" --arg agent "$agent_id" --arg cursor_run "$cursor_run_id" '{comments:($comments[0] // []), agent_id:$agent, cursor_run_id:$cursor_run}' > "$RUNNER_TEMP/factory-associate.json"
+          jq -n --slurpfile comments "$comments" --arg agent "$agent_id" --arg cursor_run "$cursor_run_id" --arg factory_run "$FACTORY_RUN_ID" '{comments:($comments[0] // []), agent_id:$agent, cursor_run_id:$cursor_run, factory_run_id:$factory_run}' > "$RUNNER_TEMP/factory-associate.json"
           if node .factory/control-plane.mjs associate "$RUNNER_TEMP/factory-associate.json" > "$RUNNER_TEMP/factory-associate-result.json"; then
             if [ "$(jq -r .ok "$RUNNER_TEMP/factory-associate-result.json")" = true ]; then
               jq -r .status_markdown "$RUNNER_TEMP/factory-associate-result.json" > "$RUNNER_TEMP/factory-status.md"
@@ -236,7 +292,12 @@ jobs:
               if [ -n "$cid" ] && [ "$cid" != null ]; then
                 jq -n --rawfile body "$RUNNER_TEMP/factory-status.md" '{body:$body}' | gh api --method PATCH "repos/$REPOSITORY/issues/comments/$cid" --input - >/dev/null
               fi
+              echo "Recorded Cursor agent $agent_id on factory run $FACTORY_RUN_ID."
+            else
+              echo "Factory associate did not record agent $agent_id on factory run $FACTORY_RUN_ID ($(jq -r '.code // "unknown"' "$RUNNER_TEMP/factory-associate-result.json"))." >&2
             fi
+          else
+            echo "Factory associate did not record agent $agent_id on factory run $FACTORY_RUN_ID." >&2
           fi
           canonical_url="https://cursor.com/agents/$agent_id"
           comment_file="$RUNNER_TEMP/factory-agent-comment.md"

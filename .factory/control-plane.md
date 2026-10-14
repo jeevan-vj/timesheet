@@ -17,7 +17,7 @@ The id is persisted in a trusted `github-actions[bot]` status comment (not the o
 - the human-readable Factory Status comment
 - derived metrics
 
-Repair, verification, and review on the same task reuse the same run id. A new id is minted only for an explicit new lifecycle (`workflow_dispatch` force after cancelling a non-terminal run, or intake after a terminal run).
+Repair, verification, and review on the same task reuse the same run id. A new id is minted for a terminal run, for `workflow_dispatch` force (the previous non-terminal run is cancelled), and when intake supersedes a non-terminal run that has no pull request because its harness agent has finished or errored, or because the run has had no activity for the stale threshold (default 24 hours, `FACTORY_STALE_RUN_HOURS`). The superseded run records `run.superseded`, moves to `CANCELLED`, and keeps its status comment. The new run gets a new comment and a new agent. Intake does not mint a new id while that agent is still running and the run is inside the threshold. If the run is stale and the Agents API still reports the agent running, intake cancels that run and archives the agent before the new agent starts. When that call cannot stop the agent, `run.superseded` records `old_agent_left_running`. A failed agent lookup skips with `agent_lookup_failed` instead of treating the agent as absent. The harness agent id comes from `run.agent_id` on the current factory run. A pull request keeps the current run so repair and review stay on it; force remains the explicit restart.
 
 ## State machine
 
@@ -76,7 +76,7 @@ One canonical comment per run, created once and updated in place (`PATCH` by com
 
 - Product D1, payroll, and owner scoping are unchanged. No migration.
 - In-flight issues with a Cursor agent id but **no** parseable factory run **fail closed** (no backfill).
-- A `BLOCKED` run with **no** harness agent (for example missing `CURSOR_API_KEY`) is resumed on the same Factory Run ID when `factory:ready` is re-applied. `workflow_dispatch` force cancels the old run, patches its status comment to `CANCELLED`, and mints a new run.
+- A `BLOCKED` run with **no** harness agent (for example missing `CURSOR_API_KEY`) is resumed on the same Factory Run ID when `factory:ready` is re-applied. A `BLOCKED` run that already has an agent id follows the same liveness rules as other non-terminal runs. Re-applying `factory:ready` supersedes a non-terminal run with no pull request when the Agents API reports the agent finished or errored, or when the run has had no activity for `FACTORY_STALE_RUN_HOURS` (default 24). A genuinely running agent inside that window is left alone. A stale run whose agent is still running is cancelled and archived first; if that is impossible, the superseded event records `old_agent_left_running`. An Agents API lookup failure skips intake with `agent_lookup_failed`. `workflow_dispatch` force cancels the old run, patches its status comment to `CANCELLED`, and mints a new run. Intake for one issue is serialized (`cancel-in-progress: false`) so two intakes cannot both supersede and dispatch.
 - Until this lands on the default branch, `workflow_run` repair/controller still execute the previous default-branch workflows.
 - Activation requires human merge of this protected change.
 

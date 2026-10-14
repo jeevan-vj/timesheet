@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { detectFactoryHandoff } from '../.factory/handoff.mjs';
 import fs from 'node:fs';
-import { buildAgentPayload, dispatchCursorAgent, verifyCursorAgentRecord } from '../.factory/dispatch-cursor.mjs';
+import { buildAgentPayload, dispatchCursorAgent, inspectCursorAgent, retireCursorAgent, verifyCursorAgentRecord } from '../.factory/dispatch-cursor.mjs';
 import { buildRepairPrompt, createFollowUpRun } from '../.factory/followup-cursor.mjs';
 import { classifyRisk, loadPolicy } from '../.factory/classify-risk.mjs';
 import {
@@ -43,6 +43,32 @@ describe('Cursor factory', () => {
     expect(workflow).toContain('--body-file "$comment_file"');
     expect(workflow).toContain('node .factory/control-plane.mjs intake');
     expect(workflow).toContain('previous_status_markdown');
+    expect(workflow).toContain('[ "$action" = cancel_and_recreate ] || [ "$action" = supersede ]');
+    expect(workflow).toContain('--inspect-agent');
+    expect(workflow).toContain('FACTORY_STALE_RUN_HOURS');
+    expect(workflow).toContain('staleHours:$staleHours');
+    expect(workflow).toContain('[ "$PLANE_ACTION" != supersede ]');
+    expect(workflow).toContain('lookupFailed');
+    expect(workflow).toContain('Factory agent id mismatch: run.agent_id=');
+    expect(workflow).toContain('.run.agent_id // empty');
+    expect(workflow).toContain('--retire-agent');
+    expect(workflow).toContain('old_agent_left_running');
+    expect(workflow).toContain('factory_run_id:$factory_run');
+    expect(workflow).toContain('Refusing dispatch; previous agent retirement did not finish.');
+    expect(workflow).not.toContain('*[!0-9]*');
+    const jobsAt = workflow.indexOf('\njobs:');
+    const concurrencyAt = workflow.indexOf('\n    concurrency:');
+    expect(jobsAt).toBeGreaterThan(-1);
+    expect(concurrencyAt).toBeGreaterThan(jobsAt);
+    expect(workflow).toContain('group: factory-intake-${{ github.event.issue.number || inputs.issue_number }}');
+    expect(workflow).toContain('cancel-in-progress: false');
+    expect(workflow).not.toContain('cancel-in-progress: true');
+    const supersedeAt = workflow.indexOf('[ "$action" = cancel_and_recreate ] || [ "$action" = supersede ]');
+    const previousIdAt = workflow.indexOf("jq -r '.previous_status_comment_id // empty'");
+    const previousPatchAt = workflow.indexOf('issues/comments/$prev_id');
+    expect(supersedeAt).toBeGreaterThan(-1);
+    expect(previousIdAt).toBeGreaterThan(supersedeAt);
+    expect(previousPatchAt).toBeGreaterThan(previousIdAt);
     expect(workflow).toContain('--factory-run-id "$FACTORY_RUN_ID"');
     expect(workflow).toContain('<!-- factory-run-id:%s -->');
     expect(workflow).not.toContain('Cursor Cloud Agent dispatched${url:+: $url}\\n\\n');
@@ -81,6 +107,76 @@ describe('Cursor factory', () => {
     expect(verifyInit.method).toBe('GET');
     expect(verifyInit.headers.Authorization).toBe('Bearer test-key');
     expect(result.factoryVerification).toMatchObject({id:'bc-test',runId:'run-test',status:'ACTIVE'});
+  });
+  it('reads agent lifecycle and run status without returning the API key', async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, text: async () => JSON.stringify({ id: 'bc-test', status: 'IDLE', updatedAt: '2026-09-07T01:00:00.000Z', latestRunId: 'run-1' }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, text: async () => JSON.stringify({ id: 'run-1', status: 'ERROR', updatedAt: '2026-09-07T01:05:00.000Z' }) });
+    const result = await inspectCursorAgent('bc-test', { apiKey: 'test-key', fetchImpl });
+    expect(result).toEqual({
+      id: 'bc-test',
+      status: 'IDLE',
+      updatedAt: '2026-09-07T01:00:00.000Z',
+      latestRunId: 'run-1',
+      runStatus: 'ERROR',
+      runUpdatedAt: '2026-09-07T01:05:00.000Z',
+    });
+    expect(JSON.stringify(result)).not.toContain('test-key');
+    expect(fetchImpl.mock.calls[1][0]).toBe('https://api.cursor.com/v1/agents/bc-test/runs/run-1');
+    expect(fetchImpl.mock.calls[1][1].headers.Authorization).toBe('Bearer test-key');
+  });
+  it('warns when a Cursor run lookup is not ok or throws, without treating that as a successful run', async () => {
+    const writes = [];
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      writes.push(String(chunk));
+      return true;
+    });
+    try {
+      const denied = vi.fn()
+        .mockResolvedValueOnce({ ok: true, status: 200, text: async () => JSON.stringify({ id: 'bc-test', status: 'IDLE', latestRunId: 'run-1' }) })
+        .mockResolvedValueOnce({ ok: false, status: 503, text: async () => 'secret-body' });
+      const missing = await inspectCursorAgent('bc-test', { apiKey: 'test-key', fetchImpl: denied });
+      expect(missing.runStatus).toBeNull();
+      expect(missing.status).toBe('IDLE');
+      expect(writes.join('')).toContain('factory: Cursor agent run lookup returned HTTP 503');
+      expect(writes.join('')).not.toContain('secret-body');
+
+      const thrown = vi.fn()
+        .mockResolvedValueOnce({ ok: true, status: 200, text: async () => JSON.stringify({ id: 'bc-test', status: 'ACTIVE', latestRunId: 'run-2' }) })
+        .mockRejectedValueOnce(new Error('socket hang up'));
+      const failed = await inspectCursorAgent('bc-test', { apiKey: 'test-key', fetchImpl: thrown });
+      expect(failed.runStatus).toBeNull();
+      expect(failed.latestRunId).toBe('run-2');
+      expect(writes.join('')).toContain('factory: Cursor agent run lookup failed (Error)');
+      expect(writes.join('')).not.toContain('socket hang up');
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+  it('cancels and archives a live agent, and reports when both calls fail', async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, text: async () => '{}' })
+      .mockResolvedValueOnce({ ok: true, status: 200, text: async () => '{}' });
+    const retired = await retireCursorAgent('bc-test', { apiKey: 'test-key', fetchImpl, runId: 'run-1', runStatus: 'RUNNING' });
+    expect(fetchImpl.mock.calls[0][0]).toBe('https://api.cursor.com/v1/agents/bc-test/runs/run-1/cancel');
+    expect(fetchImpl.mock.calls[0][1].method).toBe('POST');
+    expect(fetchImpl.mock.calls[0][1].headers.Authorization).toBe('Bearer test-key');
+    expect(fetchImpl.mock.calls[1][0]).toBe('https://api.cursor.com/v1/agents/bc-test/archive');
+    expect(retired).toMatchObject({ cancelled: true, archived: true, leftRunning: false });
+
+    const failing = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 500, text: async () => '{}' })
+      .mockResolvedValueOnce({ ok: false, status: 500, text: async () => '{}' });
+    const left = await retireCursorAgent('bc-test', { apiKey: 'test-key', fetchImpl: failing, runId: 'run-1', runStatus: 'RUNNING' });
+    expect(left.leftRunning).toBe(true);
+    expect(left.cancelled).toBe(false);
+    expect(left.archived).toBe(false);
+
+    const gone = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 409, text: async () => '{}' })
+      .mockResolvedValueOnce({ ok: true, status: 200, text: async () => '{}' });
+    const settled = await retireCursorAgent('bc-test', { apiKey: 'test-key', fetchImpl: gone, runId: 'run-1', runStatus: 'RUNNING' });
+    expect(settled.leftRunning).toBe(false);
   });
   it('fails closed when post-dispatch agent verification fails', async () => {
     const fetchImpl=vi.fn()

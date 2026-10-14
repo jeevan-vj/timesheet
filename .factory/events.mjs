@@ -31,6 +31,7 @@ export const EVENT_TYPES = Object.freeze([
   'human.approval.rejected',
   'run.completed',
   'run.cancelled',
+  'run.superseded',
   'run.blocked',
   'github.associated',
   'status.updated',
