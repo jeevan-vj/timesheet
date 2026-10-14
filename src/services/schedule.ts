@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, lte } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lte } from "drizzle-orm";
 import type { db } from "@/db/client";
 import { assignmentScheduleVersions, assignments, contractors, sites, timeEntries, weekApprovals } from "@/db/schema";
 import { ownerBusinessIdOrNull, requireOwnerBusinessId } from "@/lib/business";
@@ -194,25 +194,32 @@ async function rewriteUnexceptedScheduled(
   const allowedDays = new Set(decodeWeekdays(newVersion.weekdaysMask));
   const clock = paidHoursClockFields(newVersion.paidMinutes);
   const timestamp = now();
+  const deleteIds: string[] = [];
+  const updateIds: string[] = [];
   for (const row of rows) {
     if (row.occurrenceKind !== "scheduled") continue;
     if (approved.has(weekStartFromDate(row.workDate))) continue;
-    if (!allowedDays.has(dateIsoWeekday(row.workDate))) {
-      await database.delete(timeEntries).where(and(
-        eq(timeEntries.id, row.id),
-        eq(timeEntries.ownerUserId, ownerUserId), eq(timeEntries.businessId, businessId),
-      ));
-      continue;
-    }
-    await database
-      .update(timeEntries)
-      .set({
-        paidMinutes: newVersion.paidMinutes,
-        ...clock,
-        scheduleVersionId: newVersion.id,
-        updatedAt: timestamp,
-      })
-      .where(and(eq(timeEntries.id, row.id), eq(timeEntries.ownerUserId, ownerUserId), eq(timeEntries.businessId, businessId)));
+    if (!allowedDays.has(dateIsoWeekday(row.workDate))) deleteIds.push(row.id);
+    else updateIds.push(row.id);
+  }
+  if (deleteIds.length > 0) {
+    await database.delete(timeEntries).where(and(
+      eq(timeEntries.ownerUserId, ownerUserId),
+      eq(timeEntries.businessId, businessId),
+      inArray(timeEntries.id, deleteIds),
+    ));
+  }
+  if (updateIds.length > 0) {
+    await database.update(timeEntries).set({
+      paidMinutes: newVersion.paidMinutes,
+      ...clock,
+      scheduleVersionId: newVersion.id,
+      updatedAt: timestamp,
+    }).where(and(
+      eq(timeEntries.ownerUserId, ownerUserId),
+      eq(timeEntries.businessId, businessId),
+      inArray(timeEntries.id, updateIds),
+    ));
   }
 }
 

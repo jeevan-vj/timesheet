@@ -21,7 +21,7 @@ import {
 } from "@/lib/remittance-download";
 import { createShiftDeleteFlow, idleShiftDelete, shiftDeletePrompt, type ShiftDeleteSession, type ShiftDeleteTarget } from "@/lib/shift-delete";
 import { applyThenDashboardUrls, shouldApplySchedule } from "@/lib/week-load";
-import { buildWeekGridRows, weekGridIsEmpty } from "@/lib/week-grid";
+import { buildWeekGridRows, weekGridIsEmpty, type WeekGridEntry } from "@/lib/week-grid";
 import { formatMinutes, formatNzd, formatWeekBrief, summarizeWeekBySite, type SiteWeek } from "@/lib/week-rollup";
 import {
   canApproveWeek,
@@ -274,6 +274,11 @@ function LoadedWeek({ data, onboarding, totalMinutes, totalPay, siteSummary, wee
   </>;
 }
 
+function openManualEntry(entry: WeekGridEntry, onEdit: (entry: ManualEntry | null) => void) {
+  if (entry.occurrenceKind !== "manual" || entry.entryMode === "absent") return;
+  onEdit(entry as ManualEntry);
+}
+
 function WeekEntries({ data, weekLocked, onReload, onAnnounce, onEdit, onDelete }: Readonly<{
   data: DashboardData;
   weekLocked: boolean;
@@ -284,7 +289,7 @@ function WeekEntries({ data, weekLocked, onReload, onAnnounce, onEdit, onDelete 
 }>) {
   const rows = buildWeekGridRows({ assignments: data.assignments, contractors: data.contractors, sites: data.sites, entries: data.entries });
   return <section className="panel"><div className="panel-title"><div><p className="eyebrow">Monday – Sunday</p><h2>{readableDate(data.weekStart)} – {readableDate(data.weekEnd)}</h2></div><div className="week-panel-tools"><AddRepeatingSchedule assignments={data.assignments} contractors={data.contractors} sites={data.sites} weekStart={data.weekStart} locked={weekLocked} onSave={async (assignmentId, body) => { await send(`/api/assignments/${assignmentId}/schedule`, body, "PUT"); await onReload(); onAnnounce("Repeating schedule added."); }} /><ShiftEntrySheet data={data} locked={weekLocked} onSave={async (body) => { await send("/api/time-entries", body); await onReload(); onAnnounce("Shift added."); }} /></div></div>
-    {weekGridIsEmpty(rows, data.entries) ? <EmptyState title="No shifts this week" body="Record the first shift after adding a contractor and assigning them to a site." /> : <WeekGrid weekStart={data.weekStart} assignments={data.assignments} contractors={data.contractors} sites={data.sites} entries={data.entries} locked={weekLocked} onEdit={(entry) => { if (entry.occurrenceKind !== "manual" || entry.entryMode === "absent") return; onEdit(entry as ManualEntry); }} onDelete={onDelete} onException={async (url, body) => { try { await send(url, body); await onReload(); onAnnounce("Timesheet updated."); } catch (error) { onAnnounce(mutateErrorMessage(error)); throw error; } }} />}
+    {weekGridIsEmpty(rows, data.entries) ? <EmptyState title="No shifts this week" body="Record the first shift after adding a contractor and assigning them to a site." /> : <WeekGrid weekStart={data.weekStart} assignments={data.assignments} contractors={data.contractors} sites={data.sites} entries={data.entries} locked={weekLocked} onEdit={(entry) => openManualEntry(entry, onEdit)} onDelete={onDelete} onException={async (url, body) => { try { await send(url, body); await onReload(); onAnnounce("Timesheet updated."); } catch (error) { onAnnounce(mutateErrorMessage(error)); throw error; } }} />}
   </section>;
 }
 
