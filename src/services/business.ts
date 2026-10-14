@@ -45,17 +45,34 @@ export async function businessResourceForUser(database: Database, userId: string
   return row ? toBusinessResource(row) : null;
 }
 
+async function resourceForMembership(database: Database, userId: string): Promise<BusinessResource | null> {
+  const membership = await activeOwnerMembership(database, userId);
+  if (!membership) return null;
+  const row = await loadBusiness(database, membership.businessId);
+  if (!row) throw new Error("not_found");
+  return toBusinessResource(row);
+}
+
+async function resourceAfterBusinessConflict(
+  database: Database,
+  userId: string,
+  businessId: string,
+  timestamp: Date,
+  cause: unknown,
+): Promise<BusinessResource> {
+  const stored = await loadBusiness(database, businessId);
+  if (!stored) throw cause;
+  await insertOwnerMembership(database, userId, stored.id, timestamp);
+  return (await resourceForMembership(database, userId)) ?? toBusinessResource(stored);
+}
+
 export async function createOwnerBusiness(
   database: Database,
   userId: string,
   input: BusinessInput,
 ): Promise<{ resource: BusinessResource; created: boolean }> {
-  const existing = await activeOwnerMembership(database, userId);
-  if (existing) {
-    const row = await loadBusiness(database, existing.businessId);
-    if (!row) throw new Error("not_found");
-    return { resource: toBusinessResource(row), created: false };
-  }
+  const existing = await resourceForMembership(database, userId);
+  if (existing) return { resource: existing, created: false };
 
   const timestamp = new Date();
   const businessId = businessIdForUser(userId);
@@ -78,21 +95,15 @@ export async function createOwnerBusiness(
     await database.insert(business).values(row);
   } catch (error) {
     if (!isUniqueConstraintError(error)) throw error;
-    const stored = await loadBusiness(database, businessId);
-    if (!stored) throw error;
-    await insertOwnerMembership(database, userId, stored.id, timestamp);
-    const membership = await activeOwnerMembership(database, userId);
-    const visible = membership ? await loadBusiness(database, membership.businessId) : stored;
-    if (!visible) throw new Error("not_found");
-    return { resource: toBusinessResource(visible), created: false };
+    const resource = await resourceAfterBusinessConflict(database, userId, businessId, timestamp, error);
+    return { resource, created: false };
   }
 
   const membershipResult = await insertOwnerMembership(database, userId, businessId, timestamp);
   if (membershipResult === "exists") {
-    const membership = await activeOwnerMembership(database, userId);
-    const visible = membership ? await loadBusiness(database, membership.businessId) : await loadBusiness(database, businessId);
-    if (!visible) throw new Error("not_found");
-    return { resource: toBusinessResource(visible), created: false };
+    const resource = await resourceForMembership(database, userId);
+    if (!resource) throw new Error("not_found");
+    return { resource, created: false };
   }
   return { resource: toBusinessResource(row), created: true };
 }
