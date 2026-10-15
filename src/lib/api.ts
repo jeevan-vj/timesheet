@@ -22,6 +22,7 @@ const expectedErrors: Record<string, { status: number; error: string }> = {
   week_not_approved: { status: 409, error: "week_not_approved" },
   schedule_exists: { status: 409, error: "schedule_exists" },
   no_schedule: { status: 409, error: "no_schedule" },
+  business_required: { status: 409, error: "business_required" },
 };
 
 export async function authorize(request: Request, mutation = false): Promise<{ user: SessionUser } | { response: Response }> {
@@ -56,4 +57,9 @@ export async function apiError(error: unknown, request: Request): Promise<Respon
     // Reporting must not change the client response.
   }
   return noStoreJson({ error: "internal_error", correlationId }, 500);
+}
+
+export async function readItemError(error: unknown, request: Request): Promise<Response> {
+  if (error instanceof Error && error.message === "business_required") return noStoreJson({ error: "not_found" }, 404);
+  return apiError(error, request);
 }

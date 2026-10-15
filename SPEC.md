@@ -8,7 +8,7 @@ Give a small cleaning business one private place to record contractor shifts acr
 
 ### CT-001 Owner access
 
-All business data is private to an authenticated owner. Every domain query and mutation derives `owner_user_id` from the server-side session.
+All business data is private to the authenticated user's active owner business. Every domain query and mutation derives `owner_user_id` from the server-side session and `business_id` from that user's active owner membership. The client never submits either id.
 
 ### CT-002 Sites and contractors
 
@@ -90,15 +90,28 @@ The weekly dashboard shows paid hours and gross pay grouped by site, next to the
 
 An owner can copy a plain-text brief of the week they are viewing: the Monday–Sunday range, one line per contractor, one line per site, and the gross total. The brief includes names, durations, and pay only. It does not include rates, notes, email, or phone. Copy uses the clipboard and does not call an API. An empty week copies an explicit "No shifts this week." brief with a zero total.
 
-Product slice: `owner -> contractors + sites -> assignments (+ optional schedule versions) -> daily time entries -> weekly summary`.
+### CT-014 Business workspace and owner onboarding
+
+An authenticated user has one active owner business. `POST /api/business` creates the business and the owner membership together. The ids are server-derived: `biz_` plus the session user id, and `mem_` plus that user id. A later POST returns the stored profile and does not overwrite it. Cookie-authenticated creates still require a trusted origin.
+
+The profile stores a required name and contact email, an optional NZBN (blank or 13 digits), an optional address and phone, timezone `Pacific/Auckland`, currency `NZD`, and week start `monday`. Creating the business leaves onboarding incomplete. `POST /api/business/onboarding/complete` sets `onboarding_completed_at` once.
+
+A user with no business still receives the empty weekly dashboard (`business: null`, no shifts). Domain mutations other than creating the business return `409 business_required` and write nothing. Collection reads used by that dashboard stay empty `200` responses.
+
+The dashboard guides a new owner through the existing site, contractor, assignment, and optional repeating-schedule flows, then finishes on the same weekly dashboard. Refresh resumes from stored rows. Duplicate site, contractor, assignment, or schedule responses do not create a second implementation of those rules. Users migrated by `0004_business_workspace.sql` are already marked onboarded.
+
+The migration copies each existing user onto one business and sets `business_id` on sites, contractors, assignments, schedule versions, time entries, and week approvals. It does not change `time_entry.rate_cents`, paid minutes, remittance math, or week-approval status and timestamps. Remittance still addresses the session user. A non-deterministic owner link or a blank user name or email aborts the migration.
+
+Product slice: `owner membership -> business -> contractors + sites -> assignments (+ optional schedule versions) -> daily time entries -> weekly summary`.
 
 ## Non-goals
 
 - tax, holiday pay, GST, expenses, invoicing, or bank payments;
-- contractor self-service and clock-in geolocation;
+- contractor self-service, contractor invitations, and clock-in geolocation;
+- manager membership and switching between businesses;
 - overlapping/multi-shift days;
 - accounting exports;
-- multiple currencies inside one owner workspace.
+- multiple currencies inside one business workspace.
 
 ## Definition of done
 

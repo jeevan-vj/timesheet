@@ -152,6 +152,12 @@ describe("unique write errors", () => {
   it("maps the contractor name unique constraint to duplicate_contractor", () => {
     expect(() => mapContractorWriteError(new Error("UNIQUE constraint failed: contractor.owner_user_id, contractor.name"))).toThrow("duplicate_contractor");
     expect(() => mapContractorWriteError(new Error("not_found"))).toThrow("not_found");
+    expect(() => mapContractorWriteError(new Error("Failed query: insert into contractor\nparams: []", {
+      cause: new Error("UNIQUE constraint failed: contractor.owner_user_id, contractor.name"),
+    }))).toThrow("duplicate_contractor");
+    expect(() => mapContractorWriteError(new Error("Failed query: insert", {
+      cause: new Error("business_required"),
+    }))).toThrow("Failed query: insert");
   });
 });
 

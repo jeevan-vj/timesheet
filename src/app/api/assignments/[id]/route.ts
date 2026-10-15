@@ -1,5 +1,5 @@
 import { db } from "@/db/client";
-import { apiError, authorize, readJson } from "@/lib/api";
+import { apiError, authorize, readItemError, readJson } from "@/lib/api";
 import { noStoreJson } from "@/lib/accounts-config";
 import { assignmentRateInput } from "@/lib/validation";
 import { getAssignment, unassignAssignment, updateAssignmentRate } from "@/services/timesheet";
@@ -12,8 +12,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   try {
     return noStoreJson(await getAssignment(db, access.user.id, id));
   } catch (error) {
-    if (error instanceof Error && error.message === "not_found") return noStoreJson({ error: "not_found" }, 404);
-    return await apiError(error, request);
+    return await readItemError(error, request);
   }
 }
 

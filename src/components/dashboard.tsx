@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { AssignmentManager } from "@/components/assignments";
 import { authClient } from "@/lib/auth-client";
 import { ContractorsPanel } from "@/components/contractors";
@@ -9,6 +9,7 @@ import { SiteSetup } from "@/components/site-setup";
 import { AddRepeatingSchedule, WeekGrid } from "@/components/week-grid";
 import { mondayFor, shiftWeek, thisWeekSelection } from "@/components/week-picker";
 import { assignmentMutationMessage } from "@/lib/assignment-manage";
+import { onboardingAdvancesOnError, onboardingStep, type OnboardingStep } from "@/lib/onboarding";
 import {
   createRemittanceDownloadFlow,
   idleRemittanceDownload,
@@ -18,10 +19,10 @@ import {
   type RemittanceDownloadSession,
   type RemittanceDownloadTarget,
 } from "@/lib/remittance-download";
-import { createShiftDeleteFlow, idleShiftDelete, shiftDeletePrompt, type ShiftDeleteSession } from "@/lib/shift-delete";
+import { createShiftDeleteFlow, idleShiftDelete, shiftDeletePrompt, type ShiftDeleteSession, type ShiftDeleteTarget } from "@/lib/shift-delete";
 import { applyThenDashboardUrls, shouldApplySchedule } from "@/lib/week-load";
-import { buildWeekGridRows, weekGridIsEmpty } from "@/lib/week-grid";
-import { formatMinutes, formatNzd, formatWeekBrief, summarizeWeekBySite } from "@/lib/week-rollup";
+import { buildWeekGridRows, weekGridIsEmpty, type WeekGridEntry } from "@/lib/week-grid";
+import { formatMinutes, formatNzd, formatWeekBrief, summarizeWeekBySite, type SiteWeek } from "@/lib/week-rollup";
 import {
   canApproveWeek,
   canReopenWeek,
@@ -61,7 +62,19 @@ type Entry = {
 };
 type ManualEntry = Entry & { entryMode: "clock" | "paid_hours"; occurrenceKind: "manual" };
 type Summary = { contractorId: string; contractorName: string; paidMinutes: number; payCents: number };
-type DashboardData = { weekStart: string; weekEnd: string; sites: Site[]; contractors: Contractor[]; assignments: Assignment[]; entries: Entry[]; summary: Summary[]; approval: WeekApproval };
+type BusinessProfile = {
+  id: string;
+  name: string;
+  nzbn: string;
+  address: string;
+  contactEmail: string;
+  contactPhone: string;
+  timezone: string;
+  currency: string;
+  weekStart: string;
+  onboardingCompletedAt: string | null;
+};
+type DashboardData = { weekStart: string; weekEnd: string; sites: Site[]; contractors: Contractor[]; assignments: Assignment[]; entries: Entry[]; summary: Summary[]; approval: WeekApproval; business: BusinessProfile | null };
 
 function duration(minutes: number) { return formatMinutes(minutes); }
 function money(cents: number) { return formatNzd(cents); }
@@ -146,6 +159,12 @@ export function Dashboard() {
     }
   }, [week]);
   useEffect(() => { void load(); }, [load]);
+  const onboarding = data ? onboardingStep({
+    business: data.business,
+    activeSiteCount: data.sites.length,
+    activeContractorCount: data.contractors.length,
+    activeAssignmentCount: data.assignments.length,
+  }) : null;
   const totalMinutes = data?.summary.reduce((sum, row) => sum + row.paidMinutes, 0) ?? 0;
   const totalPay = data?.summary.reduce((sum, row) => sum + row.payCents, 0) ?? 0;
   const siteSummary = data ? summarizeWeekBySite(data.entries) : [];
@@ -217,25 +236,75 @@ export function Dashboard() {
     <header className="app-header"><a className="brand" href="/"><span className="brand-mark">C</span> CleanTrack</a><nav><a href="#team">Team & sites</a><button className="link-button" onClick={() => void authClient.signOut().then(() => window.location.assign("/"))}>Sign out</button></nav></header>
     <section className="dashboard-heading"><div><p className="eyebrow">Weekly workspace</p><h1>Hours & contractor pay</h1><p className="muted">Gross contractor payments before tax, GST, expenses, or adjustments.</p></div><div className="week-heading-tools"><WeekPicker week={week} onChange={setWeek} />{!loading && data ? <WeekApprovalBar status={data.approval.status} onApprove={() => approvalFlow.requestApprove()} onReopen={() => approvalFlow.requestReopen()} /> : null}</div></section>
     {message ? <p className="notice" role="status">{message}</p> : null}
-    {loading || !data ? <section className="loading-card">Loading your week…</section> : <>
-      <section className="stats"><article><span>Paid hours</span><strong>{duration(totalMinutes)}</strong><small>{data.entries.length} daily {data.entries.length === 1 ? "entry" : "entries"}</small></article><article><span>Contractor pay</span><strong>{money(totalPay)}</strong><small>{data.summary.length} {data.summary.length === 1 ? "contractor" : "contractors"}</small></article><article><span>Active sites</span><strong>{data.sites.length}</strong><small>{data.assignments.length} team assignments</small></article></section>
-      <section className="main-grid">
-        <section className="panel"><div className="panel-title"><div><p className="eyebrow">Monday – Sunday</p><h2>{readableDate(data.weekStart)} – {readableDate(data.weekEnd)}</h2></div><div className="week-panel-tools"><AddRepeatingSchedule assignments={data.assignments} contractors={data.contractors} sites={data.sites} weekStart={data.weekStart} locked={weekLocked} onSave={async (assignmentId, body) => { await send(`/api/assignments/${assignmentId}/schedule`, body, "PUT"); await load(true); setMessage("Repeating schedule added."); }} /><ShiftEntrySheet data={data} locked={weekLocked} onSave={async (body) => { await send("/api/time-entries", body); await load(true); setMessage("Shift added."); }} /></div></div>
-          {weekGridIsEmpty(buildWeekGridRows({ assignments: data.assignments, contractors: data.contractors, sites: data.sites, entries: data.entries }), data.entries) ? <EmptyState title="No shifts this week" body="Record the first shift after adding a contractor and assigning them to a site." /> : <WeekGrid weekStart={data.weekStart} assignments={data.assignments} contractors={data.contractors} sites={data.sites} entries={data.entries} locked={weekLocked} onEdit={(entry) => { if (entry.occurrenceKind !== "manual" || entry.entryMode === "absent") return; setEditing(entry as ManualEntry); }} onDelete={(target) => deleteFlow.request(target)} onException={async (url, body) => { try { await send(url, body); await load(true); setMessage("Timesheet updated."); } catch (error) { setMessage(mutateErrorMessage(error)); throw error; } }} />}
-        </section>
-        <aside className="panel summary-panel">
-          <div className="summary-heading"><div><p className="eyebrow">Payment summary</p><h2>What to pay</h2></div><button type="button" className="button small secondary summary-copy" data-feature="copy-week-brief" onClick={() => void copyWeekBrief()}>Copy week brief</button></div>
-          {data.summary.length ? <>{data.summary.map((row) => <div className="summary-row" key={row.contractorId}><div><strong>{row.contractorName}</strong><small>{duration(row.paidMinutes)}</small><button type="button" className="button small secondary" aria-label={`Download remittance for ${row.contractorName}`} onClick={() => remittanceFlow.request({ contractorId: row.contractorId, contractorName: row.contractorName, weekStart: data.weekStart, weekEnd: data.weekEnd })}>Remittance</button></div><b>{money(row.payCents)}</b></div>)}<div className="summary-total"><span>Total</span><strong>{money(totalPay)}</strong></div></> : <p className="muted roomy">Payment totals appear as shifts are added.</p>}
-          <div className="site-summary" data-feature="week-site-summary"><h3 className="summary-subhead">By site</h3>{siteSummary.length ? siteSummary.map((row) => <div className="summary-row" key={row.siteId}><div><strong>{row.siteName}</strong><small>{duration(row.paidMinutes)}</small></div><b>{money(row.payCents)}</b></div>) : <p className="muted">Site totals appear as shifts are added.</p>}</div>
-        </aside>
-      </section>
-      <SetupPanel data={data} weekLocked={weekLocked} onReload={() => load(true)} onAnnounce={setMessage} />
-    </>}
-    {editing && data && !weekLocked ? <ShiftEntrySheet key={editing.id} data={data} entry={editing} onDismiss={() => setEditing(null)} onSave={async (body) => { await send(`/api/time-entries/${editing.id}`, body, "PATCH"); await load(true); setMessage("Shift updated."); }} /> : null}
+    {loading || !data ? <section className="loading-card">Loading your week…</section> : <LoadedWeek data={data} onboarding={onboarding} totalMinutes={totalMinutes} totalPay={totalPay} siteSummary={siteSummary} weekLocked={weekLocked} editing={editing} onReload={() => load(true)} onAnnounce={setMessage} onCopyWeekBrief={() => void copyWeekBrief()} onEdit={setEditing} onDelete={(target) => deleteFlow.request(target)} onRemittance={(target) => remittanceFlow.request(target)} />}
     <DeleteShiftDialog session={deleteSession} onCancel={() => deleteFlow.cancel()} onConfirm={() => void deleteFlow.confirm()} />
     <WeekApprovalDialog session={approvalSession} prompt={approvalPrompt} onCancel={() => approvalFlow.cancel()} onConfirm={() => { if (!data) return; void approvalFlow.confirm({ weekStart: data.weekStart, ...expectedWeekTotals(data.summary) }); }} />
     <RemittanceDownloadDialog session={remittanceSession} onCancel={() => remittanceFlow.cancel()} onConfirm={() => void remittanceFlow.confirm()} />
   </main>;
+}
+
+function noun(count: number, singular: string, plural: string) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function LoadedWeek({ data, onboarding, totalMinutes, totalPay, siteSummary, weekLocked, editing, onReload, onAnnounce, onCopyWeekBrief, onEdit, onDelete, onRemittance }: Readonly<{
+  data: DashboardData;
+  onboarding: OnboardingStep | null;
+  totalMinutes: number;
+  totalPay: number;
+  siteSummary: SiteWeek[];
+  weekLocked: boolean;
+  editing: ManualEntry | null;
+  onReload: () => Promise<void>;
+  onAnnounce: (message: string) => void;
+  onCopyWeekBrief: () => void;
+  onEdit: (entry: ManualEntry | null) => void;
+  onDelete: (target: ShiftDeleteTarget) => void;
+  onRemittance: (target: RemittanceDownloadTarget) => void;
+}>) {
+  return <>
+    {onboarding ? <OwnerOnboarding step={onboarding} onReload={onReload} onAnnounce={onAnnounce} /> : null}
+    <section className="stats"><article><span>Paid hours</span><strong>{duration(totalMinutes)}</strong><small>{noun(data.entries.length, "daily entry", "daily entries")}</small></article><article><span>Contractor pay</span><strong>{money(totalPay)}</strong><small>{noun(data.summary.length, "contractor", "contractors")}</small></article><article><span>Active sites</span><strong>{data.sites.length}</strong><small>{data.assignments.length} team assignments</small></article></section>
+    <section className="main-grid">
+      <WeekEntries data={data} weekLocked={weekLocked} onReload={onReload} onAnnounce={onAnnounce} onEdit={onEdit} onDelete={onDelete} />
+      <PaySummary data={data} totalPay={totalPay} siteSummary={siteSummary} onCopyWeekBrief={onCopyWeekBrief} onRemittance={onRemittance} />
+    </section>
+    <SetupPanel data={data} weekLocked={weekLocked} onReload={onReload} onAnnounce={onAnnounce} />
+    {editing && !weekLocked ? <ShiftEntrySheet key={editing.id} data={data} entry={editing} onDismiss={() => onEdit(null)} onSave={async (body) => { await send(`/api/time-entries/${editing.id}`, body, "PATCH"); await onReload(); onAnnounce("Shift updated."); }} /> : null}
+  </>;
+}
+
+function openManualEntry(entry: WeekGridEntry, onEdit: (entry: ManualEntry | null) => void) {
+  if (entry.occurrenceKind !== "manual" || entry.entryMode === "absent") return;
+  onEdit(entry as ManualEntry);
+}
+
+function WeekEntries({ data, weekLocked, onReload, onAnnounce, onEdit, onDelete }: Readonly<{
+  data: DashboardData;
+  weekLocked: boolean;
+  onReload: () => Promise<void>;
+  onAnnounce: (message: string) => void;
+  onEdit: (entry: ManualEntry | null) => void;
+  onDelete: (target: ShiftDeleteTarget) => void;
+}>) {
+  const rows = buildWeekGridRows({ assignments: data.assignments, contractors: data.contractors, sites: data.sites, entries: data.entries });
+  return <section className="panel"><div className="panel-title"><div><p className="eyebrow">Monday – Sunday</p><h2>{readableDate(data.weekStart)} – {readableDate(data.weekEnd)}</h2></div><div className="week-panel-tools"><AddRepeatingSchedule assignments={data.assignments} contractors={data.contractors} sites={data.sites} weekStart={data.weekStart} locked={weekLocked} onSave={async (assignmentId, body) => { await send(`/api/assignments/${assignmentId}/schedule`, body, "PUT"); await onReload(); onAnnounce("Repeating schedule added."); }} /><ShiftEntrySheet data={data} locked={weekLocked} onSave={async (body) => { await send("/api/time-entries", body); await onReload(); onAnnounce("Shift added."); }} /></div></div>
+    {weekGridIsEmpty(rows, data.entries) ? <EmptyState title="No shifts this week" body="Record the first shift after adding a contractor and assigning them to a site." /> : <WeekGrid weekStart={data.weekStart} assignments={data.assignments} contractors={data.contractors} sites={data.sites} entries={data.entries} locked={weekLocked} onEdit={(entry) => openManualEntry(entry, onEdit)} onDelete={onDelete} onException={async (url, body) => { try { await send(url, body); await onReload(); onAnnounce("Timesheet updated."); } catch (error) { onAnnounce(mutateErrorMessage(error)); throw error; } }} />}
+  </section>;
+}
+
+function PaySummary({ data, totalPay, siteSummary, onCopyWeekBrief, onRemittance }: Readonly<{
+  data: DashboardData;
+  totalPay: number;
+  siteSummary: SiteWeek[];
+  onCopyWeekBrief: () => void;
+  onRemittance: (target: RemittanceDownloadTarget) => void;
+}>) {
+  return <aside className="panel summary-panel">
+    <div className="summary-heading"><div><p className="eyebrow">Payment summary</p><h2>What to pay</h2></div><button type="button" className="button small secondary summary-copy" data-feature="copy-week-brief" onClick={onCopyWeekBrief}>Copy week brief</button></div>
+    {data.summary.length ? <>{data.summary.map((row) => <div className="summary-row" key={row.contractorId}><div><strong>{row.contractorName}</strong><small>{duration(row.paidMinutes)}</small><button type="button" className="button small secondary" aria-label={`Download remittance for ${row.contractorName}`} onClick={() => onRemittance({ contractorId: row.contractorId, contractorName: row.contractorName, weekStart: data.weekStart, weekEnd: data.weekEnd })}>Remittance</button></div><b>{money(row.payCents)}</b></div>)}<div className="summary-total"><span>Total</span><strong>{money(totalPay)}</strong></div></> : <p className="muted roomy">Payment totals appear as shifts are added.</p>}
+    <div className="site-summary" data-feature="week-site-summary"><h3 className="summary-subhead">By site</h3>{siteSummary.length ? siteSummary.map((row) => <div className="summary-row" key={row.siteId}><div><strong>{row.siteName}</strong><small>{duration(row.paidMinutes)}</small></div><b>{money(row.payCents)}</b></div>) : <p className="muted">Site totals appear as shifts are added.</p>}</div>
+  </aside>;
 }
 
 function WeekApprovalBar({ status, onApprove, onReopen }: { status: WeekApprovalStatus; onApprove: () => void; onReopen: () => void }) {
@@ -307,3 +376,163 @@ function SetupPanel({ data, weekLocked, onReload, onAnnounce }: { data: Dashboar
 }
 function SetupCard({ title, count, children }: { title: string; count: number; children: React.ReactNode }) { return <article className="setup-card"><div className="setup-title"><h3>{title}</h3><span>{count}</span></div><div className="compact-list">{children}</div></article>; }
 function EmptyState({ title, body }: { title: string; body: string }) { return <div className="empty"><span>◷</span><h3>{title}</h3><p>{body}</p></div>; }
+
+const NZBN_DIGITS = /^\d{13}$/;
+
+const ONBOARDING_COPY: Record<OnboardingStep, { kicker: string; title: string; body: string; action: string }> = {
+  business: {
+    kicker: "Business",
+    title: "Add your business",
+    body: "Start with the business that owns these sites and contractor payments.",
+    action: "Save business",
+  },
+  site: {
+    kicker: "Site",
+    title: "Add a cleaning site",
+    body: "Add the first site with the Sites card in Team & sites. That form is already on this page.",
+    action: "Add a site",
+  },
+  contractor: {
+    kicker: "Contractor",
+    title: "Add a contractor",
+    body: "Add a contractor with the Contractors card in Team & sites.",
+    action: "Add a contractor",
+  },
+  assignment: {
+    kicker: "Assignment",
+    title: "Assign a contractor to a site",
+    body: "Connect a contractor to a site in Assignments, under Team & sites.",
+    action: "Assign a contractor",
+  },
+  schedule: {
+    kicker: "Schedule",
+    title: "Add a repeating schedule, or finish",
+    body: "A repeating schedule is optional. Use Add repeating schedule on the week panel when the same days repeat. Finish setup whenever you are ready to record shifts.",
+    action: "Finish setup",
+  },
+};
+
+function guideErrorMessage(code: string) {
+  if (code === "invalid_request") return "Check the business name, contact email, and optional details, then try again.";
+  if (code === "business_required") return "Create the business before finishing setup.";
+  return "That could not be saved. Please try again.";
+}
+
+function formText(fields: FormData, name: string): string {
+  const value = fields.get(name);
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function OwnerOnboarding({ step, onReload, onAnnounce }: Readonly<{ step: OnboardingStep; onReload: () => Promise<void>; onAnnounce: (message: string) => void }>) {
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const pending = useRef(false);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const sawStep = useRef(step);
+  const copy = ONBOARDING_COPY[step];
+
+  useEffect(() => {
+    if (sawStep.current === step) return;
+    sawStep.current = step;
+    setError("");
+    headingRef.current?.focus();
+  }, [step]);
+
+  async function saveGuide(action: () => Promise<void>, success: string) {
+    if (pending.current) return;
+    pending.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      await action();
+      await onReload();
+      onAnnounce(success);
+    } catch (error_) {
+      const code = error_ instanceof Error ? error_.message : "";
+      if (onboardingAdvancesOnError(code)) {
+        await onReload();
+        return;
+      }
+      setError(guideErrorMessage(code));
+    } finally {
+      pending.current = false;
+      setBusy(false);
+    }
+  }
+
+  async function saveBusiness(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const fields = new FormData(event.currentTarget);
+    const name = formText(fields, "name");
+    const contactEmail = formText(fields, "contactEmail");
+    const nzbn = formText(fields, "nzbn");
+    const address = formText(fields, "address");
+    const contactPhone = formText(fields, "contactPhone");
+    if (!name || !contactEmail) {
+      setError("Enter a business name and contact email.");
+      return;
+    }
+    if (nzbn !== "" && !NZBN_DIGITS.test(nzbn)) {
+      setError("NZBN must be 13 digits, or left blank.");
+      return;
+    }
+    await saveGuide(() => send("/api/business", {
+      name,
+      nzbn,
+      address,
+      contactEmail,
+      contactPhone,
+      timezone: "Pacific/Auckland",
+      currency: "NZD",
+      weekStart: "monday",
+    }), "Business saved.");
+  }
+
+  function finishSetup() {
+    void saveGuide(() => send("/api/business/onboarding/complete"), "Setup finished.");
+  }
+
+  return <section className="panel onboarding-guide" data-feature="owner-onboarding" aria-labelledby="onboarding-title">
+    <div className="panel-title">
+      <div>
+        <p className="eyebrow">Getting started · {copy.kicker}</p>
+        <h2 id="onboarding-title" ref={headingRef} tabIndex={-1}>{copy.title}</h2>
+      </div>
+    </div>
+    <div className="onboarding-body">
+      <p>{copy.body}</p>
+      {error ? <p className="alert" id="onboarding-error" role="alert">{error}</p> : null}
+      {step === "business" ? <form className="form-stack" onSubmit={(event) => void saveBusiness(event)} aria-describedby={error ? "onboarding-error" : undefined}>
+        <label>Business name <small>Required</small>
+          <input name="name" required maxLength={100} autoComplete="organization" disabled={busy} />
+        </label>
+        <label>Contact email <small>Required</small>
+          <input name="contactEmail" type="email" required maxLength={254} autoComplete="email" disabled={busy} />
+        </label>
+        <label>NZBN <small>Optional. Leave blank or enter 13 digits.</small>
+          <input name="nzbn" inputMode="numeric" maxLength={13} pattern="[0-9]{13}" title="Enter 13 digits or leave blank" autoComplete="off" disabled={busy} />
+        </label>
+        <label>Address <small>Optional</small>
+          <input name="address" maxLength={240} autoComplete="street-address" disabled={busy} />
+        </label>
+        <label>Phone <small>Optional</small>
+          <input name="contactPhone" type="tel" maxLength={40} autoComplete="tel" disabled={busy} />
+        </label>
+        <dl className="onboarding-fixed">
+          <div><dt>Timezone</dt><dd>Pacific/Auckland</dd></div>
+          <div><dt>Currency</dt><dd>NZD</dd></div>
+          <div><dt>Week starts</dt><dd>Monday</dd></div>
+        </dl>
+        <div className="form-actions">
+          <button className="button" type="submit" disabled={busy} aria-busy={busy}>{copy.action}</button>
+        </div>
+      </form> : null}
+      {step === "site" || step === "contractor" || step === "assignment" ? <div className="form-actions">
+        <a className="button onboarding-link" href="#team">{copy.action}</a>
+      </div> : null}
+      {step === "schedule" ? <div className="form-actions">
+        <button type="button" className="button" onClick={finishSetup} disabled={busy} aria-busy={busy}>{copy.action}</button>
+      </div> : null}
+    </div>
+  </section>;
+}

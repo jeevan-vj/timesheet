@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { assignmentScheduleVersions, timeEntries } from "../src/db/schema";
 import { calculateEntryPayCents, summarizeWeek } from "../src/lib/payroll";
 import { createSite } from "../src/services/sites";
+import { seedOwnerWorkspace } from "./owner-workspace";
 import {
   applyOccurrenceException,
   applyScheduleToWeek,
@@ -20,6 +21,7 @@ import {
   createTimeEntry,
   getAssignment,
   getDashboard,
+  listAssignments,
   unassignAssignment,
   updateAssignmentRate,
   updateTimeEntry,
@@ -51,15 +53,13 @@ async function openMemoryDb() {
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0001_entry_mode.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0002_week_approval.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0003_recurring_schedules.sql"), "utf8"));
+  sqlite.exec(fs.readFileSync(path.resolve("drizzle/0004_business_workspace.sql"), "utf8"));
   const database = drizzle(sqlite) as unknown as TimesheetDb;
   return { sqlite, database };
 }
 
 function insertUser(sqlite: SqlJsDatabase, id: string) {
-  sqlite.run(
-    "INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 0, 1700000000, 1700000000)",
-    [id, id, `${id}@example.test`],
-  );
+  seedOwnerWorkspace(sqlite, id);
 }
 
 async function seedOwner(
@@ -447,6 +447,11 @@ describe("recurring schedule service", () => {
     }));
     expect(aAfter).toEqual(before);
     expect((await getAssignmentSchedule(database, "owner-a", owner.assignment.id)).current?.id).toBe(created.id);
+    const listed = await listAssignments(database, "owner-a");
+    expect(listed.map((row) => row.id)).toContain(owner.assignment.id);
+    expect(listed.map((row) => row.id)).not.toContain(other.assignment.id);
+    const businessIds = sqlite.exec("SELECT DISTINCT business_id FROM assignment_schedule_version ORDER BY business_id")[0]?.values.map((row) => row[0]);
+    expect(businessIds).toEqual(["biz_owner-a", "biz_owner-b"]);
   });
 
   it("does not insert or update time entries or schedule versions from getDashboard", async () => {

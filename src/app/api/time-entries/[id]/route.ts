@@ -1,5 +1,5 @@
 import { db } from "@/db/client";
-import { apiError, authorize, readJson } from "@/lib/api";
+import { apiError, authorize, readItemError, readJson } from "@/lib/api";
 import { noStoreJson } from "@/lib/accounts-config";
 import { timeEntryUpdateInput } from "@/lib/validation";
 import { deleteTimeEntry, getTimeEntry, updateTimeEntry } from "@/services/timesheet";
@@ -13,7 +13,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     const entry = await getTimeEntry(db, access.user.id, id);
     return entry ? noStoreJson(entry) : noStoreJson({ error: "not_found" }, 404);
   } catch (error) {
-    return await apiError(error, request);
+    return await readItemError(error, request);
   }
 }
 

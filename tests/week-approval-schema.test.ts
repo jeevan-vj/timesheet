@@ -5,6 +5,8 @@ import { getTableConfig } from "drizzle-orm/sqlite-core";
 import initSqlJs, { type Database as SqlJsDatabase } from "sql.js";
 import { describe, expect, it } from "vitest";
 import { weekApprovals } from "../src/db/schema";
+import { businessIdForUser } from "../src/lib/business";
+import { seedOwnerWorkspace } from "./owner-workspace";
 import { isUniqueConstraintError } from "../src/lib/db-errors";
 import { findWeekApproval } from "../src/lib/week-approval-query";
 
@@ -19,15 +21,13 @@ async function openMemoryDb() {
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0001_entry_mode.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0002_week_approval.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0003_recurring_schedules.sql"), "utf8"));
+  sqlite.exec(fs.readFileSync(path.resolve("drizzle/0004_business_workspace.sql"), "utf8"));
   const database = drizzle(sqlite) as unknown as WeekApprovalDb;
   return { sqlite, database };
 }
 
 function insertUser(sqlite: SqlJsDatabase, id: string) {
-  sqlite.run(
-    "INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 0, 1700000000, 1700000000)",
-    [id, id, `${id}@example.test`],
-  );
+  seedOwnerWorkspace(sqlite, id);
 }
 
 function insertWeekApproval(
@@ -35,8 +35,8 @@ function insertWeekApproval(
   row: { id: string; ownerUserId: string; weekStart: string; status?: "approved" | "reopened"; reopenedAt?: number | null },
 ) {
   sqlite.run(
-    "INSERT INTO week_approval (id, owner_user_id, created_at, updated_at, week_start, status, approved_at, reopened_at) VALUES (?, ?, 1700000000, 1700000000, ?, ?, 1700000000, ?)",
-    [row.id, row.ownerUserId, row.weekStart, row.status ?? "approved", row.reopenedAt ?? null],
+    "INSERT INTO week_approval (id, owner_user_id, business_id, created_at, updated_at, week_start, status, approved_at, reopened_at) VALUES (?, ?, ?, 1700000000, 1700000000, ?, ?, 1700000000, ?)",
+    [row.id, row.ownerUserId, businessIdForUser(row.ownerUserId), row.weekStart, row.status ?? "approved", row.reopenedAt ?? null],
   );
 }
 
@@ -45,7 +45,7 @@ describe("week approval schema and owner-scoped lookup", () => {
     const { sqlite, database } = await openMemoryDb();
     insertUser(sqlite, "owner-a");
 
-    expect(await findWeekApproval(database, "owner-a", MONDAY)).toBeNull();
+    expect(await findWeekApproval(database, "owner-a", MONDAY, businessIdForUser("owner-a"))).toBeNull();
   });
 
   it("finds the owner week row and treats the same Monday as a different row for another owner", async () => {
@@ -55,7 +55,7 @@ describe("week approval schema and owner-scoped lookup", () => {
     insertWeekApproval(sqlite, { id: "wa-a", ownerUserId: "owner-a", weekStart: MONDAY });
     insertWeekApproval(sqlite, { id: "wa-b", ownerUserId: "owner-b", weekStart: MONDAY });
 
-    const owned = await findWeekApproval(database, "owner-a", MONDAY);
+    const owned = await findWeekApproval(database, "owner-a", MONDAY, businessIdForUser("owner-a"));
     expect(owned).toMatchObject({
       id: "wa-a",
       ownerUserId: "owner-a",
@@ -65,7 +65,7 @@ describe("week approval schema and owner-scoped lookup", () => {
     });
     expect(owned?.approvedAt).toBeInstanceOf(Date);
 
-    const other = await findWeekApproval(database, "owner-b", MONDAY);
+    const other = await findWeekApproval(database, "owner-b", MONDAY, businessIdForUser("owner-b"));
     expect(other).toMatchObject({
       id: "wa-b",
       ownerUserId: "owner-b",
@@ -95,7 +95,7 @@ describe("week approval schema and owner-scoped lookup", () => {
     insertUser(sqlite, "owner-b");
     insertWeekApproval(sqlite, { id: "wa-a", ownerUserId: "owner-a", weekStart: MONDAY });
 
-    expect(await findWeekApproval(database, "owner-b", MONDAY)).toBeNull();
+    expect(await findWeekApproval(database, "owner-b", MONDAY, businessIdForUser("owner-b"))).toBeNull();
   });
 
   it("stores no rate, pay, or minutes columns and only the owner/week unique index", () => {

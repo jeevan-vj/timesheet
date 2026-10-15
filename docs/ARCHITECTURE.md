@@ -2,7 +2,15 @@
 
 ## Product slice
 
-`owner -> contractors + sites -> assignments (+ optional schedule versions) -> daily time entries -> weekly summary`
+`owner membership -> business -> contractors + sites -> assignments (+ optional schedule versions) -> daily time entries -> weekly summary`
+
+The active business is the session user's single active `business_member` row with `role = owner`. Phase 1 does not offer a business switcher. The table allows more than one membership row; a partial unique index on `business_member(user_id) WHERE active = 1` allows only one active membership. Domain reads and writes keep the session `owner_user_id` predicate and add `business_id` from that membership. Clients do not send either id.
+
+`POST /api/business` inserts `biz_<user id>` and `mem_<user id>` and leaves `onboarding_completed_at` null. A second POST, including after a unique-key race, returns the stored profile and does not overwrite it. If the business row exists and the membership does not, the handler inserts only the membership. `POST /api/business/onboarding/complete` sets the completion timestamp once.
+
+`GET /api/dashboard` adds `business: null` or the profile resource. With no membership the week payload is empty and `approval.status` is `open`. Collection list routes used by the dashboard return their existing empty `200` bodies. Other domain mutations return `409 business_required` and write nothing. Item reads stay `404 not_found`. Unexpected JSON API failures return `500 internal_error` with a server correlation id.
+
+Migration `0004_business_workspace.sql` creates those tables, backfills one completed business per existing user, and sets `business_id` from that user's single active owner membership. A scalar subquery that matches more than one membership aborts. A guard table then rejects blank user names or emails, a user whose active membership count is not 1, owner mismatches between an assignment and its site or contractor, a schedule version whose owner differs from its assignment, a time entry whose owner differs from its site or contractor, or a null `business_id`. Triggers then abort inserts and updates that would store a null `business_id`. The migration does not assign `rate_cents`, `paid_minutes`, approval status, or approval timestamps. `owner_user_id` columns and the existing unique indexes stay.
 
 An assignment connects a contractor to a site and may provide a rate override. Assignment CRUD is owner-scoped: list and get return active and archived rows joined to the same-owner contractor and site; create inserts or reuses the unique pair; PATCH updates only `rateCents`; DELETE archives (`active=false`); restore reactivates when both relations are still active. Unassign confirmation is a UI concern; the API archives in one owner-scoped DELETE and does not delete history.
 
@@ -99,4 +107,17 @@ Open schedule view omits `ownerUserId`: `{ id, weekdays, paidMinutes, effectiveF
 | POST | `/api/weeks/apply-schedule` | yes | `200 { weekStart, inserted }` |
 | POST | `/api/time-entries/[id]/exception` | yes | `200` dashboard-shaped entry |
 
-GET `/api/assignments` and GET `/api/assignments/[id]` include `schedule` as the current open version or `null`. PATCH `/api/assignments/[id]` remains rate-only. Cookie-authenticated mutations use `authorize(request, true)`. Errors: `401 unauthorized`, `403 forbidden`, `400 invalid_week` (non-Monday `weekStart`), `400 invalid_request`, `404 not_found` (missing or cross-owner), `409 schedule_exists`, `409 no_schedule`, `409 week_locked`, `409 duplicate_entry`, `413 payload_too_large`, `500 internal_error` (correlation id) for unexpected failures.
+GET `/api/assignments` and GET `/api/assignments/[id]` include `schedule` as the current open version or `null`. PATCH `/api/assignments/[id]` remains rate-only. Cookie-authenticated mutations use `authorize(request, true)`. Errors: `401 unauthorized`, `403 forbidden`, `400 invalid_week` (non-Monday `weekStart`), `400 invalid_request`, `404 not_found` (missing or cross-owner), `409 schedule_exists`, `409 no_schedule`, `409 week_locked`, `409 duplicate_entry`, `409 business_required`, `413 payload_too_large`, `500 internal_error` (correlation id) for unexpected failures.
+
+### Business HTTP contract
+
+`BusinessResource` omits the member user id:
+
+`{ id, name, nzbn, address, contactEmail, contactPhone, timezone, currency, weekStart, onboardingCompletedAt }`
+
+| Method | Path | Cookie mutation | Success |
+| --- | --- | --- | --- |
+| POST | `/api/business` | yes | `201` on first create, `200` when the owner membership already exists |
+| POST | `/api/business/onboarding/complete` | yes | `200 BusinessResource` |
+
+Cookie-authenticated mutations use `authorize(request, true)`. A forged `businessId` in the JSON is ignored. Errors: `401 unauthorized`, `403 forbidden`, `400 invalid_request`, `409 business_required` (complete with no membership), `413 payload_too_large`, `500 internal_error` (correlation id) for unexpected failures. Timezone must be `Pacific/Auckland`, currency `NZD`, and week start `monday`. NZBN is empty or 13 digits.

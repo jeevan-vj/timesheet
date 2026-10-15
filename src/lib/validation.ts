@@ -10,6 +10,19 @@ export const siteInput = z.object({
   address: optionalTrimmed(240),
 });
 
+const nzbnInput = z.union([z.literal(""), z.string().regex(/^\d{13}$/)]).default("");
+
+export const businessInput = z.object({
+  name: trimmed(100),
+  nzbn: nzbnInput,
+  address: optionalTrimmed(240),
+  contactEmail: z.email().max(254),
+  contactPhone: optionalTrimmed(40),
+  timezone: z.literal("Pacific/Auckland"),
+  currency: z.literal("NZD"),
+  weekStart: z.literal("monday"),
+});
+
 export const contractorInput = z.object({
   name: trimmed(100),
   email: z.union([z.literal(""), z.email().max(254)]).default(""),

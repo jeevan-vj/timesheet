@@ -7,9 +7,9 @@ Contractor identity, contact details, rates, hours, notes, and pay totals are co
 Non-negotiable rules:
 
 1. Every domain read and write requires a valid server-side session.
-2. `owner_user_id` is derived only from that session, never from request JSON or query parameters.
-3. Every referenced site, contractor, assignment, assignment_schedule_version, time entry, and week_approval is filtered by the same owner.
-4. Do not log request bodies, contact details, rates, notes, session tokens, passwords, or authentication URLs.
+2. `owner_user_id` and `business_id` are derived only from that session and its active owner membership, never from request JSON or query parameters.
+3. Every referenced site, contractor, assignment, assignment_schedule_version, time entry, and week_approval is filtered by the same owner and the same business.
+4. Do not log request bodies, business profile fields, contact details, rates, notes, session tokens, passwords, or authentication URLs.
 5. Store currency as integer cents and time as integer minutes; never persist calculated floating-point hours.
 6. Snapshot the effective rate on each time entry to protect historical totals.
 7. Validate all untrusted input at the API boundary and return non-disclosing errors. Contractor create/patch field messages are canned and do not disclose whether another owner's contractor exists.
@@ -17,7 +17,7 @@ Non-negotiable rules:
 9. Do not weaken authentication, authorization, validation, migrations, headers, or tests to make a change pass.
 10. `AGENTS.md`, `.github/**`, and `.factory/**` are protected control-plane code and require human merge approval.
 11. Weekly remittance PDFs are owner-only downloads of pay data. Serve them `Cache-Control: no-store`. Cross-owner contractor ids return identical `404 { error: "not_found" }`. Do not log PDF bytes, contractor details, rates, notes, or pay totals.
-12. Unexpected JSON API failures return `500` with `{"error":"internal_error","correlationId":"<uuid>"}`. The correlation id is generated on the server. The log is one JSON object: route, method, correlation id, safe name, message, stack, and release. Query failures are logged as `query_failed` without SQL or bound values. Optional `SENTRY_DSN` is a Worker secret; capture is off when it is unset; the same scrub applies before send. Never log request bodies, contractor details, rates, notes, pay totals, cookies, tokens, or secrets.
+12. Unexpected JSON API failures return `500` with `{"error":"internal_error","correlationId":"<uuid>"}`. The correlation id is generated on the server. The log is one JSON object: route, method, correlation id, safe name, message, stack, and release. Query failures are logged as `query_failed` without SQL or bound values. Optional `SENTRY_DSN` is a Worker secret; capture is off when it is unset; the same scrub applies before send. Never log request bodies, business profile fields, contractor details, rates, notes, pay totals, cookies, tokens, or secrets.
 
 ## Secrets
 

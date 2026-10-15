@@ -78,6 +78,7 @@ const expectedErrors = [
   ["week_not_approved", 409, "week_not_approved"],
   ["schedule_exists", 409, "schedule_exists"],
   ["no_schedule", 409, "no_schedule"],
+  ["business_required", 409, "business_required"],
 ] as const;
 
 function filesUnder(root: string): string[] {
