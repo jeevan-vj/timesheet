@@ -16,12 +16,30 @@ async function shot(page, directory, id) {
   return relative;
 }
 
+function waitForMethod(page, method, pathTest) {
+  return page.waitForResponse((response) => {
+    if (response.request().method() !== method) return false;
+    return pathTest(new URL(response.url()).pathname);
+  }, { timeout: 20_000 });
+}
+
+async function clickAndWait(page, method, pathTest, click) {
+  const pending = waitForMethod(page, method, pathTest);
+  await click();
+  const response = await pending;
+  if (!response.ok()) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(`${method} failed (${response.status()} ${body.error ?? "request_failed"})`);
+  }
+  return response;
+}
+
 async function expectNotice(page, text) {
-  await page.locator("main > p.notice").filter({ hasText: text }).waitFor({ timeout: 20_000 });
+  await page.locator("main.app-shell > p.notice").filter({ hasText: text }).waitFor({ timeout: 20_000 });
 }
 
 async function signUp(page, baseUrl, person) {
-  await page.goto(new URL("/sign-up", baseUrl).toString(), { waitUntil: "domcontentloaded" });
+  await page.goto(new URL("/sign-up", baseUrl).toString(), { waitUntil: "networkidle" });
   await page.getByRole("heading", { name: "Create your owner account" }).waitFor();
   await page.getByLabel("Your name").fill(person.name);
   await page.getByLabel("Email").fill(person.email);
@@ -36,7 +54,7 @@ async function saveBusiness(page, business) {
   await page.getByLabel("Business name").fill(business.name);
   await page.getByLabel("Contact email").fill(business.email);
   await page.getByLabel("NZBN").fill("");
-  await page.getByRole("button", { name: "Save business" }).click();
+  await clickAndWait(page, "POST", (path) => path === "/api/business", () => page.getByRole("button", { name: "Save business" }).click());
   await expectNotice(page, "Business saved.");
   await page.getByRole("heading", { name: "Add a cleaning site" }).waitFor();
 }
@@ -50,7 +68,7 @@ async function addSite(page, site) {
   await openDetails(card.locator("details"));
   await card.getByLabel("Site name").fill(site.name);
   await card.getByLabel("Site address").fill(site.address);
-  await card.getByRole("button", { name: "Save site" }).click();
+  await clickAndWait(page, "POST", (path) => path === "/api/sites", () => card.getByRole("button", { name: "Save site" }).click());
   await expectNotice(page, "Site added.");
   await card.getByText(site.name, { exact: true }).waitFor();
 }
@@ -63,7 +81,7 @@ async function addContractor(page, contractor) {
   await dialog.getByLabel("Email").fill(contractor.email);
   await dialog.getByLabel("Phone").fill(contractor.phone);
   await dialog.getByLabel("Default hourly rate (NZD)").fill(contractor.rateDollars);
-  await dialog.getByRole("button", { name: "Save contractor" }).click();
+  await clickAndWait(page, "POST", (path) => path === "/api/contractors", () => dialog.getByRole("button", { name: "Save contractor" }).click());
   await expectNotice(page, "Contractor added.");
   await page.locator(".contractor-row").filter({ hasText: contractor.name }).waitFor();
 }
@@ -79,8 +97,8 @@ async function assign(page, contractor, site, overrideDollars) {
   await form.locator("select[name='contractorId']").selectOption({ label: contractor });
   await form.locator("select[name='siteId']").selectOption({ label: site });
   if (overrideDollars) await form.locator("input[name='rate']").fill(overrideDollars);
-  await form.getByRole("button", { name: "Save assignment" }).click();
-  await expectNotice(page, "Assignment added.");
+  await clickAndWait(page, "POST", (path) => path === "/api/assignments", () => form.getByRole("button", { name: "Save assignment" }).click());
+  await page.locator(".assignment-notice.is-ok").filter({ hasText: "Assignment added." }).waitFor({ timeout: 20_000 });
 }
 
 async function setChecked(checkbox, want) {
@@ -102,7 +120,7 @@ async function addSchedule(page, contractor, site, schedule) {
   }
   await editor.getByLabel("Hours", { exact: true }).fill(String(schedule.hours));
   await editor.getByLabel("Minutes", { exact: true }).fill(String(schedule.minutes));
-  await editor.getByRole("button", { name: "Save schedule" }).click();
+  await clickAndWait(page, "PUT", (path) => path.endsWith("/schedule"), () => editor.getByRole("button", { name: "Save schedule" }).click());
   await expectNotice(page, "Repeating schedule added.");
 }
 
@@ -115,7 +133,7 @@ async function addPaidShift(page, contractor, site, workDate, hours, minutes) {
   await dialog.getByRole("radio", { name: "Paid hours" }).check();
   await dialog.getByLabel("Hours", { exact: true }).fill(String(hours));
   await dialog.getByLabel("Minutes", { exact: true }).fill(String(minutes));
-  await dialog.getByRole("button", { name: "Save shift" }).click();
+  await clickAndWait(page, "POST", (path) => path === "/api/time-entries", () => dialog.getByRole("button", { name: "Save shift" }).click());
   await expectNotice(page, "Shift added.");
 }
 
@@ -129,7 +147,7 @@ async function addClockShift(page, contractor, site, workDate, shift) {
   await dialog.getByLabel("Start", { exact: true }).fill(shift.start);
   await dialog.getByLabel("Finish", { exact: true }).fill(shift.end);
   await dialog.getByLabel("Unpaid break").selectOption({ label: "No break" });
-  await dialog.getByRole("button", { name: "Save shift" }).click();
+  await clickAndWait(page, "POST", (path) => path === "/api/time-entries", () => dialog.getByRole("button", { name: "Save shift" }).click());
   await expectNotice(page, "Shift added.");
 }
 
@@ -219,7 +237,7 @@ export async function runOwnerFlow({ page, baseUrl, screenshotDir }) {
     await assign(page, roster.contractors[0].name, roster.contractors[0].site, "");
     await page.getByRole("heading", { name: "Add a repeating schedule, or finish" }).waitFor();
     await addSchedule(page, roster.contractors[0].name, roster.contractors[0].site, roster.contractors[0].schedule);
-    await page.getByRole("button", { name: "Finish setup" }).click();
+    await clickAndWait(page, "POST", (path) => path === "/api/business/onboarding/complete", () => page.getByRole("button", { name: "Finish setup" }).click());
     await expectNotice(page, "Setup finished.");
     await page.locator("[data-feature='owner-onboarding']").waitFor({ state: "detached" });
     screenshots.push(await shot(page, screenshotDir, "01-onboarding-finished"));
@@ -289,13 +307,14 @@ export async function runOwnerFlow({ page, baseUrl, screenshotDir }) {
     if (ownerData.entries.length !== roster.totals.entries) {
       throw new Error(`Expected ${roster.totals.entries} entries, saw ${ownerData.entries.length}.`);
     }
-    const uiMinutes = await page.locator(".stats article").filter({ hasText: "Paid hours" }).locator("strong").innerText();
-    const uiPay = await page.locator(".stats article").filter({ hasText: "Contractor pay" }).locator("strong").innerText();
+    const paidHours = page.locator(".stats article").filter({ hasText: "Paid hours" }).locator("strong");
+    const contractorPay = page.locator(".stats article").filter({ hasText: "Contractor pay" }).locator("strong");
+    const expectedMinutes = minutesLabel(roster.totals.paidMinutes);
     const expectedPay = await moneyLabel(page, roster.totals.payCents);
-    if (uiMinutes.trim() !== minutesLabel(roster.totals.paidMinutes)) {
-      throw new Error(`Paid hours showed ${uiMinutes.trim()}.`);
-    }
-    if (uiPay.trim() !== expectedPay) throw new Error(`Contractor pay showed ${uiPay.trim()}, expected ${expectedPay}.`);
+    await paidHours.filter({ hasText: expectedMinutes }).waitFor({ timeout: 20_000 });
+    await contractorPay.filter({ hasText: expectedPay }).waitFor({ timeout: 20_000 });
+    const uiMinutes = (await paidHours.innerText()).trim();
+    const uiPay = (await contractorPay.innerText()).trim();
     const sitePanel = page.locator("[data-feature='week-site-summary']");
     for (const site of roster.siteTotals) {
       const row = sitePanel.locator(".summary-row").filter({ hasText: site.name });
@@ -310,7 +329,7 @@ export async function runOwnerFlow({ page, baseUrl, screenshotDir }) {
     if (!description.includes(expectedPay) || !description.includes(minutesLabel(roster.totals.paidMinutes))) {
       throw new Error("Approval confirmation did not show the week totals.");
     }
-    await dialog.getByRole("button", { name: "Approve week" }).click();
+    await clickAndWait(page, "POST", (path) => path === "/api/weeks/approve", () => dialog.getByRole("button", { name: "Approve week" }).click());
     await expectNotice(page, "Week approved.");
     await page.getByLabel("Week status: Approved & locked").waitFor();
     const locked = await dashboard(page, baseUrl, week);
