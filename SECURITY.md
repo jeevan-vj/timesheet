@@ -21,7 +21,9 @@ Non-negotiable rules:
 
 ## Secrets
 
-Never commit `BETTER_AUTH_SECRET`, mail credentials, Cloudflare credentials, D1 production identifiers, Cursor keys, personal tokens, or `.dev.vars`.
+Never commit `BETTER_AUTH_SECRET`, `OPS_BOT_TOKEN`, mail credentials, Cloudflare credentials, D1 production identifiers, Cursor keys, personal tokens, or `.dev.vars`.
+
+`OPS_BOT_TOKEN` authenticates `/api/ops/*` only. Compare it with a constant-time digest check. Do not accept a session cookie on those routes. Do not log the token, confirm tokens, SQL text, or bound parameters. Optional Cloudflare Access in front of `/api/ops` is defense in depth and does not replace the bearer token. Domain ops reads and writes still filter by the requested owner and that owner's active business. Raw SQL is an operator-scoped exception: one `SELECT` or a confirmed `INSERT`/`UPDATE`, never `DELETE` or DDL, and never a write to `ops_audit`.
 
 ## Reporting
 

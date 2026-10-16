@@ -42,6 +42,10 @@ const now = () => new Date();
 const id = () => crypto.randomUUID();
 const assignmentClock = { id, now };
 
+export type TimeEntryWriteOptions = {
+  confirmLockedWeek?: boolean;
+};
+
 const assignmentRecordColumns = {
   id: assignments.id,
   ownerUserId: assignments.ownerUserId,
@@ -340,11 +344,18 @@ export async function restoreAssignment(database: Database, ownerUserId: string,
   return runRestoreAssignment(assignmentRepo(database, businessId), ownerUserId, assignmentId, assignmentClock);
 }
 
-export async function createTimeEntry(database: Database, ownerUserId: string, input: TimeEntryInput) {
+export async function createTimeEntry(
+  database: Database,
+  ownerUserId: string,
+  input: TimeEntryInput,
+  options?: TimeEntryWriteOptions,
+) {
   const businessId = await requireOwnerBusinessId(database, ownerUserId);
   // Validate paid duration before any assignment write so invalid_shift cannot restore a pair.
   const clock = clockFieldsForWrite(input);
-  await assertUnlockedWeek(database, ownerUserId, input.workDate, businessId);
+  if (options?.confirmLockedWeek !== true) {
+    await assertUnlockedWeek(database, ownerUserId, input.workDate, businessId);
+  }
 
   await applyInlineAssignSiteAfterPrecheck(assignmentRepo(database, businessId), ownerUserId, input, assignmentClock, async () => {
     const [duplicate] = await database
@@ -440,7 +451,13 @@ export async function getTimeEntry(database: Database, ownerUserId: string, entr
   return row ?? null;
 }
 
-export async function updateTimeEntry(database: Database, ownerUserId: string, entryId: string, input: TimeEntryUpdateInput) {
+export async function updateTimeEntry(
+  database: Database,
+  ownerUserId: string,
+  entryId: string,
+  input: TimeEntryUpdateInput,
+  options?: TimeEntryWriteOptions,
+) {
   const businessId = await requireOwnerBusinessId(database, ownerUserId);
   const [existing] = await database
     .select()
@@ -452,8 +469,10 @@ export async function updateTimeEntry(database: Database, ownerUserId: string, e
     ))
     .limit(1);
   if (!existing) throw new Error("not_found");
-  await assertUnlockedWeek(database, ownerUserId, existing.workDate, businessId);
-  await assertUnlockedWeek(database, ownerUserId, input.workDate, businessId);
+  if (options?.confirmLockedWeek !== true) {
+    await assertUnlockedWeek(database, ownerUserId, existing.workDate, businessId);
+    await assertUnlockedWeek(database, ownerUserId, input.workDate, businessId);
+  }
 
   const clock = clockFieldsForWrite(input);
   const resnapshot = shouldResnapshotRate(existing, input);
@@ -544,7 +563,12 @@ export async function updateTimeEntry(database: Database, ownerUserId: string, e
   }
 }
 
-export async function deleteTimeEntry(database: Database, ownerUserId: string, entryId: string): Promise<boolean> {
+export async function deleteTimeEntry(
+  database: Database,
+  ownerUserId: string,
+  entryId: string,
+  options?: TimeEntryWriteOptions,
+): Promise<boolean> {
   const businessId = await requireOwnerBusinessId(database, ownerUserId);
   const [existing] = await database
     .select({ id: timeEntries.id, workDate: timeEntries.workDate })
@@ -556,7 +580,9 @@ export async function deleteTimeEntry(database: Database, ownerUserId: string, e
     ))
     .limit(1);
   if (!existing) return false;
-  await assertUnlockedWeek(database, ownerUserId, existing.workDate, businessId);
+  if (options?.confirmLockedWeek !== true) {
+    await assertUnlockedWeek(database, ownerUserId, existing.workDate, businessId);
+  }
   const deleted = await database.delete(timeEntries).where(and(
     eq(timeEntries.id, existing.id),
     eq(timeEntries.ownerUserId, ownerUserId),
