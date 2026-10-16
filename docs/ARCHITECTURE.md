@@ -72,6 +72,16 @@ Site APIs are `GET/POST /api/sites`, `GET/PATCH/DELETE /api/sites/[id]`, and `PO
 
 The dashboard continues to load only `sites.active = true` and `assignments.active = true` for pickers. The weekly time-entry join matches sites by id and owner only, so archived site names still render on historical rows while pay snapshots stay on the entry.
 
+## Operator API
+
+`/api/ops/*` is served by the same Worker and uses the `DB` binding. Authentication is `Authorization: Bearer` compared to the `OPS_BOT_TOKEN` secret. Cookie sessions are not accepted. Optional Cloudflare Access may proxy the path; the Worker still checks the bearer token.
+
+Contractor and time-entry writes, and wage reads, take `ownerUserId` and resolve `business_id` from that user's active owner membership. Wage JSON is `summarizeWeek`, `summarizeWeekBySite`, and `weekPayrollTotals` on the snapshotted entry rows. Contractor archive and restore execute `archiveWritePlan` / `restoreWritePlan` (assignment active flag, then contractor, or the reverse). Time-entry writes go through `createTimeEntry` / `updateTimeEntry`. `confirmLockedWeek` is the only way those writes skip `assertUnlockedWeek`. A contractor/day total above 840 paid minutes sets `longDay` on the response.
+
+`POST /api/ops/sql` classifies one statement. `SELECT` is wrapped in a 100-row cap. `INSERT` and `UPDATE` are previewed with a count and a five-row sample, then signed into a five-minute HMAC confirm token. Execute recomputes the count, rejects a mismatch, and commits the statement plus the audit insert together. `POST /api/ops/revert` reads one `ops_audit` row and applies the inverse of `contractor.create`, `contractor.update`, `contractor.rate`, `contractor.archive`, `contractor.restore`, `time_entry.create`, or `time_entry.update`. `sql.insert` and `sql.update` are not reverted here.
+
+`ops_audit` columns are `action`, `sql_text`, `params_json`, `old_json`, `new_json`, `reason`, `row_count`, and `created_at`. Triggers abort updates and deletes. The audit insert is the log; request bodies and tokens are not written to Worker logs.
+
 ## Decisions
 
 - Monday is the first day of a payroll week.

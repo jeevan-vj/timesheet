@@ -159,6 +159,18 @@ export const timeEntries = sqliteTable("time_entry", {
   uniqueIndex("time_entry_owner_contractor_site_date_uq").on(t.ownerUserId, t.contractorId, t.siteId, t.workDate),
 ]);
 
+export const opsAudit = sqliteTable("ops_audit", {
+  id: text("id").primaryKey(),
+  action: text("action").notNull(),
+  sqlText: text("sql_text"),
+  paramsJson: text("params_json"),
+  oldJson: text("old_json"),
+  newJson: text("new_json"),
+  reason: text("reason").notNull(),
+  rowCount: integer("row_count").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+}, (t) => [index("ops_audit_created_at_idx").on(t.createdAt)]);
+
 export const weekApprovals = sqliteTable("week_approval", {
   id: text("id").primaryKey(),
   ...ownedFields,

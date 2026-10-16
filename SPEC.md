@@ -104,6 +104,20 @@ The migration copies each existing user onto one business and sets `business_id`
 
 Product slice: `owner membership -> business -> contractors + sites -> assignments (+ optional schedule versions) -> daily time entries -> weekly summary`.
 
+### CT-015 Operator ops API
+
+A single trusted bot calls `/api/ops/*` with `Authorization: Bearer` matching the `OPS_BOT_TOKEN` Worker secret. Session cookies are not accepted. Optional Cloudflare Access may sit in front of the path and does not replace the bearer check.
+
+Contractor create, detail update, rate change, archive, and restore are owner-scoped. Archive and restore follow `archiveWritePlan` / `restoreWritePlan`. There is no contractor hard delete. Rate changes do not rewrite `time_entry.rate_cents`.
+
+Time-entry add and adjust require a reason. The response flags a contractor day with more than 14 paid hours. Create, adjust, and revert of an approved week require `confirmLockedWeek: true`; otherwise the API returns `week_locked` and writes nothing.
+
+Wage reads are owner-scoped for one Monday week, optionally one contractor or site, and use `summarizeWeek`, `summarizeWeekBySite`, and `weekPayrollTotals`.
+
+`ops_audit` is append-only. Every ops write stores the action, SQL and parameters when the action is raw SQL, old and new JSON, reason, row count, and timestamp. `POST /api/ops/revert` restores a named contractor or time-entry action from that row. Raw SQL is not reverted by that action.
+
+One `SELECT` runs immediately and returns at most 100 rows. `INSERT` and `UPDATE` return a dry-run count, a sample, and a short-lived confirm token, then execute only with that token. `DROP`, `ALTER`, `CREATE`, `PRAGMA`, `ATTACH`, every `DELETE`, multi-statements, and writes to `ops_audit` are rejected.
+
 ## Non-goals
 
 - tax, holiday pay, GST, expenses, invoicing, or bank payments;

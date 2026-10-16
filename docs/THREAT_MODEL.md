@@ -50,6 +50,13 @@ Contractor identity/contact data, site locations, rates, work notes, time record
 | Unexpected server error returns driver text | JSON API failures return `500 { error: "internal_error", correlationId }` and do not return driver text. Logs and optional Sentry events are scrubbed |
 | Sensitive data reaches logs | No request-body, business profile, site name/address, PDF bytes, contractor, rate, or pay logging. Query failures are redacted to `query_failed` without SQL or bound values. Optional `SENTRY_DSN` is a Worker secret and receives the same scrub; automated boundary test |
 | Cloud agent reaches production | Cursor receives no production secrets; trusted GitHub workflows own merge/deploy gates |
+| Ops bot token is guessed or logged | `OPS_BOT_TOKEN` is a Worker secret. Authorization is `Bearer` only, compared by SHA-256 digest. Missing or empty secrets fail closed. The token, confirm tokens, SQL, and parameters are not logged |
+| Session cookie calls the ops API | `/api/ops/*` ignores the owner session and returns `unauthorized` without a matching bearer token |
+| Ops request names another owner's rows | Contractor, time-entry, and wage queries filter by the requested `ownerUserId` and that user's active owner business. A foreign id is `not_found` or an empty week |
+| Ops SQL drops tables, deletes rows, or rewrites the audit log | One statement only. `DROP`, `ALTER`, `CREATE`, `PRAGMA`, `ATTACH`, `DELETE`, comments, and multi-statements are rejected. Writes to `ops_audit` are rejected. `INSERT`/`UPDATE` commit only with an unexpired single-use confirm token whose row count still matches. Triggers abort `UPDATE` and `DELETE` on `ops_audit` |
+| Ops rate change or revert rewrites historical pay | Contractor rate edits and rate reverts update `contractor.default_rate_cents` only. Time-entry revert restores the snapshotted `rate_cents` from the audit row |
+| Ops edit bypasses an approved week by accident | Time-entry create, update, delete, and revert call the week lock. `confirmLockedWeek: true` is required to proceed. A day over 14 paid hours is flagged on the response |
+| Raw SQL cannot be expressed as a named revert | `POST /api/ops/revert` restores named contractor and time-entry actions only. D1 Time Travel is the operator backstop for other writes |
 
 ## Residual risks
 
