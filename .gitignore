@@ -10,5 +10,6 @@ dist/
 !.env.example
 coverage/
 factory-e2e-output/
+verify-cleantrack-output/
 *.log
 .DS_Store
