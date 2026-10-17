@@ -55,3 +55,5 @@ Checks passing do not waive the human gate. The lists are [.factory/risk-policy.
 - Medium includes `package.json`, `pnpm-lock.yaml`, `src/app/api/`, and `src/services/`. Low includes `src/components/` and `tests/`.
 
 One change, one branch, one PR. Say the outcome before editing. The author of a change does not call a screen verified because `pnpm verify` passed.
+
+Factory review shorthand, when a PR needs it: P0 is cross-owner disclosure, payroll corruption, or credential exposure. P1 is an auth bypass, wrong pay, or a destructive migration. P2 is a requirement or test gap. P3 is maintainability. Factory PR text still names the closed issue, the plan, `pnpm verify`, security and payroll impact, and migration notes.
