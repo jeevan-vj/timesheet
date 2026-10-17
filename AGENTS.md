@@ -12,6 +12,8 @@ Tenancy is a business membership. The server resolves the session user, then the
 
 Handlers call `authorize`, then a service, and `apiError` on failure. Known `Error.message` codes map to 4xx. Anything else is `500` `{ error: "internal_error", correlationId }` after `reportServerError` (query text stripped; no request body). Item reads map `business_required` to `404` through `readItemError`.
 
+Cookie sessions are the product API. `/api/ops/*` is a bearer surface, not a browser session. It still resolves `business_id` on the server. `GET /api/health` returns the release and a D1 ping and is the readiness check.
+
 `.factory/` is the intake, repair, and merge control plane. How to work inside it is [.factory/POTATO.md](.factory/POTATO.md). Do not add a second intake path.
 
 ## Commands
@@ -26,7 +28,7 @@ Handlers call `authorize`, then a service, and `apiError` on failure. Known `Err
 
 - Money is integer cents. Durations are integer minutes. Week and site rollups call `calculateEntryPayCents` on the snapshotted rate.
 - New entries snapshot `rate_cents`. Later rate edits never rewrite historical `time_entry.rate_cents`.
-- Migrations are forward-only. Never edit a file already applied under `drizzle/`. Add a new migration.
+- Migrations are forward-only. Never edit a file already applied under `drizzle/` (`0000_initial.sql` through `0005_ops_audit.sql` on this branch). Add the next file. `pnpm db:generate` only drafts it.
 - `business_id` comes only from the server-resolved active owner membership.
 - Cross-tenant get, update, archive, and restore return `404` `{ error: "not_found" }` and write nothing.
 - Cookie mutations require a trusted `Origin` (`authorize(request, true)`). Otherwise `403`.
@@ -50,3 +52,6 @@ Checks passing do not waive the human gate. The lists are [.factory/risk-policy.
 - Protected: `AGENTS.md`, `.github/`, `.factory/`.
 - High: auth, payroll, week rollup, validation, `src/db/`, `drizzle/`, `SECURITY.md`, `docs/THREAT_MODEL.md`, `wrangler.jsonc`.
 - Protected and high-risk changes are never autonomously merged.
+- Medium includes `package.json`, `pnpm-lock.yaml`, `src/app/api/`, and `src/services/`. Low includes `src/components/` and `tests/`.
+
+One change, one branch, one PR. Say the outcome before editing. The author of a change does not call a screen verified because `pnpm verify` passed.
