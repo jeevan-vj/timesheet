@@ -16,6 +16,7 @@ import {
   fromMinutes,
   initialShiftDraft,
   paidHoursError,
+  paidMinutePartOptions,
   shiftDateBounds,
   parseRateDollars,
   selectContractor,
@@ -121,6 +122,15 @@ describe("site choices", () => {
 });
 
 describe("duration and pay preview", () => {
+  it("offers canonical quarter-hour minute parts without leading-zero strings", () => {
+    expect(paidMinutePartOptions(45)).toEqual([0, 15, 30, 45]);
+    expect(paidMinutePartOptions(0)).toEqual([0, 15, 30, 45]);
+  });
+
+  it("preserves a historical non-quarter minute part while editing", () => {
+    expect(paidMinutePartOptions(35)).toEqual([0, 15, 30, 45, 35]);
+  });
+
   it("formats the live preview from integer minutes and cents", () => {
     expect(formatPayPreview(480, 3_000)).toBe("8h × NZ$30/hr = NZ$240");
     expect(formatPayPreview(510, 3_000)).toBe("8h 30m × NZ$30/hr = NZ$255");

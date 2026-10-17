@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { assignmentMutationMessage } from "@/lib/assignment-manage";
+import { paidMinutePartOptions } from "@/lib/shift-entry";
 import {
   initialScheduleDraft,
   SCHEDULE_WEEKDAY_OPTIONS,
@@ -135,7 +136,9 @@ export function ScheduleEditor({
             <input type="number" inputMode="numeric" name="paidHours" min={0} max={23} step={1} required value={draft.paidHours} disabled={busy} onChange={(event) => setDraft({ ...draft, paidHours: Number(event.target.value) })} />
           </label>
           <label>Minutes
-            <input type="number" inputMode="numeric" name="paidMinutes" min={0} max={59} step={1} required value={draft.paidMinutePart} disabled={busy} onChange={(event) => setDraft({ ...draft, paidMinutePart: Number(event.target.value) })} />
+            <select inputMode="numeric" name="paidMinutes" required value={draft.paidMinutePart} disabled={busy} onChange={(event) => setDraft({ ...draft, paidMinutePart: Number(event.target.value) })}>
+              {paidMinutePartOptions(draft.paidMinutePart).map((minutes) => <option value={minutes} key={minutes}>{minutes}</option>)}
+            </select>
           </label>
         </div>
       </fieldset>
