@@ -106,6 +106,10 @@ export function breakMinuteOptions(breakMinutes: number): number[] {
   return [...new Set([0, 15, 30, 45, 60, breakMinutes])];
 }
 
+export function paidMinutePartOptions(minutePart: number): number[] {
+  return [...new Set([0, 15, 30, 45, minutePart])];
+}
+
 export function draftFromTimeEntry(entry: RecordedTimeEntry): ShiftEntryDraft {
   const clockDefaults = initialShiftDraft({ weekStart: entry.workDate, contractorId: entry.contractorId, siteId: entry.siteId });
   if (entry.entryMode === "paid_hours") {

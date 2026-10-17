@@ -10,6 +10,7 @@
     "start": "wrangler dev --config dist/server/wrangler.json",
     "deploy": "vinext-cloudflare deploy",
     "test": "vitest run",
+    "test:mobile": "node scripts/mobile-screenshots.mjs --check-only",
     "test:watch": "vitest",
     "lint": "node scripts/lint-paved-path.mjs",
     "typecheck": "tsc --noEmit",

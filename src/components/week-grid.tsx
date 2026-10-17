@@ -1,9 +1,10 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useId, useRef, useState } from "react";
 import { ShiftTableNote } from "@/components/shift-note";
 import { ScheduleEditor, type ScheduleEditorTarget } from "@/components/schedule-editor";
 import { assignmentMutationMessage } from "@/lib/assignment-manage";
+import { paidMinutePartOptions } from "@/lib/shift-entry";
 import { visibleShiftNote } from "@/lib/shift-note";
 import { weekApprovalErrorMessage } from "@/lib/week-approval";
 import type { ShiftDeleteTarget } from "@/lib/shift-delete";
@@ -24,6 +25,14 @@ import {
 type NamedPerson = { id: string; name: string };
 
 const WEEKDAY_HEADERS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+
+function mobileActionDate(isoDate: string) {
+  return new Intl.DateTimeFormat("en-NZ", {
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  }).format(new Date(`${isoDate}T00:00:00Z`));
+}
 
 type ChangeHoursTarget = {
   entry: WeekGridEntry;
@@ -54,6 +63,7 @@ export function WeekGrid({
 }) {
   const rows = buildWeekGridRows({ assignments, contractors, sites, entries });
   const columns = weekGridColumns(weekStart);
+  const mobileGridId = useId();
   const [changeHours, setChangeHours] = useState<ChangeHoursTarget | null>(null);
 
   return <>
@@ -86,6 +96,66 @@ export function WeekGrid({
           ))}
         </tbody>
       </table>
+    </div>
+    <div className="week-grid-mobile" aria-label="Weekly timesheet">
+      {rows.map((row) => {
+        const headingId = `${mobileGridId}-${row.contractorId}-${row.siteId}`;
+        return (
+          <article className="week-grid-card" key={`${row.contractorId}:${row.siteId}`} aria-labelledby={headingId}>
+            <header id={headingId}>
+              <strong>{row.contractorName}</strong>
+              <span>{row.siteName}{rowScheduleCaption(row.schedule) ? ` · ${rowScheduleCaption(row.schedule)}` : ""}</span>
+            </header>
+            <div className="week-grid-card-days">
+              {columns.map((column, index) => {
+                const entry = entryForCell(entries, row.contractorId, row.siteId, column.iso);
+                const cell = presentWeekGridCell(entry);
+                const note = entry ? visibleShiftNote(entry.notes) : null;
+                const noteId = entry ? `mobile-shift-note-${entry.id}` : undefined;
+                return <div className={`week-grid-mobile-day ${cell.className}`} key={column.iso} aria-describedby={note ? noteId : undefined}>
+                  <div className="week-grid-mobile-date">
+                    <span>{WEEKDAY_HEADERS[index]}</span>
+                    <strong>{column.iso.slice(8)}</strong>
+                  </div>
+                  <div className="week-grid-mobile-entry">
+                    <strong>{cell.kind === "empty" ? "No shift" : cell.kind === "absent" ? "Not worked" : cell.label}</strong>
+                    {entry ? <ShiftTableNote notes={entry.notes} noteId={noteId!} /> : null}
+                  </div>
+                  {entry && cell.actions.length ? <select
+                    className="week-grid-action-menu"
+                    aria-label={`Actions for ${row.contractorName} at ${row.siteName} on ${WEEKDAY_HEADERS[index]} ${mobileActionDate(column.iso)}`}
+                    value=""
+                    disabled={locked}
+                    onChange={(event) => {
+                      const action = event.target.value;
+                      if (action === "worked_as_scheduled") {
+                        const request = exceptionRequest(entry.id, { kind: "worked_as_scheduled" });
+                        void onException(request.url, request.body).catch(() => undefined);
+                      } else if (action === "absent") {
+                        const request = exceptionRequest(entry.id, { kind: "absent" });
+                        void onException(request.url, request.body).catch(() => undefined);
+                      } else if (action === "change_hours") {
+                        setChangeHours({ entry, contractorName: row.contractorName, siteName: row.siteName });
+                      } else if (action === "edit") {
+                        onEdit(entry);
+                      } else if (action === "delete") {
+                        onDelete({ id: entry.id, contractorName: entry.contractorName, siteName: entry.siteName, workDate: entry.workDate });
+                      }
+                    }}
+                  >
+                    <option value="">Actions</option>
+                    {cell.actions.includes("worked_as_scheduled") ? <option value="worked_as_scheduled">Worked as scheduled</option> : null}
+                    {cell.actions.includes("absent") ? <option value="absent">Didn&apos;t work</option> : null}
+                    {cell.actions.includes("change_hours") ? <option value="change_hours">Change hours</option> : null}
+                    {cell.actions.includes("edit") ? <option value="edit">Edit shift</option> : null}
+                    {cell.actions.includes("delete") ? <option value="delete">Delete shift</option> : null}
+                  </select> : null}
+                </div>;
+              })}
+            </div>
+          </article>
+        );
+      })}
     </div>
     <ChangeHoursDialog
       target={changeHours}
@@ -279,7 +349,9 @@ function ChangeHoursDialog({
             <input type="number" inputMode="numeric" min={0} max={23} step={1} required value={hours} disabled={busy} onChange={(event) => setHours(Number(event.target.value))} />
           </label>
           <label>Minutes
-            <input type="number" inputMode="numeric" min={0} max={59} step={1} required value={minutes} disabled={busy} onChange={(event) => setMinutes(Number(event.target.value))} />
+            <select inputMode="numeric" required value={minutes} disabled={busy} onChange={(event) => setMinutes(Number(event.target.value))}>
+              {paidMinutePartOptions(minutes).map((value) => <option value={value} key={value}>{value}</option>)}
+            </select>
           </label>
         </div>
       </fieldset>
@@ -391,7 +463,7 @@ function AddSchedulePicker({
   }, [open]);
   return <dialog
     ref={dialogRef}
-    className="modal"
+    className="modal add-schedule-dialog"
     aria-labelledby="add-schedule-title"
     aria-describedby="add-schedule-copy"
     onCancel={onCancel}
