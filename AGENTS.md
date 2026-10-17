@@ -18,7 +18,7 @@ Cookie sessions are the product API. `/api/ops/*` is a bearer surface, not a bro
 
 ## Commands
 
-- `pnpm verify` — lint, test, typecheck, and build. This is the gate.
+- `pnpm verify` — lint, test, typecheck, and build. This is the gate. Do not add a one-off check script beside it.
 - `pnpm test`, `pnpm typecheck`, `pnpm build`, `pnpm dev` (`vinext dev`, local D1, see README).
 - `pnpm db:migrate:local` — `wrangler d1 migrations apply cleantrack-timesheet --local`.
 - Local secrets stay in gitignored `.dev.vars` (copy from `.dev.vars.example`). Never commit them.
