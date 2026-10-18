@@ -7,7 +7,7 @@ import { ContractorsPanel } from "@/components/contractors";
 import { ShiftEntrySheet } from "@/components/shift-entry";
 import { SiteSetup } from "@/components/site-setup";
 import { AddRepeatingSchedule, WeekGrid } from "@/components/week-grid";
-import { mondayFor, shiftWeek, thisWeekSelection } from "@/components/week-picker";
+import { mondayFor, mondayFromInput, shiftWeek, thisWeekSelection } from "@/components/week-picker";
 import { assignmentMutationMessage } from "@/lib/assignment-manage";
 import { onboardingAdvancesOnError, onboardingStep, type OnboardingStep } from "@/lib/onboarding";
 import {
@@ -90,6 +90,7 @@ function mutateErrorMessage(error: unknown) {
 
 async function send(url: string, body?: unknown, method = "POST", signal?: AbortSignal) {
   const response = await fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined, signal });
+  if (response.status === 401) { window.location.assign("/sign-in"); throw new Error("unauthorized"); }
   if (!response.ok) { const data = await response.json().catch(() => ({})) as { error?: string }; throw new Error(data.error ?? "request_failed"); }
 }
 
@@ -113,6 +114,7 @@ async function saveRemittancePdf(url: string, target: RemittanceDownloadTarget) 
 export function Dashboard() {
   const [week, setWeek] = useState(() => mondayFor()); const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true); const [message, setMessage] = useState("");
+  const [loadFailed, setLoadFailed] = useState(false);
   const [editing, setEditing] = useState<ManualEntry | null>(null);
   const loadGeneration = useRef(0);
   const loadAbort = useRef<AbortController | null>(null);
@@ -123,16 +125,13 @@ export function Dashboard() {
     const controller = new AbortController();
     loadAbort.current = controller;
     if (!quiet) { setLoading(true); setMessage(""); }
+    setLoadFailed(false);
     const urls = applyThenDashboardUrls(week);
     try {
       const response = await fetch(urls.dashboard, { cache: "no-store", signal: controller.signal });
       if (response.status === 401) { window.location.assign("/sign-in"); return; }
       if (generation !== loadGeneration.current) return;
-      if (!response.ok) {
-        if (!quiet) setMessage("Could not load this week. Please try again.");
-        setLoading(false);
-        return;
-      }
+      if (!response.ok) throw new Error("refresh_failed");
       let next = await response.json() as DashboardData;
       let applyNotice = "";
       if (shouldApplySchedule(next.approval.status, next.assignments)) {
@@ -145,7 +144,8 @@ export function Dashboard() {
         const refreshed = await fetch(urls.dashboard, { cache: "no-store", signal: controller.signal });
         if (refreshed.status === 401) { window.location.assign("/sign-in"); return; }
         if (generation !== loadGeneration.current) return;
-        if (refreshed.ok) next = await refreshed.json() as DashboardData;
+        if (!refreshed.ok) throw new Error("refresh_failed");
+        next = await refreshed.json() as DashboardData;
       }
       if (generation !== loadGeneration.current) return;
       setData(next);
@@ -154,7 +154,8 @@ export function Dashboard() {
     } catch (error) {
       if (controller.signal.aborted) return;
       if (generation !== loadGeneration.current) return;
-      if (!quiet) setMessage("Could not load this week. Please try again.");
+      setData(null);
+      setLoadFailed(true);
       setLoading(false);
     }
   }, [week]);
@@ -236,7 +237,7 @@ export function Dashboard() {
     <header className="app-header"><a className="brand" href="/"><span className="brand-mark">C</span> CleanTrack</a><nav><a href="#team">Team & sites</a><button className="link-button" onClick={() => void authClient.signOut().then(() => window.location.assign("/"))}>Sign out</button></nav></header>
     <section className="dashboard-heading"><div><p className="eyebrow">Weekly workspace</p><h1>Hours & contractor pay</h1><p className="muted">Gross contractor payments before tax, GST, expenses, or adjustments.</p></div><div className="week-heading-tools"><WeekPicker week={week} onChange={setWeek} />{!loading && data ? <WeekApprovalBar status={data.approval.status} onApprove={() => approvalFlow.requestApprove()} onReopen={() => approvalFlow.requestReopen()} /> : null}</div></section>
     {message ? <p className="notice" role="status">{message}</p> : null}
-    {loading || !data ? <section className="loading-card">Loading your week…</section> : <LoadedWeek data={data} onboarding={onboarding} totalMinutes={totalMinutes} totalPay={totalPay} siteSummary={siteSummary} weekLocked={weekLocked} editing={editing} onReload={() => load(true)} onAnnounce={setMessage} onCopyWeekBrief={() => void copyWeekBrief()} onEdit={setEditing} onDelete={(target) => deleteFlow.request(target)} onRemittance={(target) => remittanceFlow.request(target)} />}
+    {loading ? <section className="loading-card" role="status">Loading your week…</section> : loadFailed || !data ? <section className="loading-card" role="alert"><p>Could not refresh this week. Any confirmed changes are saved.</p><button type="button" className="button" onClick={() => void load()}>Try again</button></section> : <LoadedWeek data={data} onboarding={onboarding} totalMinutes={totalMinutes} totalPay={totalPay} siteSummary={siteSummary} weekLocked={weekLocked} editing={editing} onReload={() => load(true)} onAnnounce={setMessage} onCopyWeekBrief={() => void copyWeekBrief()} onEdit={setEditing} onDelete={(target) => deleteFlow.request(target)} onRemittance={(target) => remittanceFlow.request(target)} />}
     <DeleteShiftDialog session={deleteSession} onCancel={() => deleteFlow.cancel()} onConfirm={() => void deleteFlow.confirm()} />
     <WeekApprovalDialog session={approvalSession} prompt={approvalPrompt} onCancel={() => approvalFlow.cancel()} onConfirm={() => { if (!data) return; void approvalFlow.confirm({ weekStart: data.weekStart, ...expectedWeekTotals(data.summary) }); }} />
     <RemittanceDownloadDialog session={remittanceSession} onCancel={() => remittanceFlow.cancel()} onConfirm={() => void remittanceFlow.confirm()} />
@@ -368,7 +369,7 @@ function RemittanceDownloadDialog({ session, onCancel, onConfirm }: { session: R
 }
 
 function WeekPicker({ week, onChange }: { week: string; onChange: (value: string) => void }) {
-  return <div className="week-picker"><button type="button" onClick={() => onChange(shiftWeek(week, -7))} aria-label="Previous week">←</button><button type="button" className="this-week" onClick={() => onChange(thisWeekSelection(week))}>This week</button><label>Week of<input type="date" value={week} onChange={(e) => onChange(mondayFor(new Date(`${e.target.value}T12:00:00`)))} /></label><button type="button" onClick={() => onChange(shiftWeek(week, 7))} aria-label="Next week">→</button></div>;
+  return <div className="week-picker"><button type="button" onClick={() => onChange(shiftWeek(week, -7))} aria-label="Previous week">←</button><button type="button" className="this-week" onClick={() => onChange(thisWeekSelection(week))}>This week</button><label>Week of<input type="date" value={week} onChange={(e) => { const next = mondayFromInput(e.target.value); if (next) onChange(next); }} /></label><button type="button" onClick={() => onChange(shiftWeek(week, 7))} aria-label="Next week">→</button></div>;
 }
 
 function SetupPanel({ data, weekLocked, onReload, onAnnounce }: { data: DashboardData; weekLocked: boolean; onReload: () => Promise<void>; onAnnounce: (message: string) => void }) {

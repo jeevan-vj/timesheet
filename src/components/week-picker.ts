@@ -1,3 +1,5 @@
+import { isIsoDate, weekStartFromDate } from "@/lib/payroll";
+
 export function mondayFor(date = new Date()): string {
   const value = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
   const day = value.getUTCDay() || 7;
@@ -15,4 +17,8 @@ export function thisWeekSelection(selectedWeek: string, today?: Date): string {
   const monday = today === undefined ? mondayFor() : mondayFor(today);
   if (selectedWeek === monday) return selectedWeek;
   return monday;
+}
+
+export function mondayFromInput(value: string): string | null {
+  return isIsoDate(value) ? weekStartFromDate(value) : null;
 }
