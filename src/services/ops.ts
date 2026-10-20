@@ -18,6 +18,7 @@ import { requireOwnerBusinessId } from "@/lib/business";
 import {
   archiveWritePlan,
   restoreWritePlan,
+  type ContractorEngagementPatch,
   type LifecycleWrite,
 } from "@/lib/contractor-lifecycle";
 import { summarizeWeek, weekEnd, weekPayrollTotals, weekStartFromDate } from "@/lib/payroll";
@@ -97,12 +98,20 @@ type ContractorWrite = {
 
 type OwnerReason = { ownerUserId: string; reason: string };
 
-export async function opsCreateContractor(database: Database, input: ContractorWrite) {
+export async function opsCreateContractor(database: Database, input: ContractorWrite & ContractorEngagementPatch) {
   const created = await createContractor(database, input.ownerUserId, {
     name: input.name,
     email: input.email,
     phone: input.phone,
     defaultRateCents: input.defaultRateCents,
+    preferredName: input.preferredName,
+    startDate: input.startDate,
+    engagementStatus: input.engagementStatus,
+    gstRegistered: input.gstRegistered,
+    gstNumber: input.gstNumber,
+    internalNotes: input.internalNotes,
+    emergencyContactName: input.emergencyContactName,
+    emergencyContactPhone: input.emergencyContactPhone,
   });
   const snapshot = await requireContractor(database, input.ownerUserId, created.id);
   const auditId = await writeAudit(database, {
@@ -376,7 +385,11 @@ async function applyLifecycle(database: Database, ownerUserId: string, businessI
     eq(assignments.businessId, businessId),
     eq(assignments.contractorId, assignment.where.contractorId),
   ));
-  const contractorWrite = database.update(contractors).set({ active: contractor.set.active, updatedAt }).where(and(
+  const contractorWrite = database.update(contractors).set({
+    active: contractor.set.active,
+    ...(contractor.set.engagementStatus ? { engagementStatus: contractor.set.engagementStatus } : {}),
+    updatedAt,
+  }).where(and(
     eq(contractors.id, contractor.where.id),
     eq(contractors.ownerUserId, contractor.where.ownerUserId),
     eq(contractors.businessId, businessId),

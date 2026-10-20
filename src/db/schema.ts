@@ -108,6 +108,14 @@ export const contractors = sqliteTable("contractor", {
   defaultRateCents: integer("default_rate_cents").notNull(),
   currency: text("currency").notNull().default("NZD"),
   active: integer("active", { mode: "boolean" }).notNull().default(true),
+  preferredName: text("preferred_name").notNull().default(""),
+  startDate: text("start_date"),
+  engagementStatus: text("engagement_status").notNull().default("active").$type<"draft" | "invited" | "active" | "suspended" | "archived">(),
+  gstRegistered: integer("gst_registered", { mode: "boolean" }).notNull().default(false),
+  gstNumber: text("gst_number").notNull().default(""),
+  internalNotes: text("internal_notes").notNull().default(""),
+  emergencyContactName: text("emergency_contact_name").notNull().default(""),
+  emergencyContactPhone: text("emergency_contact_phone").notNull().default(""),
 }, (t) => [index("contractor_owner_idx").on(t.ownerUserId), uniqueIndex("contractor_owner_name_uq").on(t.ownerUserId, t.name)]);
 
 export const assignments = sqliteTable("assignment", {

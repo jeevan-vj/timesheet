@@ -10,6 +10,7 @@ import {
   contractorFormFromResource,
   contractorFormPayload,
   contractorRestoreRequest,
+  contractorShowsArchive,
   contractorStatusLabel,
   contractorsListUrl,
   createContractorArchiveFlow,
@@ -19,6 +20,9 @@ import {
   firstInvalidField,
   idleContractorArchive,
   visibleContractors,
+  ENGAGEMENT_STATUSES,
+  ENGAGEMENT_STATUS_LABELS,
+  isEngagementStatus,
   type ContractorArchiveSession,
   type ContractorField,
   type ContractorFormDraft,
@@ -32,6 +36,14 @@ const FIELD_ERROR_IDS: Record<ContractorField, string> = {
   email: "contractor-email-error",
   phone: "contractor-phone-error",
   defaultRateCents: "contractor-rate-error",
+  preferredName: "contractor-preferred-name-error",
+  startDate: "contractor-start-date-error",
+  engagementStatus: "contractor-status-error",
+  gstRegistered: "contractor-gst-registered-error",
+  gstNumber: "contractor-gst-number-error",
+  internalNotes: "contractor-notes-error",
+  emergencyContactName: "contractor-emergency-name-error",
+  emergencyContactPhone: "contractor-emergency-phone-error",
 };
 
 async function contractorRequest(url: string, method: string, body?: unknown) {
@@ -75,17 +87,32 @@ export function ContractorsPanel({
   const emailRef = useRef<HTMLInputElement>(null);
   const phoneRef = useRef<HTMLInputElement>(null);
   const rateRef = useRef<HTMLInputElement>(null);
+  const preferredNameRef = useRef<HTMLInputElement>(null);
+  const startDateRef = useRef<HTMLInputElement>(null);
+  const statusRef = useRef<HTMLSelectElement>(null);
+  const gstNumberRef = useRef<HTMLInputElement>(null);
+  const notesRef = useRef<HTMLTextAreaElement>(null);
+  const emergencyNameRef = useRef<HTMLInputElement>(null);
+  const emergencyPhoneRef = useRef<HTMLInputElement>(null);
   const saveGuard = useRef(createContractorSaveGuard()).current;
   const restoreGuard = useRef(createContractorSaveGuard()).current;
   const loadGeneration = useRef(0);
   const includeArchivedRef = useRef(includeArchived);
   includeArchivedRef.current = includeArchived;
 
-  const fieldRefs: Record<ContractorField, { current: HTMLInputElement | null }> = {
+  const fieldRefs: Record<ContractorField, { readonly current: { focus: () => void } | null }> = {
     name: nameRef,
     email: emailRef,
     phone: phoneRef,
     defaultRateCents: rateRef,
+    preferredName: preferredNameRef,
+    startDate: startDateRef,
+    engagementStatus: statusRef,
+    gstRegistered: gstNumberRef,
+    gstNumber: gstNumberRef,
+    internalNotes: notesRef,
+    emergencyContactName: emergencyNameRef,
+    emergencyContactPhone: emergencyPhoneRef,
   };
 
   const loadList = useCallback(async () => {
@@ -269,6 +296,13 @@ export function ContractorsPanel({
       emailRef={emailRef}
       phoneRef={phoneRef}
       rateRef={rateRef}
+      preferredNameRef={preferredNameRef}
+      startDateRef={startDateRef}
+      statusRef={statusRef}
+      gstNumberRef={gstNumberRef}
+      notesRef={notesRef}
+      emergencyNameRef={emergencyNameRef}
+      emergencyPhoneRef={emergencyPhoneRef}
       onChange={setDraft}
       onClose={closeForm}
       onSubmit={submitForm}
@@ -290,15 +324,25 @@ function ContractorRow({
   onArchive: () => void;
   onRestore: () => void;
 }) {
-  return <div className="compact-row contractor-row">
+  return <div className="compact-row contractor-row" data-engagement-status={contractor.engagementStatus}>
     <div>
       <strong>{contractor.name}</strong>
+      {contractor.preferredName.trim() ? <small>Preferred name: {contractor.preferredName}</small> : null}
       <small>{contractorContactLabel(contractor)}</small>
-      <small>{formatNzd(contractor.defaultRateCents)}/hr · {contractor.currency} · {contractorStatusLabel(contractor.active)}</small>
+      <small>{formatNzd(contractor.defaultRateCents)}/hr · {contractor.currency} · {contractorStatusLabel(contractor.engagementStatus)}</small>
+      {contractor.startDate ? <small>Start date {contractor.startDate}</small> : null}
+      {contractor.gstRegistered ? <small>{contractor.gstNumber ? `GST ${contractor.gstNumber}` : "GST registered"}</small> : null}
+      {contractor.emergencyContactName.trim() || contractor.emergencyContactPhone.trim()
+        ? <small>Emergency: {[contractor.emergencyContactName.trim(), contractor.emergencyContactPhone.trim()].filter(Boolean).join(" · ")}</small>
+        : null}
+      {contractor.internalNotes.trim() ? <details>
+        <summary>Internal notes</summary>
+        <small className="contractor-notes">{contractor.internalNotes}</small>
+      </details> : null}
     </div>
     <div className="contractor-row-actions">
       <button type="button" className="button small secondary" onClick={onEdit} aria-label={`Edit ${contractor.name}`}>Edit</button>
-      {contractor.active
+      {contractorShowsArchive(contractor.engagementStatus)
         ? <button type="button" className="button small secondary" onClick={onArchive} disabled={busy} aria-label={`Archive ${contractor.name}`}>Archive</button>
         : <button type="button" className="button small secondary" onClick={onRestore} disabled={busy} aria-label={`Restore ${contractor.name}`}>Restore</button>}
     </div>
@@ -316,6 +360,13 @@ function ContractorFormDialog({
   emailRef,
   phoneRef,
   rateRef,
+  preferredNameRef,
+  startDateRef,
+  statusRef,
+  gstNumberRef,
+  notesRef,
+  emergencyNameRef,
+  emergencyPhoneRef,
   onChange,
   onClose,
   onSubmit,
@@ -330,6 +381,13 @@ function ContractorFormDialog({
   emailRef: RefObject<HTMLInputElement | null>;
   phoneRef: RefObject<HTMLInputElement | null>;
   rateRef: RefObject<HTMLInputElement | null>;
+  preferredNameRef: RefObject<HTMLInputElement | null>;
+  startDateRef: RefObject<HTMLInputElement | null>;
+  statusRef: RefObject<HTMLSelectElement | null>;
+  gstNumberRef: RefObject<HTMLInputElement | null>;
+  notesRef: RefObject<HTMLTextAreaElement | null>;
+  emergencyNameRef: RefObject<HTMLInputElement | null>;
+  emergencyPhoneRef: RefObject<HTMLInputElement | null>;
   onChange: (draft: ContractorFormDraft) => void;
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -355,7 +413,7 @@ function ContractorFormDialog({
     onCancel={(event) => { event.preventDefault(); onClose(); }}
     onClick={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}
   >
-    {open ? <form className="mini-form contractor-form" noValidate onSubmit={onSubmit}>
+    {open ? <form className="mini-form contractor-form" data-feature="contractor-engagement" noValidate onSubmit={onSubmit}>
       <div className="modal-title">
         <div>
           <p className="eyebrow">Team</p>
@@ -416,6 +474,99 @@ function ContractorFormDialog({
         />
       </label>
       {fieldErrors.defaultRateCents ? <p className="field-error" id={FIELD_ERROR_IDS.defaultRateCents} role="alert">{fieldErrors.defaultRateCents}</p> : null}
+      <label>Preferred name <small>Optional</small>
+        <input
+          ref={preferredNameRef}
+          maxLength={100}
+          value={draft.preferredName}
+          aria-invalid={Boolean(fieldErrors.preferredName)}
+          aria-describedby={describedBy("preferredName")}
+          onChange={(event) => onChange({ ...draft, preferredName: event.target.value })}
+        />
+      </label>
+      {fieldErrors.preferredName ? <p className="field-error" id={FIELD_ERROR_IDS.preferredName} role="alert">{fieldErrors.preferredName}</p> : null}
+      <label>Start date <small>Optional</small>
+        <input
+          ref={startDateRef}
+          type="date"
+          value={draft.startDate}
+          aria-invalid={Boolean(fieldErrors.startDate)}
+          aria-describedby={describedBy("startDate")}
+          onChange={(event) => onChange({ ...draft, startDate: event.target.value })}
+        />
+      </label>
+      {fieldErrors.startDate ? <p className="field-error" id={FIELD_ERROR_IDS.startDate} role="alert">{fieldErrors.startDate}</p> : null}
+      <label>Engagement status
+        <select
+          ref={statusRef}
+          value={draft.engagementStatus}
+          aria-invalid={Boolean(fieldErrors.engagementStatus)}
+          aria-describedby={fieldErrors.engagementStatus ? FIELD_ERROR_IDS.engagementStatus : "contractor-status-help"}
+          onChange={(event) => {
+            const engagementStatus = event.target.value;
+            if (!isEngagementStatus(engagementStatus)) return;
+            onChange({ ...draft, engagementStatus });
+          }}
+        >
+          {ENGAGEMENT_STATUSES.map((status) => <option key={status} value={status}>{ENGAGEMENT_STATUS_LABELS[status]}</option>)}
+        </select>
+      </label>
+      <p className="field-help" id="contractor-status-help">Draft, suspended, and archived contractors cannot be added to new shifts. Choosing Archived also removes them from assignment lists. Invited and Active can be scheduled.</p>
+      {fieldErrors.engagementStatus ? <p className="field-error" id={FIELD_ERROR_IDS.engagementStatus} role="alert">{fieldErrors.engagementStatus}</p> : null}
+      <label className="archived-toggle contractor-gst-toggle">
+        <input
+          type="checkbox"
+          checked={draft.gstRegistered}
+          onChange={(event) => onChange({ ...draft, gstRegistered: event.target.checked })}
+        />
+        GST registered
+      </label>
+      <label>GST number <small>Optional, 8 or 9 digits</small>
+        <input
+          ref={gstNumberRef}
+          inputMode="numeric"
+          maxLength={9}
+          value={draft.gstNumber}
+          aria-invalid={Boolean(fieldErrors.gstNumber)}
+          aria-describedby={describedBy("gstNumber")}
+          onChange={(event) => onChange({ ...draft, gstNumber: event.target.value })}
+        />
+      </label>
+      {fieldErrors.gstNumber ? <p className="field-error" id={FIELD_ERROR_IDS.gstNumber} role="alert">{fieldErrors.gstNumber}</p> : null}
+      <label>Internal notes <small>Optional, owner only</small>
+        <textarea
+          ref={notesRef}
+          maxLength={2000}
+          rows={3}
+          value={draft.internalNotes}
+          aria-invalid={Boolean(fieldErrors.internalNotes)}
+          aria-describedby={describedBy("internalNotes")}
+          onChange={(event) => onChange({ ...draft, internalNotes: event.target.value })}
+        />
+      </label>
+      {fieldErrors.internalNotes ? <p className="field-error" id={FIELD_ERROR_IDS.internalNotes} role="alert">{fieldErrors.internalNotes}</p> : null}
+      <label>Emergency contact name <small>Optional</small>
+        <input
+          ref={emergencyNameRef}
+          maxLength={100}
+          value={draft.emergencyContactName}
+          aria-invalid={Boolean(fieldErrors.emergencyContactName)}
+          aria-describedby={describedBy("emergencyContactName")}
+          onChange={(event) => onChange({ ...draft, emergencyContactName: event.target.value })}
+        />
+      </label>
+      {fieldErrors.emergencyContactName ? <p className="field-error" id={FIELD_ERROR_IDS.emergencyContactName} role="alert">{fieldErrors.emergencyContactName}</p> : null}
+      <label>Emergency contact phone <small>Optional</small>
+        <input
+          ref={emergencyPhoneRef}
+          maxLength={40}
+          value={draft.emergencyContactPhone}
+          aria-invalid={Boolean(fieldErrors.emergencyContactPhone)}
+          aria-describedby={describedBy("emergencyContactPhone")}
+          onChange={(event) => onChange({ ...draft, emergencyContactPhone: event.target.value })}
+        />
+      </label>
+      {fieldErrors.emergencyContactPhone ? <p className="field-error" id={FIELD_ERROR_IDS.emergencyContactPhone} role="alert">{fieldErrors.emergencyContactPhone}</p> : null}
       <div className="form-actions">
         <button type="button" className="button secondary" onClick={onClose} disabled={busy}>Cancel</button>
         <button className="button" disabled={busy} aria-busy={busy}>{busy ? "Saving…" : mode === "edit" ? "Save changes" : "Save contractor"}</button>

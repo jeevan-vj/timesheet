@@ -2,7 +2,7 @@
 
 ## Data boundary
 
-Contractor identity, contact details, rates, hours, notes, and pay totals are confidential business data.
+Contractor identity, contact details, engagement notes, GST numbers, emergency contacts, rates, hours, notes, and pay totals are confidential business data.
 
 Non-negotiable rules:
 

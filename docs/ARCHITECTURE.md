@@ -38,26 +38,30 @@ An owner inspects one recorded shift with GET `/api/time-entries/:id`, which ret
 
 ## Contractor lifecycle
 
-A contractor row stays in place for the owner's history. Archive sets `active=false` on all of that owner's assignments for the contractor, then on the contractor row. Restore is the inverse on the same row (contractor first, then assignments) and never inserts a new contractor. Both writes are issued in one Drizzle D1 `batch` so they share a single round trip. D1 batch is not rollback-atomic; retry remains safe because the operations are idempotent. Both never write `time_entry`.
+A contractor row stays in place for the owner's history. Archive sets `engagement_status='archived'` and `active=false` on the contractor, and sets `active=false` on all of that owner's assignments for the contractor. Restore sets `engagement_status='active'` and `active=true` on the same contractor row first, then reactivates those assignments. Neither inserts a new contractor. Both writes are issued in one Drizzle D1 `batch` so they share a single round trip. D1 batch is not rollback-atomic; retry remains safe because the operations are idempotent. Both never write `time_entry`.
+
+`engagement_status` is the lifecycle source of truth: `draft`, `invited`, `active`, `suspended`, or `archived`. `active` is true only for `invited` and `active`, which is what assignment, schedule, and dashboard selects already require. `draft`, `suspended`, and `archived` therefore cannot be newly assigned. Saving `archived` deactivates assignments; saving `invited` or `active` from `archived` reactivates them; saving `draft` or `suspended` does not change assignments. Migration `0006_contractor_engagement.sql` backfills `active` rows to `active` and inactive rows to `archived`, then triggers reject an unknown status or an `active` flag that disagrees. The migration does not rewrite `time_entry`. Portal access is allowed only for `invited` and `active` (`contractorMayHoldPortalAccess`). No portal route enforces that yet.
 
 The unique index `contractor_owner_name_uq` on `(owner_user_id, name)` includes archived rows. A same-owner create or rename that collides, including with an archived name, returns `409 { error: "duplicate_contractor" }`. Different owners may share names. Cross-owner get, update, archive, and restore return identical `404 { error: "not_found" }` with no writes.
 
-`GET /api/dashboard` contractor and site selects remain active-only. The assignment query returns only active assignments whose contractor and site are also `active=true`. Time-entry joins still load contractors and sites without an active filter so historical weeks keep names and snapshotted pay. Creating an assignment or time entry still requires an active contractor and site; an archived contractor or site is `not_found`.
+`GET /api/dashboard` contractor and site selects remain limited to `active=true` rows, which for contractors means engagement status `invited` or `active`. The assignment query returns only active assignments whose contractor and site are also `active=true`. Time-entry joins still load contractors and sites without an active filter so historical weeks keep names and snapshotted pay. Creating an assignment or time entry still requires an active contractor and site; a draft, suspended, or archived contractor is `not_found`.
 
 ### Contractor HTTP contract
 
 `ContractorResource` omits `ownerUserId` and serializes timestamps as JSON dates:
 
-`{ id, name, email, phone, defaultRateCents, currency: "NZD", active, createdAt, updatedAt }`
+`{ id, name, email, phone, defaultRateCents, currency: "NZD", active, preferredName, startDate, engagementStatus, gstRegistered, gstNumber, internalNotes, emergencyContactName, emergencyContactPhone, createdAt, updatedAt }`
+
+`active` is derived from `engagementStatus` and is still returned. Omitted engagement fields on PATCH are left unchanged. Omitted engagement fields on POST default to an empty profile, `engagementStatus: "active"`, and `active: true`.
 
 | Method | Path | Cookie mutation | Success |
 | --- | --- | --- | --- |
-| GET | `/api/contractors` | no | `200 { contractors: ContractorResource[] }` name asc; `includeArchived` omit/false/0 = active only, true/1 = active+archived |
+| GET | `/api/contractors` | no | `200 { contractors: ContractorResource[] }` name asc; `includeArchived` omit/false/0 = every status except `archived`, true/1 = all statuses |
 | POST | `/api/contractors` | yes | `201 ContractorResource` |
 | GET | `/api/contractors/[id]` | no | `200 ContractorResource` (archived readable by owner) |
 | PATCH | `/api/contractors/[id]` | yes | `200 ContractorResource` |
-| POST | `/api/contractors/[id]/archive` | yes | `200 ContractorResource` `active: false` |
-| POST | `/api/contractors/[id]/restore` | yes | `200 ContractorResource` `active: true` |
+| POST | `/api/contractors/[id]/archive` | yes | `200 ContractorResource` `active: false`, `engagementStatus: "archived"` |
+| POST | `/api/contractors/[id]/restore` | yes | `200 ContractorResource` `active: true`, `engagementStatus: "active"` |
 | GET | `/api/contractors/[id]/remittance` | no | `200` PDF (`?week=YYYY-MM-DD` Monday) |
 
 There is no DELETE on contractors. Cookie-authenticated mutations use `authorize(request, true)`. Errors: `401 unauthorized`, `403 forbidden`, `404 not_found`, `409 duplicate_contractor`, `413 payload_too_large`, `400 invalid_request` (optional `fields` on create/patch Zod failures only), `500 internal_error` (correlation id) for unexpected failures.

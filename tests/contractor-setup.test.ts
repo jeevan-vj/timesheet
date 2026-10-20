@@ -27,6 +27,14 @@ const aroha = {
   defaultRateCents: 3_200,
   currency: "NZD" as const,
   active: true,
+  preferredName: "",
+  startDate: null,
+  engagementStatus: "active" as const,
+  gstRegistered: false,
+  gstNumber: "",
+  internalNotes: "",
+  emergencyContactName: "",
+  emergencyContactPhone: "",
   createdAt: "2026-08-31T00:00:00.000Z",
   updatedAt: "2026-08-31T00:00:00.000Z",
 };
@@ -39,6 +47,15 @@ const archivedSam = {
   phone: "",
   defaultRateCents: 2_800,
   active: false,
+  engagementStatus: "archived" as const,
+};
+
+const suspendedMoana = {
+  ...aroha,
+  id: "c3",
+  name: "Moana",
+  active: false,
+  engagementStatus: "suspended" as const,
 };
 
 const target = { id: "c1", name: "Aroha" };
@@ -109,9 +126,9 @@ describe("contractor restore request", () => {
 });
 
 describe("contractor list helper", () => {
-  it("shows active-only by default and includes archived when requested", () => {
-    expect(visibleContractors([aroha, archivedSam], false).map((row) => row.id)).toEqual(["c1"]);
-    expect(visibleContractors([aroha, archivedSam], true).map((row) => row.id)).toEqual(["c1", "c2"]);
+  it("shows every status except archived by default", () => {
+    expect(visibleContractors([aroha, archivedSam, suspendedMoana], false).map((row) => row.id)).toEqual(["c1", "c3"]);
+    expect(visibleContractors([aroha, archivedSam, suspendedMoana], true).map((row) => row.id)).toEqual(["c1", "c2", "c3"]);
   });
 
   it("requests includeArchived only when the toggle is on", () => {
@@ -138,6 +155,14 @@ describe("contractor form payload", () => {
         email: "a@example.test",
         phone: "021000000",
         defaultRateCents: 3_250,
+        preferredName: "",
+        startDate: null,
+        engagementStatus: "active",
+        gstRegistered: false,
+        gstNumber: "",
+        internalNotes: "",
+        emergencyContactName: "",
+        emergencyContactPhone: "",
       },
     });
     if (result.ok) {
@@ -171,6 +196,42 @@ describe("contractor form payload", () => {
     }
     expect(rateDollarsFromCents(3_200)).toBe("32.00");
     expect(rateDollarsFromCents(3_250)).toBe("32.50");
+  });
+
+  it("accepts engagement details and rejects an invalid GST number or start date", () => {
+    const saved = contractorFormPayload({
+      ...emptyContractorForm(),
+      name: "Aroha",
+      preferredName: " Ro ",
+      startDate: "2026-08-03",
+      engagementStatus: "suspended",
+      gstRegistered: true,
+      gstNumber: "123456789",
+      internalNotes: "  Key holder  ",
+      emergencyContactName: " Sam ",
+      emergencyContactPhone: " 021111111 ",
+    });
+    expect(saved).toMatchObject({
+      ok: true,
+      payload: {
+        preferredName: "Ro",
+        startDate: "2026-08-03",
+        engagementStatus: "suspended",
+        gstRegistered: true,
+        gstNumber: "123456789",
+        internalNotes: "Key holder",
+        emergencyContactName: "Sam",
+        emergencyContactPhone: "021111111",
+      },
+    });
+
+    const badGst = contractorFormPayload({ ...emptyContractorForm(), name: "Aroha", gstNumber: "12-345" });
+    expect(badGst.ok).toBe(false);
+    if (!badGst.ok) expect(badGst.fields.gstNumber).toMatch(/8 or 9 digits/);
+
+    const badDate = contractorFormPayload({ ...emptyContractorForm(), name: "Aroha", startDate: "2026-02-31" });
+    expect(badDate.ok).toBe(false);
+    if (!badDate.ok) expect(badDate.fields.startDate).toBeDefined();
   });
 });
 

@@ -1,15 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
 import { drizzle } from "drizzle-orm/sql-js";
-import { eq } from "drizzle-orm";
 import initSqlJs, { type Database as SqlJsDatabase } from "sql.js";
 import { describe, expect, it } from "vitest";
-import { contractors, timeEntries } from "../src/db/schema";
+import { timeEntries } from "../src/db/schema";
 import { calculateEntryPayCents } from "../src/lib/payroll";
 import { clockFieldsForWrite } from "../src/lib/time-entry-write";
 import { getContractorWeekRemittance } from "../src/services/remittance";
 import { createSite, getSite, listSites, updateSite } from "../src/services/sites";
 import {
+  archiveContractor,
   createAssignment,
   createContractor,
   createTimeEntry,
@@ -20,7 +20,7 @@ import {
   listContractors,
   updateContractor,
 } from "../src/services/timesheet";
-import { seedOwnerWorkspace } from "./owner-workspace";
+import { execContractorEngagementMigration, seedOwnerWorkspace } from "./owner-workspace";
 import { approveWeek } from "../src/services/week-approval";
 
 type RemittanceDb = Parameters<typeof getContractorWeekRemittance>[0];
@@ -35,6 +35,7 @@ async function openMemoryDb() {
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0002_week_approval.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0003_recurring_schedules.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0004_business_workspace.sql"), "utf8"));
+  execContractorEngagementMigration(sqlite);
   const database = drizzle(sqlite) as unknown as RemittanceDb;
   return { sqlite, database };
 }
@@ -139,7 +140,7 @@ describe("contractor week remittance query", () => {
       paidMinutes: 90,
       notes: "before archive",
     });
-    await database.update(contractors).set({ active: false }).where(eq(contractors.id, owner.contractor.id));
+    await archiveContractor(database, "owner-a", owner.contractor.id);
 
     const remittance = await getContractorWeekRemittance(database, "owner-a", owner.contractor.id, weekStart);
     expect(remittance.contractor.id).toBe(owner.contractor.id);

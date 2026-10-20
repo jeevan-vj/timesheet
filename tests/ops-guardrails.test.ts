@@ -7,7 +7,7 @@ import { opsBearerAuthorized, timingSafeEqual } from "../src/lib/ops-auth";
 import { planOpsSql, sqlJsRunner, type SqlValue } from "../src/lib/ops-sql";
 import { summarizeWeek, weekPayrollTotals } from "../src/lib/payroll";
 import { summarizeWeekBySite } from "../src/lib/week-rollup";
-import { seedOwnerWorkspace } from "./owner-workspace";
+import { execContractorEngagementMigration, seedOwnerWorkspace } from "./owner-workspace";
 import { createAssignment, createContractor, createSite, createTimeEntry } from "../src/services/timesheet";
 import { approveWeek } from "../src/services/week-approval";
 import {
@@ -37,6 +37,7 @@ async function openMemoryDb() {
   const SQL = await initSqlJs();
   const sqlite = new SQL.Database();
   for (const file of MIGRATIONS) sqlite.exec(fs.readFileSync(path.resolve(file), "utf8"));
+  execContractorEngagementMigration(sqlite);
   const database = drizzle(sqlite) as unknown as Parameters<typeof opsCreateContractor>[0];
   return { sqlite, database, runner: sqlJsRunner(sqlite) };
 }

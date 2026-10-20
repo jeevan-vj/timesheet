@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { assignmentScheduleVersions, timeEntries } from "../src/db/schema";
 import { calculateEntryPayCents, summarizeWeek } from "../src/lib/payroll";
 import { createSite } from "../src/services/sites";
-import { seedOwnerWorkspace } from "./owner-workspace";
+import { execContractorEngagementMigration, seedOwnerWorkspace } from "./owner-workspace";
 import {
   applyOccurrenceException,
   applyScheduleToWeek,
@@ -54,6 +54,7 @@ async function openMemoryDb() {
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0002_week_approval.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0003_recurring_schedules.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0004_business_workspace.sql"), "utf8"));
+  execContractorEngagementMigration(sqlite);
   const database = drizzle(sqlite) as unknown as TimesheetDb;
   return { sqlite, database };
 }

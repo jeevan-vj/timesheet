@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ENGAGEMENT_STATUSES } from "@/lib/contractor-lifecycle";
 import { isIsoDate, isMonday } from "@/lib/payroll";
 
 const trimmed = (max: number) => z.string().trim().min(1).max(max);
@@ -23,11 +24,27 @@ export const businessInput = z.object({
   weekStart: z.literal("monday"),
 });
 
+const optionalText = (max: number) => z.string().trim().max(max).optional();
+const gstNumberInput = z.union([z.literal(""), z.string().trim().regex(/^\d{8,9}$/)]).optional();
+const startDateInput = z.union([
+  z.literal("").transform(() => null),
+  z.string().refine(isIsoDate, "Invalid start date"),
+  z.null(),
+]).optional();
+
 export const contractorInput = z.object({
   name: trimmed(100),
   email: z.union([z.literal(""), z.email().max(254)]).default(""),
   phone: optionalTrimmed(40),
   defaultRateCents: rateCents,
+  preferredName: optionalText(100),
+  startDate: startDateInput,
+  engagementStatus: z.enum(ENGAGEMENT_STATUSES).optional(),
+  gstRegistered: z.boolean().optional(),
+  gstNumber: gstNumberInput,
+  internalNotes: optionalText(2000),
+  emergencyContactName: optionalText(100),
+  emergencyContactPhone: optionalText(40),
 });
 
 const contractorFieldMessages: Record<string, string> = {
@@ -35,6 +52,14 @@ const contractorFieldMessages: Record<string, string> = {
   email: "Enter a valid email or leave it blank.",
   phone: "Phone must be at most 40 characters.",
   defaultRateCents: "Default hourly rate must be a whole number of cents between 1500 and 25000 (NZ$15–NZ$250).",
+  preferredName: "Preferred name must be at most 100 characters.",
+  startDate: "Start date must be a real date (YYYY-MM-DD), or blank.",
+  engagementStatus: "Engagement status must be draft, invited, active, suspended, or archived.",
+  gstRegistered: "GST registered must be yes or no.",
+  gstNumber: "GST number must be 8 or 9 digits, or blank.",
+  internalNotes: "Internal notes must be at most 2000 characters.",
+  emergencyContactName: "Emergency contact name must be at most 100 characters.",
+  emergencyContactPhone: "Emergency contact phone must be at most 40 characters.",
 };
 
 export function invalidRequestFromZod(error: { issues: ReadonlyArray<{ path: readonly PropertyKey[] }> }): {
