@@ -521,11 +521,11 @@ function ContractorFormDialog({
         />
         GST registered
       </label>
-      <label>GST number <small>Optional, 8 or 9 digits</small>
+      <label>GST number <small>Optional. 8 or 9 digits; spaces and hyphens are removed</small>
         <input
           ref={gstNumberRef}
           inputMode="numeric"
-          maxLength={9}
+          maxLength={20}
           value={draft.gstNumber}
           aria-invalid={Boolean(fieldErrors.gstNumber)}
           aria-describedby={describedBy("gstNumber")}

@@ -15,7 +15,6 @@ import {
 } from "@/lib/assignment";
 import {
   contractorUpdateWriteSet,
-  contractorVisibleInList,
   engagementAssignmentEffect,
   engagementColumnsForCreate,
   mapContractorWriteError,
@@ -199,11 +198,14 @@ export async function createContractor(database: Database, ownerUserId: string, 
 export async function listContractors(database: Database, ownerUserId: string, includeArchived: boolean) {
   const businessId = await ownerBusinessIdOrNull(database, ownerUserId);
   if (!businessId) return [];
-  const rows = await database.select().from(contractors).where(and(
+  const scope = and(
     eq(contractors.ownerUserId, ownerUserId),
     eq(contractors.businessId, businessId),
-  )).orderBy(asc(contractors.name));
-  return rows.filter((row) => contractorVisibleInList(row, includeArchived)).map(toContractorResource);
+  );
+  const rows = await database.select().from(contractors).where(
+    includeArchived ? scope : and(scope, ne(contractors.engagementStatus, "archived")),
+  ).orderBy(asc(contractors.name));
+  return rows.map(toContractorResource);
 }
 
 export async function getContractor(database: Database, ownerUserId: string, contractorId: string) {

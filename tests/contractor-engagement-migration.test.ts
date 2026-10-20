@@ -109,7 +109,7 @@ describe("contractor engagement migration", () => {
     expect(query(sqlite, "SELECT rate_cents FROM time_entry WHERE id = 'entry-a'")).toEqual([[3_200]]);
   });
 
-  it("rejects an unknown status and an active flag that disagrees with the status", async () => {
+  it("rejects an unknown or mismatched status and aligns an active-only update", async () => {
     const sqlite = await openSql();
     applyPrior(sqlite);
     seedOwnerWorkspace(sqlite, "owner-a");
@@ -132,9 +132,15 @@ describe("contractor engagement migration", () => {
         id, owner_user_id, business_id, created_at, updated_at, name, email, phone, default_rate_cents, currency, active, engagement_status
       ) VALUES ('drafted', 'owner-a', 'biz_owner-a', 1700000000, 1700000000, 'Drafted', '', '', 3000, 'NZD', 0, 'draft')`,
     );
-    expect(() => sqlite.run("UPDATE contractor SET active = 1 WHERE id = 'drafted'")).toThrow(/engagement_active_mismatch/);
-    sqlite.run("UPDATE contractor SET engagement_status = 'active', active = 1 WHERE id = 'drafted'");
+    sqlite.run("UPDATE contractor SET active = 1 WHERE id = 'drafted'");
     expect(query(sqlite, "SELECT engagement_status, active FROM contractor WHERE id = 'drafted'")).toEqual([["active", 1]]);
+    expect(() => sqlite.run("UPDATE contractor SET engagement_status = 'suspended' WHERE id = 'drafted'")).toThrow(/engagement_active_mismatch/);
+    sqlite.run("UPDATE contractor SET engagement_status = 'suspended', active = 0 WHERE id = 'drafted'");
+    expect(query(sqlite, "SELECT engagement_status, active FROM contractor WHERE id = 'drafted'")).toEqual([["suspended", 0]]);
+    sqlite.run("UPDATE contractor SET active = 1 WHERE id = 'drafted'");
+    expect(query(sqlite, "SELECT engagement_status, active FROM contractor WHERE id = 'drafted'")).toEqual([["active", 1]]);
+    sqlite.run("UPDATE contractor SET active = 0 WHERE id = 'drafted'");
+    expect(query(sqlite, "SELECT engagement_status, active FROM contractor WHERE id = 'drafted'")).toEqual([["archived", 0]]);
   });
 
   it("leaves migrations 0000 through 0005 unchanged and declares the engagement columns", () => {

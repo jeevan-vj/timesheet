@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ENGAGEMENT_STATUSES } from "@/lib/contractor-lifecycle";
+import { ENGAGEMENT_STATUSES, gstNumberDigits } from "@/lib/contractor-lifecycle";
 import { isIsoDate, isMonday } from "@/lib/payroll";
 
 const trimmed = (max: number) => z.string().trim().min(1).max(max);
@@ -25,7 +25,9 @@ export const businessInput = z.object({
 });
 
 const optionalText = (max: number) => z.string().trim().max(max).optional();
-const gstNumberInput = z.union([z.literal(""), z.string().trim().regex(/^\d{8,9}$/)]).optional();
+const gstNumberInput = z.string().trim().max(20).transform(gstNumberDigits).pipe(
+  z.union([z.literal(""), z.string().regex(/^\d{8,9}$/)]),
+).optional();
 const startDateInput = z.union([
   z.literal("").transform(() => null),
   z.string().refine(isIsoDate, "Invalid start date"),

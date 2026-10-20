@@ -206,7 +206,7 @@ describe("contractor form payload", () => {
       startDate: "2026-08-03",
       engagementStatus: "suspended",
       gstRegistered: true,
-      gstNumber: "123456789",
+      gstNumber: "123 456 789",
       internalNotes: "  Key holder  ",
       emergencyContactName: " Sam ",
       emergencyContactPhone: " 021111111 ",

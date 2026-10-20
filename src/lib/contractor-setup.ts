@@ -1,5 +1,5 @@
 import type { EngagementStatus } from "@/lib/contractor-lifecycle";
-import { ENGAGEMENT_STATUSES, isEngagementStatus } from "@/lib/contractor-lifecycle";
+import { ENGAGEMENT_STATUSES, gstNumberDigits, isEngagementStatus } from "@/lib/contractor-lifecycle";
 import { isIsoDate } from "@/lib/payroll";
 import { parseRateDollars } from "@/lib/shift-entry";
 
@@ -298,7 +298,7 @@ export function contractorFormPayload(draft: ContractorFormDraft): ContractorFor
 
   if (!isEngagementStatus(draft.engagementStatus)) fields.engagementStatus = CONTRACTOR_FIELD_MESSAGES.engagementStatus;
 
-  const gstNumber = draft.gstNumber.trim();
+  const gstNumber = gstNumberDigits(draft.gstNumber);
   if (gstNumber && !/^\d{8,9}$/.test(gstNumber)) fields.gstNumber = CONTRACTOR_FIELD_MESSAGES.gstNumber;
 
   const internalNotes = draft.internalNotes.trim();

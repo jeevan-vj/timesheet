@@ -30,7 +30,19 @@ BEGIN
   SELECT CASE
     WHEN NEW.`engagement_status` NOT IN ('draft', 'invited', 'active', 'suspended', 'archived')
       THEN RAISE(ABORT, 'invalid_engagement_status')
-    WHEN (NEW.`engagement_status` IN ('invited', 'active')) != CASE WHEN NEW.`active` != 0 THEN 1 ELSE 0 END
+    WHEN NEW.`engagement_status` != OLD.`engagement_status`
+      AND (NEW.`engagement_status` IN ('invited', 'active')) != CASE WHEN NEW.`active` != 0 THEN 1 ELSE 0 END
       THEN RAISE(ABORT, 'engagement_active_mismatch')
   END;
+END;
+
+CREATE TRIGGER IF NOT EXISTS `contractor_engagement_align`
+AFTER UPDATE ON `contractor`
+FOR EACH ROW
+WHEN OLD.`engagement_status` = NEW.`engagement_status`
+  AND (NEW.`engagement_status` IN ('invited', 'active')) != CASE WHEN NEW.`active` != 0 THEN 1 ELSE 0 END
+BEGIN
+  UPDATE `contractor`
+  SET `engagement_status` = CASE WHEN NEW.`active` != 0 THEN 'active' ELSE 'archived' END
+  WHERE `id` = NEW.`id`;
 END;

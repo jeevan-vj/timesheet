@@ -262,6 +262,7 @@ function planUpdate(
   const table = identifier(tokens[1]);
   if (!table) return { ok: false, error: "invalid_sql" };
   if (table.toLowerCase() === "ops_audit") return { ok: false, error: "forbidden_sql" };
+  if (table.toLowerCase() === "contractor" && assignsContractorActive(tokens)) return { ok: false, error: "forbidden_sql" };
   if (tokens[2]?.type !== "word" || tokens[2].text.toUpperCase() !== "SET") return { ok: false, error: "invalid_sql" };
   if (bannedUpdateClause(tokens)) return { ok: false, error: "invalid_sql" };
   if (rootWord(tokens, "SET") !== 2) return { ok: false, error: "invalid_sql" };
@@ -294,6 +295,22 @@ function planUpdate(
       whereParamOffset,
     },
   };
+}
+
+function assignsContractorActive(tokens: Token[]): boolean {
+  let depth = 0;
+  let seenSet = false;
+  for (const [index, token] of tokens.entries()) {
+    if (token.type === "punct" && token.text === "(") depth += 1;
+    else if (token.type === "punct" && token.text === ")") depth -= 1;
+    else if (depth === 0 && token.type === "word" && token.text.toUpperCase() === "SET") seenSet = true;
+    else if (depth === 0 && seenSet && token.type === "word" && token.text.toUpperCase() === "WHERE") return false;
+    else if (depth === 0 && seenSet && token.type === "word" && token.text.toLowerCase() === "active") {
+      const next = tokens[index + 1];
+      if (next?.type === "punct" && next.text === "=") return true;
+    }
+  }
+  return false;
 }
 
 function bannedUpdateClause(tokens: Token[]): boolean {

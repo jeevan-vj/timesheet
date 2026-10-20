@@ -4,6 +4,7 @@ import { drizzle } from "drizzle-orm/sql-js";
 import initSqlJs, { type Database as SqlJsDatabase } from "sql.js";
 import { describe, expect, it } from "vitest";
 import { summarizeWeek } from "../src/lib/payroll";
+import { getContractorWeekRemittance } from "../src/services/remittance";
 import { createSite } from "../src/services/sites";
 import {
   archiveContractor,
@@ -11,6 +12,7 @@ import {
   createContractor,
   createTimeEntry,
   getContractor,
+  getDashboard,
   listContractors,
   restoreContractor,
   updateContractor,
@@ -193,5 +195,37 @@ describe("contractor engagement profile", () => {
     expect(archivedAgain).toMatchObject({ engagementStatus: "archived", active: false });
     expect(scalar(sqlite, "SELECT engagement_status FROM contractor WHERE id = ?", [working.id])).toBe("archived");
     expect(scalar(sqlite, "SELECT COUNT(*) FROM time_entry WHERE contractor_id = ?", [working.id])).toBe(1);
+  });
+
+  it("keeps notes, emergency contact, and GST number off dashboard and remittance payloads", async () => {
+    const { database, sqlite } = await openMemoryDb();
+    seedOwnerWorkspace(sqlite, "owner-a");
+    const site = await createSite(database, "owner-a", { name: "Harbour", address: "" });
+    const contractor = await createContractor(database, "owner-a", {
+      name: "Aroha",
+      email: "aroha@example.test",
+      phone: "021000000",
+      defaultRateCents: 3_200,
+      gstRegistered: true,
+      gstNumber: "123456789",
+      internalNotes: "Key holder",
+      emergencyContactName: "Sam",
+      emergencyContactPhone: "021111111",
+    });
+    await createAssignment(database, "owner-a", { contractorId: contractor.id, siteId: site.id, rateCents: null });
+    await createTimeEntry(database, "owner-a", {
+      entryMode: "paid_hours",
+      contractorId: contractor.id,
+      siteId: site.id,
+      workDate: "2026-08-31",
+      paidMinutes: 60,
+      notes: "",
+    });
+    const dashboard = await getDashboard(database, "owner-a", "2026-08-31");
+    const remittance = await getContractorWeekRemittance(database, "owner-a", contractor.id, "2026-08-31");
+    const encoded = JSON.stringify({ dashboard, remittance });
+    expect(encoded).not.toMatch(/Key holder|021111111|123456789|internalNotes|emergencyContact|gstNumber/);
+    expect(dashboard.contractors[0]).toMatchObject({ id: contractor.id, name: "Aroha" });
+    expect(remittance.contractor).toEqual({ id: contractor.id, name: "Aroha" });
   });
 });

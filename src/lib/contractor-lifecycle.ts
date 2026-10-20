@@ -16,6 +16,10 @@ export function activeForEngagementStatus(status: EngagementStatus): boolean {
   return SCHEDULABLE_STATUSES.has(status);
 }
 
+export function gstNumberDigits(value: string): string {
+  return value.trim().replace(/[\s-]/g, "");
+}
+
 export function contractorMayHoldPortalAccess(status: EngagementStatus): boolean {
   return PORTAL_ACCESS_STATUSES.has(status);
 }
@@ -70,10 +74,29 @@ export function archiveWritePlan(ownerUserId: string, contractorId: string): Lif
 }
 
 export function restoreWritePlan(ownerUserId: string, contractorId: string): LifecycleWrite[] {
-  return [
-    { table: "contractor", action: "update", set: { active: true, engagementStatus: "active" }, where: { ownerUserId, id: contractorId } },
-    { table: "assignment", action: "update", set: { active: true }, where: { ownerUserId, contractorId } },
-  ];
+  return engagementStatusWritePlan(ownerUserId, contractorId, "active");
+}
+
+export function engagementStatusWritePlan(ownerUserId: string, contractorId: string, status: EngagementStatus): LifecycleWrite[] {
+  const contractorStep: LifecycleWrite = {
+    table: "contractor",
+    action: "update",
+    set: { active: activeForEngagementStatus(status), engagementStatus: status },
+    where: { ownerUserId, id: contractorId },
+  };
+  if (status === "archived") {
+    return [
+      { table: "assignment", action: "update", set: { active: false }, where: { ownerUserId, contractorId } },
+      contractorStep,
+    ];
+  }
+  if (activeForEngagementStatus(status)) {
+    return [
+      contractorStep,
+      { table: "assignment", action: "update", set: { active: true }, where: { ownerUserId, contractorId } },
+    ];
+  }
+  return [contractorStep];
 }
 
 export function requireOwnedContractor<T>(row: T | undefined | null): T {
