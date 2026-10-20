@@ -9,7 +9,7 @@ import { calculateEntryPayCents } from "../src/lib/payroll";
 import { businessIdForUser } from "../src/lib/business";
 import { findWeekApproval } from "../src/lib/week-approval-query";
 import { createSite } from "../src/services/sites";
-import { seedOwnerWorkspace } from "./owner-workspace";
+import { execContractorEngagementMigration, seedOwnerWorkspace } from "./owner-workspace";
 import {
   createAssignment,
   createContractor,
@@ -37,6 +37,7 @@ async function openMemoryDb() {
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0002_week_approval.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0003_recurring_schedules.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0004_business_workspace.sql"), "utf8"));
+  execContractorEngagementMigration(sqlite);
   const database = drizzle(sqlite) as unknown as TimesheetDb;
   return { sqlite, database };
 }

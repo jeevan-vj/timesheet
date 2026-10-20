@@ -20,7 +20,11 @@ Contractor identity/contact data, site locations, rates, work notes, time record
 | Duplicate site names collide inside an owner | Unique owner/name index; create, edit, and restore map unique failures to `duplicate_site` without writing |
 | Duplicate active assignment or extra rows for the same pair | Unique owner/contractor/site index; archived rows are reused instead of inserting duplicates; a second active create returns `duplicate_assignment` |
 | Rate changes rewrite prior payroll | Effective assignment/default rate is snapshotted on entry creation; contractor and assignment rate edits never rewrite `time_entry.rate_cents` |
-| Accidental contractor removal | Archive deactivates the contractor and assignments; no hard delete. Time entries use `ON DELETE RESTRICT`. Archive requires accessible confirmation naming the contractor; cancel or close does not call archive |
+| Accidental contractor removal | Archive deactivates the contractor and assignments and sets `engagement_status` to `archived`; no hard delete. Time entries use `ON DELETE RESTRICT`. Archive requires accessible confirmation naming the contractor; cancel or close does not call archive |
+| Cross-owner read or edit of engagement notes, GST number, or emergency contact | Same `404 { error: "not_found" }` with no writes. Those columns are read only with owner and business predicates. Responses omit `ownerUserId` and `businessId` |
+| Draft, suspended, or archived contractor is newly assigned | `active` is derived from `engagement_status`. A status change that disagrees with `active` aborts. An active-only write is aligned to `active` or `archived`. Assignment and time-entry creates still require `contractor.active` |
+| GST metadata changes historical pay | Payroll and remittance read snapshotted `time_entry` rows only. GST columns are not inputs to `calculateEntryPayCents` |
+| Suspended or archived contractor keeps portal access | `contractorMayHoldPortalAccess` is true only for `invited` and `active`. Portal routes are not in this change; a later slice must use that predicate |
 | Archive is mistaken for hard-delete | Archive sets `active = false` and deactivates that site's assignments; the site row and historical time entries remain |
 | Unassign deletes history | Unassign only sets `active=false`; time entries and snapshotted rates remain |
 | Duplicate daily entry inflates pay | Unique owner/contractor/site/date index, pre-insert owner-scoped lookup, pre-update lookup that excludes the current entry id, and a specific `duplicate_entry` error |

@@ -138,8 +138,12 @@ input[aria-invalid="true"],select[aria-invalid="true"] { border-color:#c45c45; }
 .contractor-empty { padding:28px 8px; }
 .contractor-empty p { margin-bottom:14px; }
 .add-contractor { display:block; width:100%; margin-top:5px; padding:14px 0 0; border:0; border-top:1px solid #edeee9; background:none; color:var(--green); font-weight:800; font-size:.8rem; text-align:left; cursor:pointer; }
-.contractor-form-dialog { width:min(460px,100%); }
+.contractor-form-dialog { width:min(520px,100%); max-height:min(92dvh,92vh); overflow:auto; }
 .contractor-form .form-actions { margin-top:6px; }
+.contractor-form .field-help { margin:0; color:var(--muted); font-size:.75rem; line-height:1.45; }
+.contractor-form textarea { min-height:72px; resize:vertical; }
+.contractor-gst-toggle { margin:4px 0 0; }
+.contractor-notes { white-space:pre-wrap; overflow-wrap:anywhere; }
 .row-actions { display:inline-flex; align-items:center; gap:8px; white-space:nowrap; }
 .row-actions .button.small { padding:6px 10px; box-shadow:none; }
 .summary-panel { position:sticky; top:15px; }.summary-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }.summary-heading h2 { margin:0; }.summary-copy { flex:none; margin-top:18px; }.summary-subhead { margin:8px 0 0; font-size:.95rem; }.site-summary { margin-top:18px; padding-top:8px; border-top:1px solid var(--line); }.summary-row { display:flex; justify-content:space-between; align-items:flex-start; gap:15px; padding:16px 0; border-bottom:1px solid #edeee9; }.summary-row div strong,.summary-row div small { display:block; }.summary-row small { color:var(--muted); margin-top:4px; font-size:.74rem; }.summary-row .button.small { margin-top:8px; padding:6px 10px; font-size:.78rem; box-shadow:none; }.summary-row b { flex:none; white-space:nowrap; }.summary-total { display:flex; justify-content:space-between; padding-top:22px; }.summary-total strong { font-size:1.35rem; font-weight:800; }.roomy { margin-top:32px; }
@@ -265,9 +269,9 @@ dialog.shift-sheet { width:min(520px,100%); max-height:min(100dvh,100vh); paddin
   summary { display:flex; align-items:center; }
   .weekday-toggle-row { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); }
   .weekday-toggle-row label { min-width:0; padding:8px 6px; }
-  dialog.schedule-editor-dialog,dialog.add-schedule-dialog { width:100vw; max-width:100vw; max-height:min(88dvh,88vh); margin:auto 0 0; border-radius:20px 20px 0 0; padding:max(22px,env(safe-area-inset-top)) max(20px,env(safe-area-inset-right)) max(22px,env(safe-area-inset-bottom)) max(20px,env(safe-area-inset-left)); }
-  .schedule-editor-dialog .form-actions,.add-schedule-dialog .form-actions { position:sticky; bottom:-22px; z-index:1; margin:20px -20px -22px; padding:12px max(20px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(20px,env(safe-area-inset-left)); background:#fff; border-top:1px solid var(--line); }
-  .schedule-editor-dialog .form-actions .button,.add-schedule-dialog .form-actions .button { flex:1; min-width:0; }
+  dialog.schedule-editor-dialog,dialog.add-schedule-dialog,dialog.contractor-form-dialog { width:100vw; max-width:100vw; max-height:min(88dvh,88vh); margin:auto 0 0; border-radius:20px 20px 0 0; padding:max(22px,env(safe-area-inset-top)) max(20px,env(safe-area-inset-right)) max(22px,env(safe-area-inset-bottom)) max(20px,env(safe-area-inset-left)); }
+  .schedule-editor-dialog .form-actions,.add-schedule-dialog .form-actions,.contractor-form-dialog .form-actions { position:sticky; bottom:-22px; z-index:1; margin:20px -20px -22px; padding:12px max(20px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(20px,env(safe-area-inset-left)); background:#fff; border-top:1px solid var(--line); }
+  .schedule-editor-dialog .form-actions .button,.add-schedule-dialog .form-actions .button,.contractor-form-dialog .form-actions .button { flex:1; min-width:0; }
   .onboarding-fixed { grid-template-columns:1fr; }
   .onboarding-guide .form-actions { flex-direction:column; align-items:stretch; }
   .onboarding-guide .form-actions .button,.onboarding-guide .onboarding-link { width:100%; }

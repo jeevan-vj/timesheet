@@ -4,6 +4,7 @@ import { drizzle } from "drizzle-orm/sql-js";
 import initSqlJs, { type Database as SqlJsDatabase } from "sql.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { businessIdForUser, membershipIdForUser } from "../src/lib/business";
+import { execContractorEngagementMigration } from "./owner-workspace";
 import { summarizeWeek, weekEnd } from "../src/lib/payroll";
 import { toDashboardApproval } from "../src/services/week-approval";
 
@@ -116,6 +117,7 @@ async function openMemoryDb() {
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0002_week_approval.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0003_recurring_schedules.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0004_business_workspace.sql"), "utf8"));
+  execContractorEngagementMigration(sqlite);
   handle.sqlite = sqlite;
   handle.database = drizzle(sqlite);
   return sqlite;

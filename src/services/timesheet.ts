@@ -15,6 +15,8 @@ import {
 } from "@/lib/assignment";
 import {
   contractorUpdateWriteSet,
+  engagementAssignmentEffect,
+  engagementColumnsForCreate,
   mapContractorWriteError,
   requireOwnedContractor,
   toContractorResource,
@@ -171,7 +173,20 @@ function assignmentRepo(database: Database, businessId: string): AssignmentRepos
 
 export async function createContractor(database: Database, ownerUserId: string, input: ContractorInput) {
   const businessId = await requireOwnerBusinessId(database, ownerUserId);
-  const row = { id: id(), ownerUserId, businessId, ...input, currency: "NZD" as const, active: true, createdAt: now(), updatedAt: now() };
+  const engagement = engagementColumnsForCreate(input);
+  const row = {
+    id: id(),
+    ownerUserId,
+    businessId,
+    name: input.name,
+    email: input.email,
+    phone: input.phone,
+    defaultRateCents: input.defaultRateCents,
+    currency: "NZD" as const,
+    ...engagement,
+    createdAt: now(),
+    updatedAt: now(),
+  };
   try {
     await database.insert(contractors).values(row);
   } catch (error) {
@@ -183,9 +198,13 @@ export async function createContractor(database: Database, ownerUserId: string, 
 export async function listContractors(database: Database, ownerUserId: string, includeArchived: boolean) {
   const businessId = await ownerBusinessIdOrNull(database, ownerUserId);
   if (!businessId) return [];
-  const rows = includeArchived
-    ? await database.select().from(contractors).where(and(eq(contractors.ownerUserId, ownerUserId), eq(contractors.businessId, businessId))).orderBy(asc(contractors.name))
-    : await database.select().from(contractors).where(and(eq(contractors.ownerUserId, ownerUserId), eq(contractors.businessId, businessId), eq(contractors.active, true))).orderBy(asc(contractors.name));
+  const scope = and(
+    eq(contractors.ownerUserId, ownerUserId),
+    eq(contractors.businessId, businessId),
+  );
+  const rows = await database.select().from(contractors).where(
+    includeArchived ? scope : and(scope, ne(contractors.engagementStatus, "archived")),
+  ).orderBy(asc(contractors.name));
   return rows.map(toContractorResource);
 }
 
@@ -202,19 +221,48 @@ export async function getContractor(database: Database, ownerUserId: string, con
 
 export async function updateContractor(database: Database, ownerUserId: string, contractorId: string, input: ContractorInput) {
   const businessId = await requireOwnerBusinessId(database, ownerUserId);
-  const [existing] = await database.select({ id: contractors.id }).from(contractors).where(and(
+  const [existing] = await database.select({
+    id: contractors.id,
+    engagementStatus: contractors.engagementStatus,
+  }).from(contractors).where(and(
     eq(contractors.id, contractorId),
     eq(contractors.ownerUserId, ownerUserId),
     eq(contractors.businessId, businessId),
   )).limit(1);
-  requireOwnedContractor(existing);
+  const current = requireOwnedContractor(existing);
+  const updatedAt = now();
+  const write = contractorUpdateWriteSet(input, updatedAt);
+  const effect = input.engagementStatus === undefined
+    ? "none"
+    : engagementAssignmentEffect(current.engagementStatus, input.engagementStatus);
+  const ownedContractor = and(
+    eq(contractors.id, contractorId),
+    eq(contractors.ownerUserId, ownerUserId),
+    eq(contractors.businessId, businessId),
+  );
+  const ownedAssignments = and(
+    eq(assignments.ownerUserId, ownerUserId),
+    eq(assignments.businessId, businessId),
+    eq(assignments.contractorId, contractorId),
+  );
   try {
-    const [updated] = await database.update(contractors).set(contractorUpdateWriteSet(input, now())).where(and(
-      eq(contractors.id, contractorId),
-      eq(contractors.ownerUserId, ownerUserId),
-      eq(contractors.businessId, businessId),
-    )).returning();
-    return toContractorResource(requireOwnedContractor(updated));
+    if (effect === "none") {
+      const [updated] = await database.update(contractors).set(write).where(ownedContractor).returning();
+      return toContractorResource(requireOwnedContractor(updated));
+    }
+    const assignmentActive = effect === "reactivate";
+    const assignmentWrite = database.update(assignments).set({ active: assignmentActive, updatedAt }).where(ownedAssignments);
+    const contractorWrite = database.update(contractors).set(write).where(ownedContractor).returning();
+    if (effect === "deactivate") {
+      const [, updatedRows] = typeof database.batch === "function"
+        ? await database.batch([assignmentWrite, contractorWrite])
+        : [await assignmentWrite, await contractorWrite];
+      return toContractorResource(requireOwnedContractor(updatedRows[0]));
+    }
+    const [updatedRows] = typeof database.batch === "function"
+      ? await database.batch([contractorWrite, assignmentWrite])
+      : [await contractorWrite, await assignmentWrite];
+    return toContractorResource(requireOwnedContractor(updatedRows[0]));
   } catch (error) {
     mapContractorWriteError(error);
   }
@@ -233,18 +281,19 @@ export async function archiveContractor(database: Database, ownerUserId: string,
   const businessId = await requireOwnerBusinessId(database, ownerUserId);
   const ownedId = await ownedContractorId(database, ownerUserId, businessId, contractorId);
   const updatedAt = now();
-  const [, updatedRows] = await database.batch([
-    database.update(assignments).set({ active: false, updatedAt }).where(and(
-      eq(assignments.ownerUserId, ownerUserId),
-      eq(assignments.businessId, businessId),
-      eq(assignments.contractorId, ownedId),
-    )),
-    database.update(contractors).set({ active: false, updatedAt }).where(and(
-      eq(contractors.id, ownedId),
-      eq(contractors.ownerUserId, ownerUserId),
-      eq(contractors.businessId, businessId),
-    )).returning(),
-  ]);
+  const assignmentWrite = database.update(assignments).set({ active: false, updatedAt }).where(and(
+    eq(assignments.ownerUserId, ownerUserId),
+    eq(assignments.businessId, businessId),
+    eq(assignments.contractorId, ownedId),
+  ));
+  const contractorWrite = database.update(contractors).set({ active: false, engagementStatus: "archived", updatedAt }).where(and(
+    eq(contractors.id, ownedId),
+    eq(contractors.ownerUserId, ownerUserId),
+    eq(contractors.businessId, businessId),
+  )).returning();
+  const [, updatedRows] = typeof database.batch === "function"
+    ? await database.batch([assignmentWrite, contractorWrite])
+    : [await assignmentWrite, await contractorWrite];
   return toContractorResource(requireOwnedContractor(updatedRows[0]));
 }
 
@@ -252,18 +301,19 @@ export async function restoreContractor(database: Database, ownerUserId: string,
   const businessId = await requireOwnerBusinessId(database, ownerUserId);
   const ownedId = await ownedContractorId(database, ownerUserId, businessId, contractorId);
   const updatedAt = now();
-  const [updatedRows] = await database.batch([
-    database.update(contractors).set({ active: true, updatedAt }).where(and(
-      eq(contractors.id, ownedId),
-      eq(contractors.ownerUserId, ownerUserId),
-      eq(contractors.businessId, businessId),
-    )).returning(),
-    database.update(assignments).set({ active: true, updatedAt }).where(and(
-      eq(assignments.ownerUserId, ownerUserId),
-      eq(assignments.businessId, businessId),
-      eq(assignments.contractorId, ownedId),
-    )),
-  ]);
+  const contractorWrite = database.update(contractors).set({ active: true, engagementStatus: "active", updatedAt }).where(and(
+    eq(contractors.id, ownedId),
+    eq(contractors.ownerUserId, ownerUserId),
+    eq(contractors.businessId, businessId),
+  )).returning();
+  const assignmentWrite = database.update(assignments).set({ active: true, updatedAt }).where(and(
+    eq(assignments.ownerUserId, ownerUserId),
+    eq(assignments.businessId, businessId),
+    eq(assignments.contractorId, ownedId),
+  ));
+  const [updatedRows] = typeof database.batch === "function"
+    ? await database.batch([contractorWrite, assignmentWrite])
+    : [await contractorWrite, await assignmentWrite];
   return toContractorResource(requireOwnedContractor(updatedRows[0]));
 }
 

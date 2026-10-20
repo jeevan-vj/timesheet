@@ -38,26 +38,30 @@ An owner inspects one recorded shift with GET `/api/time-entries/:id`, which ret
 
 ## Contractor lifecycle
 
-A contractor row stays in place for the owner's history. Archive sets `active=false` on all of that owner's assignments for the contractor, then on the contractor row. Restore is the inverse on the same row (contractor first, then assignments) and never inserts a new contractor. Both writes are issued in one Drizzle D1 `batch` so they share a single round trip. D1 batch is not rollback-atomic; retry remains safe because the operations are idempotent. Both never write `time_entry`.
+A contractor row stays in place for the owner's history. Archive sets `engagement_status='archived'` and `active=false` on the contractor, and sets `active=false` on all of that owner's assignments for the contractor. Restore sets `engagement_status='active'` and `active=true` on the same contractor row first, then reactivates those assignments. Neither inserts a new contractor. Both writes are issued in one Drizzle D1 `batch` so they share a single round trip. D1 batch is not rollback-atomic; retry remains safe because the operations are idempotent. Both never write `time_entry`.
+
+`engagement_status` is the lifecycle source of truth: `draft`, `invited`, `active`, `suspended`, or `archived`. `active` is true only for `invited` and `active`, which is what assignment, schedule, and dashboard selects already require. `draft`, `suspended`, and `archived` therefore cannot be newly assigned. Saving `archived` deactivates assignments; saving `invited` or `active` from `archived` reactivates them; saving `draft` or `suspended` does not change assignments. Migration `0006_contractor_engagement.sql` backfills `active` rows to `active` and inactive rows to `archived`. Triggers reject an unknown status. A status change that disagrees with `active` fails. A write that changes only `active` is aligned to `active` or `archived`, so a pre-0006 Worker archive or restore still commits. The migration does not rewrite `time_entry`. Portal access is allowed only for `invited` and `active` (`contractorMayHoldPortalAccess`). No portal route enforces that yet.
 
 The unique index `contractor_owner_name_uq` on `(owner_user_id, name)` includes archived rows. A same-owner create or rename that collides, including with an archived name, returns `409 { error: "duplicate_contractor" }`. Different owners may share names. Cross-owner get, update, archive, and restore return identical `404 { error: "not_found" }` with no writes.
 
-`GET /api/dashboard` contractor and site selects remain active-only. The assignment query returns only active assignments whose contractor and site are also `active=true`. Time-entry joins still load contractors and sites without an active filter so historical weeks keep names and snapshotted pay. Creating an assignment or time entry still requires an active contractor and site; an archived contractor or site is `not_found`.
+`GET /api/dashboard` contractor and site selects remain limited to `active=true` rows, which for contractors means engagement status `invited` or `active`. The assignment query returns only active assignments whose contractor and site are also `active=true`. Time-entry joins still load contractors and sites without an active filter so historical weeks keep names and snapshotted pay. Creating an assignment or time entry still requires an active contractor and site; a draft, suspended, or archived contractor is `not_found`.
 
 ### Contractor HTTP contract
 
 `ContractorResource` omits `ownerUserId` and serializes timestamps as JSON dates:
 
-`{ id, name, email, phone, defaultRateCents, currency: "NZD", active, createdAt, updatedAt }`
+`{ id, name, email, phone, defaultRateCents, currency: "NZD", active, preferredName, startDate, engagementStatus, gstRegistered, gstNumber, internalNotes, emergencyContactName, emergencyContactPhone, createdAt, updatedAt }`
+
+`active` is derived from `engagementStatus` and is still returned. Omitted engagement fields on PATCH are left unchanged. Omitted engagement fields on POST default to an empty profile, `engagementStatus: "active"`, and `active: true`.
 
 | Method | Path | Cookie mutation | Success |
 | --- | --- | --- | --- |
-| GET | `/api/contractors` | no | `200 { contractors: ContractorResource[] }` name asc; `includeArchived` omit/false/0 = active only, true/1 = active+archived |
+| GET | `/api/contractors` | no | `200 { contractors: ContractorResource[] }` name asc; `includeArchived` omit/false/0 = every status except `archived`, true/1 = all statuses |
 | POST | `/api/contractors` | yes | `201 ContractorResource` |
 | GET | `/api/contractors/[id]` | no | `200 ContractorResource` (archived readable by owner) |
 | PATCH | `/api/contractors/[id]` | yes | `200 ContractorResource` |
-| POST | `/api/contractors/[id]/archive` | yes | `200 ContractorResource` `active: false` |
-| POST | `/api/contractors/[id]/restore` | yes | `200 ContractorResource` `active: true` |
+| POST | `/api/contractors/[id]/archive` | yes | `200 ContractorResource` `active: false`, `engagementStatus: "archived"` |
+| POST | `/api/contractors/[id]/restore` | yes | `200 ContractorResource` `active: true`, `engagementStatus: "active"` |
 | GET | `/api/contractors/[id]/remittance` | no | `200` PDF (`?week=YYYY-MM-DD` Monday) |
 
 There is no DELETE on contractors. Cookie-authenticated mutations use `authorize(request, true)`. Errors: `401 unauthorized`, `403 forbidden`, `404 not_found`, `409 duplicate_contractor`, `413 payload_too_large`, `400 invalid_request` (optional `fields` on create/patch Zod failures only), `500 internal_error` (correlation id) for unexpected failures.
@@ -76,9 +80,9 @@ The dashboard continues to load only `sites.active = true` and `assignments.acti
 
 `/api/ops/*` is served by the same Worker and uses the `DB` binding. Authentication is `Authorization: Bearer` compared to the `OPS_BOT_TOKEN` secret. Cookie sessions are not accepted. Optional Cloudflare Access may proxy the path; the Worker still checks the bearer token.
 
-Contractor and time-entry writes, and wage reads, take `ownerUserId` and resolve `business_id` from that user's active owner membership. Wage JSON is `summarizeWeek`, `summarizeWeekBySite`, and `weekPayrollTotals` on the snapshotted entry rows. Contractor archive and restore execute `archiveWritePlan` / `restoreWritePlan` (assignment active flag, then contractor, or the reverse). Time-entry writes go through `createTimeEntry` / `updateTimeEntry`. `confirmLockedWeek` is the only way those writes skip `assertUnlockedWeek`. A contractor/day total above 840 paid minutes sets `longDay` on the response.
+Contractor and time-entry writes, and wage reads, take `ownerUserId` and resolve `business_id` from that user's active owner membership. Wage JSON is `summarizeWeek`, `summarizeWeekBySite`, and `weekPayrollTotals` on the snapshotted entry rows. Contractor archive and restore execute `archiveWritePlan` / `restoreWritePlan` (assignment active flag, then contractor, or the reverse). Named contractor responses and undo snapshots include `engagementStatus` and omit GST number, internal notes, and emergency contact. Undo of archive or restore writes the saved prior status. It refuses with `stale_preview` when that status has changed. Time-entry writes go through `createTimeEntry` / `updateTimeEntry`. `confirmLockedWeek` is the only way those writes skip `assertUnlockedWeek`. A contractor/day total above 840 paid minutes sets `longDay` on the response.
 
-`POST /api/ops/sql` classifies one statement. `SELECT` is wrapped in a 100-row cap. `INSERT` and `UPDATE` are previewed with a count and a five-row sample, then signed into a five-minute HMAC confirm token. Execute recomputes the count, rejects a mismatch, and commits the statement plus the audit insert together. `POST /api/ops/revert` reads one `ops_audit` row and applies the inverse of `contractor.create`, `contractor.update`, `contractor.rate`, `contractor.archive`, `contractor.restore`, `time_entry.create`, or `time_entry.update`. `sql.insert` and `sql.update` are not reverted here.
+`POST /api/ops/sql` classifies one statement. `SELECT` is wrapped in a 100-row cap. `INSERT` and `UPDATE` are previewed with a count and a five-row sample, then signed into a five-minute HMAC confirm token. An `UPDATE` that assigns `contractor.active` is `forbidden_sql` before the dry run. Execute recomputes the count, rejects a mismatch, and commits the statement plus the audit insert together. `POST /api/ops/revert` reads one `ops_audit` row and applies the inverse of `contractor.create`, `contractor.update`, `contractor.rate`, `contractor.archive`, `contractor.restore`, `time_entry.create`, or `time_entry.update`. `sql.insert` and `sql.update` are not reverted here.
 
 `ops_audit` columns are `action`, `sql_text`, `params_json`, `old_json`, `new_json`, `reason`, `row_count`, and `created_at`. Triggers abort updates and deletes. The audit insert is the log; request bodies and tokens are not written to Worker logs.
 

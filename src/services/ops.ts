@@ -16,8 +16,13 @@ import {
 } from "@/lib/ops-sql";
 import { requireOwnerBusinessId } from "@/lib/business";
 import {
+  activeForEngagementStatus,
   archiveWritePlan,
+  engagementStatusWritePlan,
+  isEngagementStatus,
   restoreWritePlan,
+  type ContractorEngagementPatch,
+  type EngagementStatus,
   type LifecycleWrite,
 } from "@/lib/contractor-lifecycle";
 import { summarizeWeek, weekEnd, weekPayrollTotals, weekStartFromDate } from "@/lib/payroll";
@@ -67,6 +72,18 @@ type ContractorSnapshot = {
   phone: string;
   defaultRateCents: number;
   active: boolean;
+  engagementStatus: EngagementStatus;
+};
+
+type OpsContractor = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  defaultRateCents: number;
+  currency: "NZD";
+  active: boolean;
+  engagementStatus: EngagementStatus;
 };
 
 type TimeEntrySnapshot = {
@@ -97,12 +114,20 @@ type ContractorWrite = {
 
 type OwnerReason = { ownerUserId: string; reason: string };
 
-export async function opsCreateContractor(database: Database, input: ContractorWrite) {
+export async function opsCreateContractor(database: Database, input: ContractorWrite & ContractorEngagementPatch) {
   const created = await createContractor(database, input.ownerUserId, {
     name: input.name,
     email: input.email,
     phone: input.phone,
     defaultRateCents: input.defaultRateCents,
+    preferredName: input.preferredName,
+    startDate: input.startDate,
+    engagementStatus: input.engagementStatus,
+    gstRegistered: input.gstRegistered,
+    gstNumber: input.gstNumber,
+    internalNotes: input.internalNotes,
+    emergencyContactName: input.emergencyContactName,
+    emergencyContactPhone: input.emergencyContactPhone,
   });
   const snapshot = await requireContractor(database, input.ownerUserId, created.id);
   const auditId = await writeAudit(database, {
@@ -112,7 +137,7 @@ export async function opsCreateContractor(database: Database, input: ContractorW
     reason: input.reason,
     rowCount: 1,
   });
-  return { contractor: created, auditId };
+  return { contractor: opsContractor(created), auditId };
 }
 
 export async function opsUpdateContractor(
@@ -135,7 +160,7 @@ export async function opsUpdateContractor(
     reason: input.reason,
     rowCount: 1,
   });
-  return { contractor, auditId };
+  return { contractor: opsContractor(contractor), auditId };
 }
 
 export async function opsChangeContractorRate(
@@ -158,7 +183,7 @@ export async function opsChangeContractorRate(
     reason: input.reason,
     rowCount: 1,
   });
-  return { contractor, auditId };
+  return { contractor: opsContractor(contractor), auditId };
 }
 
 export async function opsArchiveContractor(database: Database, contractorId: string, input: OwnerReason) {
@@ -358,28 +383,40 @@ async function changeContractorActive(database: Database, contractorId: string, 
     reason: input.reason,
     rowCount: 1,
   });
-  return { contractor: await getContractor(database, input.ownerUserId, contractorId), auditId };
+  return { contractor: opsContractor(await getContractor(database, input.ownerUserId, contractorId)), auditId };
 }
 
 async function applyLifecycle(database: Database, ownerUserId: string, businessId: string, plan: LifecycleWrite[]) {
   const updatedAt = new Date();
   const assignment = plan.find((step) => step.table === "assignment");
   const contractor = plan.find((step) => step.table === "contractor");
-  if (!assignment || !contractor || !("contractorId" in assignment.where) || !("id" in contractor.where)) {
+  if (!contractor || !("id" in contractor.where) || !contractor.set.engagementStatus) {
     throw new Error("invalid_request");
   }
-  if (assignment.where.ownerUserId !== ownerUserId || contractor.where.ownerUserId !== ownerUserId) {
+  if (contractor.where.ownerUserId !== ownerUserId) throw new Error("invalid_request");
+  if (contractor.set.active !== activeForEngagementStatus(contractor.set.engagementStatus)) {
+    throw new Error("invalid_request");
+  }
+  const contractorWrite = database.update(contractors).set({
+    active: contractor.set.active,
+    engagementStatus: contractor.set.engagementStatus,
+    updatedAt,
+  }).where(and(
+    eq(contractors.id, contractor.where.id),
+    eq(contractors.ownerUserId, contractor.where.ownerUserId),
+    eq(contractors.businessId, businessId),
+  ));
+  if (!assignment) {
+    await contractorWrite;
+    return;
+  }
+  if (!("contractorId" in assignment.where) || assignment.where.ownerUserId !== ownerUserId) {
     throw new Error("invalid_request");
   }
   const assignmentWrite = database.update(assignments).set({ active: assignment.set.active, updatedAt }).where(and(
     eq(assignments.ownerUserId, assignment.where.ownerUserId),
     eq(assignments.businessId, businessId),
     eq(assignments.contractorId, assignment.where.contractorId),
-  ));
-  const contractorWrite = database.update(contractors).set({ active: contractor.set.active, updatedAt }).where(and(
-    eq(contractors.id, contractor.where.id),
-    eq(contractors.ownerUserId, contractor.where.ownerUserId),
-    eq(contractors.businessId, businessId),
   ));
   const writes = plan[0]?.table === "assignment" && plan[1]?.table === "contractor"
     ? [assignmentWrite, contractorWrite]
@@ -422,25 +459,28 @@ async function revertContractor(
   const current = await requireContractor(database, ownerUserId, next.id);
   if (!sameContractor(current, next)) throw new Error("stale_preview");
   const businessId = await requireOwnerBusinessId(database, ownerUserId);
-  if (action === ACTION.contractorCreate || action === ACTION.contractorRestore) {
+  if (action === ACTION.contractorCreate) {
     await applyLifecycle(database, ownerUserId, businessId, archiveWritePlan(ownerUserId, next.id));
-  } else if (action === ACTION.contractorArchive) {
-    await applyLifecycle(database, ownerUserId, businessId, restoreWritePlan(ownerUserId, next.id));
   } else {
     const previous = parseJson(oldJson, isContractorSnapshot);
     if (!previous || previous.id !== next.id || previous.ownerUserId !== ownerUserId) throw new Error("not_revertable");
-    await updateContractor(database, ownerUserId, next.id, {
-      name: previous.name,
-      email: previous.email,
-      phone: previous.phone,
-      defaultRateCents: previous.defaultRateCents,
-    });
+    if (action === ACTION.contractorArchive || action === ACTION.contractorRestore) {
+      await applyLifecycle(database, ownerUserId, businessId, engagementStatusWritePlan(ownerUserId, next.id, previous.engagementStatus));
+    } else {
+      await updateContractor(database, ownerUserId, next.id, {
+        name: previous.name,
+        email: previous.email,
+        phone: previous.phone,
+        defaultRateCents: previous.defaultRateCents,
+        engagementStatus: previous.engagementStatus,
+      });
+    }
   }
   const after = await requireContractor(database, ownerUserId, next.id);
   return {
     before: current,
     after,
-    body: { contractor: await getContractor(database, ownerUserId, next.id) },
+    body: { contractor: opsContractor(await getContractor(database, ownerUserId, next.id)) },
   };
 }
 
@@ -558,6 +598,7 @@ async function requireContractor(database: Database, ownerUserId: string, contra
     phone: contractors.phone,
     defaultRateCents: contractors.defaultRateCents,
     active: contractors.active,
+    engagementStatus: contractors.engagementStatus,
   }).from(contractors).where(and(
     eq(contractors.id, contractorId),
     eq(contractors.ownerUserId, ownerUserId),
@@ -649,7 +690,9 @@ function isContractorSnapshot(value: unknown): value is ContractorSnapshot {
     && typeof row.email === "string"
     && typeof row.phone === "string"
     && Number.isInteger(row.defaultRateCents)
-    && typeof row.active === "boolean";
+    && typeof row.active === "boolean"
+    && typeof row.engagementStatus === "string"
+    && isEngagementStatus(row.engagementStatus);
 }
 
 function isTimeEntrySnapshot(value: unknown): value is TimeEntrySnapshot {
@@ -680,7 +723,21 @@ function sameContractor(left: ContractorSnapshot, right: ContractorSnapshot) {
     && left.email === right.email
     && left.phone === right.phone
     && left.defaultRateCents === right.defaultRateCents
-    && left.active === right.active;
+    && left.active === right.active
+    && left.engagementStatus === right.engagementStatus;
+}
+
+function opsContractor(contractor: OpsContractor): OpsContractor {
+  return {
+    id: contractor.id,
+    name: contractor.name,
+    email: contractor.email,
+    phone: contractor.phone,
+    defaultRateCents: contractor.defaultRateCents,
+    currency: contractor.currency,
+    active: contractor.active,
+    engagementStatus: contractor.engagementStatus,
+  };
 }
 
 function sameTimeEntry(left: TimeEntrySnapshot, right: TimeEntrySnapshot) {

@@ -1,6 +1,37 @@
 import { isUniqueConstraintError } from "@/lib/db-errors";
 
+export const ENGAGEMENT_STATUSES = ["draft", "invited", "active", "suspended", "archived"] as const;
+export type EngagementStatus = (typeof ENGAGEMENT_STATUSES)[number];
+
 export type IncludeArchivedQuery = { ok: true; includeArchived: boolean } | { ok: false };
+
+const SCHEDULABLE_STATUSES = new Set<EngagementStatus>(["invited", "active"]);
+const PORTAL_ACCESS_STATUSES = new Set<EngagementStatus>(["invited", "active"]);
+
+export function isEngagementStatus(value: string): value is EngagementStatus {
+  return (ENGAGEMENT_STATUSES as readonly string[]).includes(value);
+}
+
+export function activeForEngagementStatus(status: EngagementStatus): boolean {
+  return SCHEDULABLE_STATUSES.has(status);
+}
+
+export function gstNumberDigits(value: string): string {
+  return value.trim().replace(/[\s-]/g, "");
+}
+
+export function contractorMayHoldPortalAccess(status: EngagementStatus): boolean {
+  return PORTAL_ACCESS_STATUSES.has(status);
+}
+
+export type EngagementAssignmentEffect = "deactivate" | "reactivate" | "none";
+
+export function engagementAssignmentEffect(previous: EngagementStatus, next: EngagementStatus): EngagementAssignmentEffect {
+  if (previous === next) return "none";
+  if (next === "archived") return "deactivate";
+  if (previous === "archived" && activeForEngagementStatus(next)) return "reactivate";
+  return "none";
+}
 
 export function parseIncludeArchived(value: string | null): IncludeArchivedQuery {
   if (value === null || value === "" || value === "false" || value === "0") {
@@ -10,8 +41,8 @@ export function parseIncludeArchived(value: string | null): IncludeArchivedQuery
   return { ok: false };
 }
 
-export function contractorVisibleInList(contractor: { active: boolean }, includeArchived: boolean): boolean {
-  return includeArchived || contractor.active;
+export function contractorVisibleInList(contractor: { engagementStatus: EngagementStatus }, includeArchived: boolean): boolean {
+  return includeArchived || contractor.engagementStatus !== "archived";
 }
 
 export function contractorNameConflicts(input: {
@@ -31,22 +62,41 @@ export function contractorNameConflicts(input: {
 export type LifecycleWrite = {
   table: "assignment" | "contractor";
   action: "update";
-  set: { active: boolean };
+  set: { active: boolean; engagementStatus?: EngagementStatus };
   where: { ownerUserId: string; contractorId: string } | { ownerUserId: string; id: string };
 };
 
 export function archiveWritePlan(ownerUserId: string, contractorId: string): LifecycleWrite[] {
   return [
     { table: "assignment", action: "update", set: { active: false }, where: { ownerUserId, contractorId } },
-    { table: "contractor", action: "update", set: { active: false }, where: { ownerUserId, id: contractorId } },
+    { table: "contractor", action: "update", set: { active: false, engagementStatus: "archived" }, where: { ownerUserId, id: contractorId } },
   ];
 }
 
 export function restoreWritePlan(ownerUserId: string, contractorId: string): LifecycleWrite[] {
-  return [
-    { table: "contractor", action: "update", set: { active: true }, where: { ownerUserId, id: contractorId } },
-    { table: "assignment", action: "update", set: { active: true }, where: { ownerUserId, contractorId } },
-  ];
+  return engagementStatusWritePlan(ownerUserId, contractorId, "active");
+}
+
+export function engagementStatusWritePlan(ownerUserId: string, contractorId: string, status: EngagementStatus): LifecycleWrite[] {
+  const contractorStep: LifecycleWrite = {
+    table: "contractor",
+    action: "update",
+    set: { active: activeForEngagementStatus(status), engagementStatus: status },
+    where: { ownerUserId, id: contractorId },
+  };
+  if (status === "archived") {
+    return [
+      { table: "assignment", action: "update", set: { active: false }, where: { ownerUserId, contractorId } },
+      contractorStep,
+    ];
+  }
+  if (activeForEngagementStatus(status)) {
+    return [
+      contractorStep,
+      { table: "assignment", action: "update", set: { active: true }, where: { ownerUserId, contractorId } },
+    ];
+  }
+  return [contractorStep];
 }
 
 export function requireOwnedContractor<T>(row: T | undefined | null): T {
@@ -54,17 +104,71 @@ export function requireOwnedContractor<T>(row: T | undefined | null): T {
   return row;
 }
 
-export function contractorUpdateWriteSet(
-  input: { name: string; email: string; phone: string; defaultRateCents: number },
-  updatedAt: Date,
-) {
+export type ContractorEngagementPatch = {
+  preferredName?: string;
+  startDate?: string | null;
+  engagementStatus?: EngagementStatus;
+  gstRegistered?: boolean;
+  gstNumber?: string;
+  internalNotes?: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+};
+
+export type ContractorProfileInput = {
+  name: string;
+  email: string;
+  phone: string;
+  defaultRateCents: number;
+};
+
+export type ContractorEngagementColumns = {
+  preferredName: string;
+  startDate: string | null;
+  engagementStatus: EngagementStatus;
+  gstRegistered: boolean;
+  gstNumber: string;
+  internalNotes: string;
+  emergencyContactName: string;
+  emergencyContactPhone: string;
+  active: boolean;
+};
+
+export function engagementColumnsForCreate(input: ContractorEngagementPatch): ContractorEngagementColumns {
+  const engagementStatus = input.engagementStatus ?? "active";
   return {
+    preferredName: input.preferredName ?? "",
+    startDate: input.startDate ?? null,
+    engagementStatus,
+    gstRegistered: input.gstRegistered ?? false,
+    gstNumber: input.gstNumber ?? "",
+    internalNotes: input.internalNotes ?? "",
+    emergencyContactName: input.emergencyContactName ?? "",
+    emergencyContactPhone: input.emergencyContactPhone ?? "",
+    active: activeForEngagementStatus(engagementStatus),
+  };
+}
+
+export function contractorUpdateWriteSet(input: ContractorProfileInput & ContractorEngagementPatch, updatedAt: Date) {
+  const set: ContractorProfileInput & Partial<ContractorEngagementColumns> & { updatedAt: Date } = {
     name: input.name,
     email: input.email,
     phone: input.phone,
     defaultRateCents: input.defaultRateCents,
     updatedAt,
   };
+  if (input.preferredName !== undefined) set.preferredName = input.preferredName;
+  if (input.startDate !== undefined) set.startDate = input.startDate;
+  if (input.engagementStatus !== undefined) {
+    set.engagementStatus = input.engagementStatus;
+    set.active = activeForEngagementStatus(input.engagementStatus);
+  }
+  if (input.gstRegistered !== undefined) set.gstRegistered = input.gstRegistered;
+  if (input.gstNumber !== undefined) set.gstNumber = input.gstNumber;
+  if (input.internalNotes !== undefined) set.internalNotes = input.internalNotes;
+  if (input.emergencyContactName !== undefined) set.emergencyContactName = input.emergencyContactName;
+  if (input.emergencyContactPhone !== undefined) set.emergencyContactPhone = input.emergencyContactPhone;
+  return set;
 }
 
 export type ContractorRow = {
@@ -76,6 +180,14 @@ export type ContractorRow = {
   defaultRateCents: number;
   currency: string;
   active: boolean;
+  preferredName: string;
+  startDate: string | null;
+  engagementStatus: EngagementStatus;
+  gstRegistered: boolean;
+  gstNumber: string;
+  internalNotes: string;
+  emergencyContactName: string;
+  emergencyContactPhone: string;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -88,6 +200,14 @@ export type ContractorResource = {
   defaultRateCents: number;
   currency: "NZD";
   active: boolean;
+  preferredName: string;
+  startDate: string | null;
+  engagementStatus: EngagementStatus;
+  gstRegistered: boolean;
+  gstNumber: string;
+  internalNotes: string;
+  emergencyContactName: string;
+  emergencyContactPhone: string;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -101,6 +221,14 @@ export function toContractorResource(row: ContractorRow): ContractorResource {
     defaultRateCents: row.defaultRateCents,
     currency: "NZD",
     active: row.active,
+    preferredName: row.preferredName,
+    startDate: row.startDate,
+    engagementStatus: row.engagementStatus,
+    gstRegistered: row.gstRegistered,
+    gstNumber: row.gstNumber,
+    internalNotes: row.internalNotes,
+    emergencyContactName: row.emergencyContactName,
+    emergencyContactPhone: row.emergencyContactPhone,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

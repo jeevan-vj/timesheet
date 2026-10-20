@@ -1,15 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
+  activeForEngagementStatus,
   archiveWritePlan,
+  contractorMayHoldPortalAccess,
   contractorNameConflicts,
   contractorUpdateWriteSet,
   contractorVisibleInList,
   dashboardAssignmentsForSelect,
+  engagementAssignmentEffect,
+  engagementColumnsForCreate,
   mapContractorWriteError,
   parseIncludeArchived,
   requireOwnedContractor,
   restoreWritePlan,
   toContractorResource,
+  type EngagementStatus,
 } from "../src/lib/contractor-lifecycle";
 
 const owner = "owner-1";
@@ -24,6 +29,14 @@ const row = {
   defaultRateCents: 3_200,
   currency: "NZD" as const,
   active: true,
+  preferredName: "Ro",
+  startDate: "2026-08-01",
+  engagementStatus: "active" as const,
+  gstRegistered: false,
+  gstNumber: "",
+  internalNotes: "",
+  emergencyContactName: "",
+  emergencyContactPhone: "",
   createdAt: new Date("2026-08-31T00:00:00.000Z"),
   updatedAt: new Date("2026-09-01T12:00:00.000Z"),
 };
@@ -49,11 +62,60 @@ describe("includeArchived query parsing", () => {
 });
 
 describe("list visibility", () => {
-  it("hides archived contractors unless includeArchived is set", () => {
-    expect(contractorVisibleInList({ active: true }, false)).toBe(true);
-    expect(contractorVisibleInList({ active: false }, false)).toBe(false);
-    expect(contractorVisibleInList({ active: true }, true)).toBe(true);
-    expect(contractorVisibleInList({ active: false }, true)).toBe(true);
+  it("hides archived contractors and keeps draft, invited, active, and suspended visible", () => {
+    expect(contractorVisibleInList({ engagementStatus: "active" }, false)).toBe(true);
+    expect(contractorVisibleInList({ engagementStatus: "draft" }, false)).toBe(true);
+    expect(contractorVisibleInList({ engagementStatus: "invited" }, false)).toBe(true);
+    expect(contractorVisibleInList({ engagementStatus: "suspended" }, false)).toBe(true);
+    expect(contractorVisibleInList({ engagementStatus: "archived" }, false)).toBe(false);
+    expect(contractorVisibleInList({ engagementStatus: "archived" }, true)).toBe(true);
+    expect(contractorVisibleInList({ engagementStatus: "active" }, true)).toBe(true);
+  });
+});
+
+describe("engagement status mapping", () => {
+  const cases: Array<[EngagementStatus, boolean, boolean]> = [
+    ["draft", false, false],
+    ["invited", true, true],
+    ["active", true, true],
+    ["suspended", false, false],
+    ["archived", false, false],
+  ];
+
+  it("keeps active and portal access aligned with the documented statuses", () => {
+    for (const [status, schedulable, portal] of cases) {
+      expect(activeForEngagementStatus(status)).toBe(schedulable);
+      expect(contractorMayHoldPortalAccess(status)).toBe(portal);
+    }
+  });
+
+  it("deactivates assignments only when entering archived, and reactivates only when leaving archived for a schedulable status", () => {
+    expect(engagementAssignmentEffect("active", "suspended")).toBe("none");
+    expect(engagementAssignmentEffect("active", "draft")).toBe("none");
+    expect(engagementAssignmentEffect("suspended", "active")).toBe("none");
+    expect(engagementAssignmentEffect("active", "archived")).toBe("deactivate");
+    expect(engagementAssignmentEffect("suspended", "archived")).toBe("deactivate");
+    expect(engagementAssignmentEffect("archived", "archived")).toBe("none");
+    expect(engagementAssignmentEffect("archived", "active")).toBe("reactivate");
+    expect(engagementAssignmentEffect("archived", "invited")).toBe("reactivate");
+    expect(engagementAssignmentEffect("archived", "draft")).toBe("none");
+    expect(engagementAssignmentEffect("archived", "suspended")).toBe("none");
+  });
+
+  it("defaults a create with no engagement fields to an active schedulable contractor", () => {
+    expect(engagementColumnsForCreate({})).toEqual({
+      preferredName: "",
+      startDate: null,
+      engagementStatus: "active",
+      gstRegistered: false,
+      gstNumber: "",
+      internalNotes: "",
+      emergencyContactName: "",
+      emergencyContactPhone: "",
+      active: true,
+    });
+    expect(engagementColumnsForCreate({ engagementStatus: "draft", gstRegistered: true, gstNumber: "123456789" }).active).toBe(false);
+    expect(engagementColumnsForCreate({ engagementStatus: "invited" }).active).toBe(true);
   });
 });
 
@@ -84,7 +146,7 @@ describe("archive and restore write plans", () => {
     expect(plan.map((step) => step.table)).toEqual(["assignment", "contractor"]);
     expect(plan.every((step) => step.action === "update")).toBe(true);
     expect(plan[0]).toMatchObject({ set: { active: false }, where: { ownerUserId: owner, contractorId: "c1" } });
-    expect(plan[1]).toMatchObject({ set: { active: false }, where: { ownerUserId: owner, id: "c1" } });
+    expect(plan[1]).toMatchObject({ set: { active: false, engagementStatus: "archived" }, where: { ownerUserId: owner, id: "c1" } });
     expect(plan.some((step) => "table" in step && (step.table as string) === "time_entry")).toBe(false);
   });
 
@@ -92,7 +154,7 @@ describe("archive and restore write plans", () => {
     const plan = restoreWritePlan(owner, "c1");
     expect(plan.map((step) => step.table)).toEqual(["contractor", "assignment"]);
     expect(plan.every((step) => step.action === "update")).toBe(true);
-    expect(plan[0]).toMatchObject({ set: { active: true }, where: { ownerUserId: owner, id: "c1" } });
+    expect(plan[0]).toMatchObject({ set: { active: true, engagementStatus: "active" }, where: { ownerUserId: owner, id: "c1" } });
     expect(plan[1]).toMatchObject({ set: { active: true }, where: { ownerUserId: owner, contractorId: "c1" } });
     expect(JSON.stringify(plan)).not.toMatch(/time_entry|insert/i);
   });
@@ -122,7 +184,44 @@ describe("rate update write set", () => {
     expect(set).not.toHaveProperty("rateCents");
     expect(set).not.toHaveProperty("ownerUserId");
     expect(set).not.toHaveProperty("active");
+    expect(set).not.toHaveProperty("engagementStatus");
+    expect(set).not.toHaveProperty("gstRegistered");
     expect(JSON.stringify(set)).not.toMatch(/time_entry/);
+  });
+
+  it("derives active from engagement status and leaves omitted engagement fields unchanged", () => {
+    const updatedAt = new Date("2026-09-02T00:00:00.000Z");
+    const suspended = contractorUpdateWriteSet({
+      name: "Aroha",
+      email: "a@example.test",
+      phone: "",
+      defaultRateCents: 3_200,
+      engagementStatus: "suspended",
+      gstRegistered: true,
+      gstNumber: "12345678",
+      internalNotes: "Office only",
+    }, updatedAt);
+    expect(suspended).toMatchObject({
+      engagementStatus: "suspended",
+      active: false,
+      gstRegistered: true,
+      gstNumber: "12345678",
+      internalNotes: "Office only",
+      defaultRateCents: 3_200,
+    });
+    expect(suspended).not.toHaveProperty("preferredName");
+    expect(suspended).not.toHaveProperty("startDate");
+
+    const invited = contractorUpdateWriteSet({
+      name: "Aroha",
+      email: "",
+      phone: "",
+      defaultRateCents: 3_200,
+      engagementStatus: "invited",
+      startDate: null,
+    }, updatedAt);
+    expect(invited.active).toBe(true);
+    expect(invited.startDate).toBeNull();
   });
 });
 
@@ -138,9 +237,18 @@ describe("contractor resource mapping", () => {
       defaultRateCents: 3_200,
       currency: "NZD",
       active: true,
+      preferredName: "Ro",
+      startDate: "2026-08-01",
+      engagementStatus: "active",
+      gstRegistered: false,
+      gstNumber: "",
+      internalNotes: "",
+      emergencyContactName: "",
+      emergencyContactPhone: "",
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     });
+    expect(resource).not.toHaveProperty("businessId");
     expect(JSON.parse(JSON.stringify(resource))).toMatchObject({
       createdAt: "2026-08-31T00:00:00.000Z",
       updatedAt: "2026-09-01T12:00:00.000Z",
