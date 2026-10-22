@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mondayFor, shiftWeek, thisWeekSelection } from "../src/components/week-picker";
+import { mondayFor, mondayFromInput, shiftWeek, thisWeekSelection } from "../src/components/week-picker";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -63,7 +63,7 @@ describe("WeekPicker", () => {
     expect(dashboard).toContain("shiftWeek(week, 7)");
     expect(dashboard).toContain("thisWeekSelection(week)");
     expect(dashboard).toContain("useState(() => mondayFor())");
-    expect(dashboard).toContain('mondayFor(new Date(`${e.target.value}T12:00:00`))');
+    expect(dashboard).toContain("mondayFromInput(e.target.value)");
     expect(previous).toBeGreaterThan(-1);
     expect(thisWeek).toBeGreaterThan(previous);
     expect(weekOf).toBeGreaterThan(thisWeek);
@@ -72,5 +72,16 @@ describe("WeekPicker", () => {
     expect(css).toContain(".week-picker button { width:38px; height:38px;");
     expect(css).toContain(".week-picker button.this-week { width:auto; height:38px; padding:0 12px; font-size:.82rem; font-weight:700; line-height:38px; white-space:nowrap; flex:none; }");
     expect(css).toContain(".week-picker { width:100%; justify-content:space-between; }");
+  });
+});
+
+describe("mondayFromInput", () => {
+  it("ignores empty and invalid dates without changing the selected week", () => {
+    for (const value of ["", "2026-02-30", "invalid"]) expect(mondayFromInput(value)).toBeNull();
+  });
+  it("normalizes a civil date to Monday, including Sunday and year boundaries", () => {
+    expect(mondayFromInput("2026-09-06")).toBe("2026-08-31");
+    expect(mondayFromInput("2026-08-31")).toBe("2026-08-31");
+    expect(mondayFromInput("2027-01-01")).toBe("2026-12-28");
   });
 });

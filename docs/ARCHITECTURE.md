@@ -135,3 +135,9 @@ GET `/api/assignments` and GET `/api/assignments/[id]` include `schedule` as the
 | POST | `/api/business/onboarding/complete` | yes | `200 BusinessResource` |
 
 Cookie-authenticated mutations use `authorize(request, true)`. A forged `businessId` in the JSON is ignored. Errors: `401 unauthorized`, `403 forbidden`, `400 invalid_request`, `409 business_required` (complete with no membership), `413 payload_too_large`, `500 internal_error` (correlation id) for unexpected failures. Timezone must be `Pacific/Auckland`, currency `NZD`, and week start `monday`. NZBN is empty or 13 digits.
+
+### Client recovery and auth exception containment
+
+Sign-in and sign-up re-enable submission and announce connection errors when the auth client rejects. Exceptions escaping the Better Auth GET/POST handlers become a non-cacheable `503 service_unavailable` without forwarding the exception to the framework logger; normal Better Auth responses (including cookies and redirects) pass through unchanged.
+
+A failed dashboard read (HTTP, network, or JSON), including the read after applying schedules, hides stale week data and offers Retry. Confirmed mutation success notices remain visible separately from the refresh failure. Retry reloads the week through the existing idempotent schedule-application flow; it does not resubmit the original mutation. Empty or invalid date input leaves the selected Monday unchanged.
