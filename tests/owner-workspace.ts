@@ -12,6 +12,10 @@ export function execContractorEngagementMigration(sqlite: SqlJsDatabase) {
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0006_contractor_engagement.sql"), "utf8"));
 }
 
+export function execContractorInviteMigration(sqlite: SqlJsDatabase) {
+  sqlite.exec(fs.readFileSync(path.resolve("drizzle/0007_contractor_invites.sql"), "utf8"));
+}
+
 export function seedOwnerWorkspace(sqlite: SqlJsDatabase, userId: string, profile?: { name?: string; email?: string }) {
   const name = profile?.name ?? userId;
   const email = profile?.email ?? `${userId}@example.test`;

@@ -160,6 +160,13 @@ export function Dashboard() {
     }
   }, [week]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void fetch("/api/account/role", { cache: "no-store" }).then(async (response) => {
+      if (!response.ok) return;
+      const body = await response.json() as { role?: string };
+      if (body.role === "contractor") window.location.assign("/contractor");
+    });
+  }, []);
   const onboarding = data ? onboardingStep({
     business: data.business,
     activeSiteCount: data.sites.length,

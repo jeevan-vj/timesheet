@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import { AuthShell } from "@/components/auth-shell";
 import { AUTH_MIN_PASSWORD_LENGTH } from "@/lib/accounts-config";
 import { authClient } from "@/lib/auth-client";
+import { authenticatedLandingPath } from "@/lib/role-routing";
 
 export default function SignInPage() {
   const [email, setEmail] = useState("");
@@ -15,7 +16,7 @@ export default function SignInPage() {
     try {
       const result = await authClient.signIn.email({ email, password });
       if (result.error) { setError(result.error.status === 429 ? "Too many attempts. Try again shortly." : "Email or password was not recognised."); return; }
-      window.location.assign("/dashboard");
+      window.location.assign(await authenticatedLandingPath());
     } catch {
       setError("Could not connect. Check your connection and try again.");
     } finally {

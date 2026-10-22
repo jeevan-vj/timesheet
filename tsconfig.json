@@ -14,7 +14,9 @@
     "jsx": "preserve",
     "paths": {
       "@/*": ["./src/*"],
-      "next/server": ["./node_modules/vinext/dist/shims/server.d.ts"]
+      "next/server": ["./node_modules/vinext/dist/shims/server.d.ts"],
+      "next/headers": ["./node_modules/vinext/dist/shims/headers.d.ts"],
+      "next/navigation": ["./node_modules/vinext/dist/shims/navigation.d.ts"]
     },
     "types": ["@cloudflare/workers-types"]
   },

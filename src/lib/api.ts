@@ -23,6 +23,11 @@ const expectedErrors: Record<string, { status: number; error: string }> = {
   schedule_exists: { status: 409, error: "schedule_exists" },
   no_schedule: { status: 409, error: "no_schedule" },
   business_required: { status: 409, error: "business_required" },
+  invite_exists: { status: 409, error: "invite_exists" },
+  invite_unavailable: { status: 404, error: "invite_unavailable" },
+  email_not_configured: { status: 503, error: "email_not_configured" },
+  email_delivery_failed: { status: 502, error: "email_delivery_failed" },
+  forbidden: { status: 403, error: "forbidden" },
 };
 
 export async function authorize(request: Request, mutation = false): Promise<{ user: SessionUser } | { response: Response }> {

@@ -118,6 +118,35 @@ export const contractors = sqliteTable("contractor", {
   emergencyContactPhone: text("emergency_contact_phone").notNull().default(""),
 }, (t) => [index("contractor_owner_idx").on(t.ownerUserId), uniqueIndex("contractor_owner_name_uq").on(t.ownerUserId, t.name)]);
 
+export const contractorInvites = sqliteTable("contractor_invite", {
+  id: text("id").primaryKey(),
+  ...ownedFields,
+  contractorId: text("contractor_id").notNull().references(() => contractors.id, { onDelete: "cascade" }),
+  invitedEmail: text("invited_email").notNull(),
+  tokenDigest: text("token_digest").notNull(),
+  status: text("status").notNull().default("pending").$type<"pending" | "accepted" | "expired" | "revoked">(),
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+  acceptedByUserId: text("accepted_by_user_id").references(() => user.id, { onDelete: "restrict" }),
+  acceptedAt: integer("accepted_at", { mode: "timestamp" }),
+  acceptanceNonce: text("acceptance_nonce"),
+  revokedAt: integer("revoked_at", { mode: "timestamp" }),
+}, (t) => [
+  uniqueIndex("contractor_invite_contractor_uq").on(t.businessId, t.contractorId),
+  uniqueIndex("contractor_invite_token_digest_uq").on(t.tokenDigest),
+  index("contractor_invite_owner_idx").on(t.ownerUserId, t.businessId),
+]);
+
+export const contractorUsers = sqliteTable("contractor_user", {
+  id: text("id").primaryKey(),
+  ...ownedFields,
+  contractorId: text("contractor_id").notNull().references(() => contractors.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+}, (t) => [
+  uniqueIndex("contractor_user_contractor_uq").on(t.businessId, t.contractorId),
+  uniqueIndex("contractor_user_business_user_uq").on(t.businessId, t.userId),
+  index("contractor_user_user_idx").on(t.userId),
+]);
+
 export const assignments = sqliteTable("assignment", {
   id: text("id").primaryKey(),
   ...ownedFields,
