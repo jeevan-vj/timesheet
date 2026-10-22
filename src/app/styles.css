@@ -276,3 +276,9 @@ dialog.shift-sheet { width:min(520px,100%); max-height:min(100dvh,100vh); paddin
   .onboarding-guide .form-actions { flex-direction:column; align-items:stretch; }
   .onboarding-guide .form-actions .button,.onboarding-guide .onboarding-link { width:100%; }
 }
+.invite-badge { display: inline-flex; align-items: center; border-radius: 999px; padding: .3rem .55rem; font-size: .75rem; font-weight: 700; background: #eef2f4; color: #34444b; }
+.invite-badge.is-pending { background: #fff2c7; color: #755400; }
+.invite-badge.is-accepted { background: #dff6e8; color: #17643a; }
+.invite-badge.is-expired, .invite-badge.is-revoked { background: #f1e8e5; color: #783e35; }
+.invite-auth-switch { margin-top: 1rem; }
+.contractor-landing .dashboard-heading { margin-top: 4rem; }

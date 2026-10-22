@@ -9,13 +9,17 @@
   "secrets": { "required": ["BETTER_AUTH_SECRET", "OPS_BOT_TOKEN"] },
   "observability": {
     "enabled": true,
-    "logs": { "head_sampling_rate": 1 },
-    "traces": { "enabled": true, "head_sampling_rate": 0.05 }
+    "logs": { "head_sampling_rate": 1, "invocation_logs": false },
+    "traces": { "enabled": false, "head_sampling_rate": 0 }
   },
   "vars": {
     "BETTER_AUTH_URL": "https://cleantrack-timesheet.jeevan90wijerathna.workers.dev",
     "AUTH_TRUSTED_ORIGINS": "",
-    "RELEASE_SHA": "local"
+    "RELEASE_SHA": "local",
+    "EMAIL_PROVIDER": "",
+    "EMAIL_FROM": "",
+    "MAILPIT_URL": "",
+    "APP_BASE_URL": ""
   },
   "d1_databases": [
     {

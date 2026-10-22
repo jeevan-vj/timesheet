@@ -11,6 +11,7 @@
     "deploy": "vinext-cloudflare deploy",
     "test": "vitest run",
     "test:mobile": "node scripts/mobile-screenshots.mjs --check-only",
+    "test:invites": "node scripts/run-invites-e2e.mjs",
     "test:watch": "vitest",
     "lint": "node scripts/lint-paved-path.mjs",
     "typecheck": "tsc --noEmit",

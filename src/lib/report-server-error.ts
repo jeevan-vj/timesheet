@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 
 const LEAK_LINE = /Failed query:|params:|D1_ERROR|SQLITE_/;
+const TOKEN_PATH = /(\/(?:api\/invites|invite)\/)[^/?#\s"'<>)]+/g;
 
 type ScrubbedFailure = {
   name: string;
@@ -8,11 +9,16 @@ type ScrubbedFailure = {
   stack: string;
 };
 
+function redactTokenPaths(text: string): string {
+  return text.replace(TOKEN_PATH, "$1[token]");
+}
+
 function dropLeakLines(text: string): string {
   return text
     .split("\n")
     .filter((line) => !LEAK_LINE.test(line))
-    .join("\n");
+    .join("\n")
+    .replace(TOKEN_PATH, "$1[token]");
 }
 
 function freshStack(message: string): string {
@@ -29,13 +35,13 @@ function isQueryFailure(error: unknown): boolean {
 
 function scrubFailure(error: unknown): ScrubbedFailure {
   if (isQueryFailure(error)) {
-    const name = error instanceof Error && error.name ? error.name : "QueryError";
+    const name = error instanceof Error && error.name ? redactTokenPaths(error.name) : "QueryError";
     return { name, message: "query_failed", stack: freshStack("query_failed") };
   }
   if (!(error instanceof Error)) {
     return { name: "NonError", message: "unexpected_throw", stack: freshStack("unexpected_throw") };
   }
-  const name = error.name || "Error";
+  const name = redactTokenPaths(error.name || "Error");
   return {
     name,
     message: dropLeakLines(error.message),
@@ -45,7 +51,7 @@ function scrubFailure(error: unknown): ScrubbedFailure {
 
 function requestPath(request: Request): string {
   try {
-    return new URL(request.url).pathname;
+    return redactTokenPaths(new URL(request.url).pathname);
   } catch {
     return "unknown";
   }

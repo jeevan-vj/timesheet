@@ -1,6 +1,6 @@
 import { and, eq, isNull } from "drizzle-orm";
 import type { db } from "@/db/client";
-import { business, businessMember } from "@/db/schema";
+import { business, businessMember, contractorUsers } from "@/db/schema";
 import {
   activeOwnerMembership,
   businessIdForUser,
@@ -73,6 +73,8 @@ export async function createOwnerBusiness(
 ): Promise<{ resource: BusinessResource; created: boolean }> {
   const existing = await resourceForMembership(database, userId);
   if (existing) return { resource: existing, created: false };
+  const [contractorLink] = await database.select({ id: contractorUsers.id }).from(contractorUsers).where(eq(contractorUsers.userId, userId)).limit(1);
+  if (contractorLink) throw new Error("forbidden");
 
   const timestamp = new Date();
   const businessId = businessIdForUser(userId);

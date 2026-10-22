@@ -30,6 +30,8 @@ import {
 } from "@/lib/contractor-setup";
 
 type FormMode = { kind: "closed" } | { kind: "create" } | { kind: "edit"; id: string };
+type InviteStatus = "pending" | "accepted" | "expired" | "revoked";
+type ContractorInvite = { id: string; contractorId: string; status: InviteStatus; expiresAt: string };
 
 const FIELD_ERROR_IDS: Record<ContractorField, string> = {
   name: "contractor-name-error",
@@ -57,7 +59,7 @@ async function contractorRequest(url: string, method: string, body?: unknown) {
     window.location.assign("/sign-in");
     throw new Error("unauthorized");
   }
-  const data = await response.json().catch(() => ({})) as { error?: string; fields?: Record<string, string>; contractors?: ContractorResource[] };
+  const data = await response.json().catch(() => ({})) as { error?: string; fields?: Record<string, string>; contractors?: ContractorResource[]; invites?: ContractorInvite[]; invite?: ContractorInvite };
   if (!response.ok) {
     return { ok: false as const, error: data.error ?? "request_failed", fields: data.fields };
   }
@@ -73,6 +75,8 @@ export function ContractorsPanel({
 }) {
   const [includeArchived, setIncludeArchived] = useState(false);
   const [contractors, setContractors] = useState<ContractorResource[]>([]);
+  const [invites, setInvites] = useState<ContractorInvite[]>([]);
+  const [inviteBusy, setInviteBusy] = useState("");
   const [loading, setLoading] = useState(true);
   const [panelError, setPanelError] = useState("");
   const [formMode, setFormMode] = useState<FormMode>({ kind: "closed" });
@@ -120,7 +124,10 @@ export function ContractorsPanel({
     loadGeneration.current = generation;
     setLoading(true);
     try {
-      const result = await contractorRequest(contractorsListUrl(includeArchived), "GET");
+      const [result, inviteResult] = await Promise.all([
+        contractorRequest(contractorsListUrl(includeArchived), "GET"),
+        contractorRequest("/api/contractor-invites", "GET"),
+      ]);
       if (generation !== loadGeneration.current) return;
       if (!result.ok) {
         setPanelError("Could not load contractors. Please try again.");
@@ -128,6 +135,7 @@ export function ContractorsPanel({
         return;
       }
       setContractors(Array.isArray(result.data.contractors) ? result.data.contractors : []);
+      if (inviteResult.ok) setInvites(Array.isArray(inviteResult.data.invites) ? inviteResult.data.invites : []);
       setPanelError("");
       setLoading(false);
     } catch {
@@ -250,6 +258,20 @@ export function ContractorsPanel({
     });
   }
 
+  async function mutateInvite(url: string, success: string) {
+    setInviteBusy(url); setPanelError("");
+    try {
+      const result = await contractorRequest(url, "POST");
+      if (!result.ok) {
+        setPanelError(result.error === "email_not_configured" ? "Invitation email is not configured." : result.error === "email_delivery_failed" ? "The invitation email could not be sent. You can retry safely." : "That invitation action is no longer available.");
+        return;
+      }
+      await loadList(); onNotice(success);
+    } catch (error) {
+      if (!(error instanceof Error && error.message === "unauthorized")) setPanelError("That invitation action could not be completed.");
+    } finally { setInviteBusy(""); }
+  }
+
   return <article className="setup-card contractors-panel">
     <div className="setup-title">
       <h3 ref={headingRef} tabIndex={-1} id="contractors-heading">Contractors</h3>
@@ -281,6 +303,11 @@ export function ContractorsPanel({
           onEdit={() => openEdit(contractor)}
           onArchive={() => archiveFlow.request({ id: contractor.id, name: contractor.name })}
           onRestore={() => void restore(contractor)}
+          invite={invites.find((invite) => invite.contractorId === contractor.id) ?? null}
+          inviteBusy={Boolean(inviteBusy)}
+          onInvite={() => void mutateInvite(`/api/contractors/${contractor.id}/invite`, "Invitation sent.")}
+          onResend={(inviteId) => void mutateInvite(`/api/contractor-invites/${inviteId}/resend`, "Invitation resent with a new link.")}
+          onRevoke={(inviteId) => void mutateInvite(`/api/contractor-invites/${inviteId}/revoke`, "Invitation revoked.")}
         />
       ))}
     </div>
@@ -317,12 +344,22 @@ function ContractorRow({
   onEdit,
   onArchive,
   onRestore,
+  invite,
+  inviteBusy,
+  onInvite,
+  onResend,
+  onRevoke,
 }: {
   contractor: ContractorResource;
   busy: boolean;
   onEdit: () => void;
   onArchive: () => void;
   onRestore: () => void;
+  invite: ContractorInvite | null;
+  inviteBusy: boolean;
+  onInvite: () => void;
+  onResend: (inviteId: string) => void;
+  onRevoke: (inviteId: string) => void;
 }) {
   return <div className="compact-row contractor-row" data-engagement-status={contractor.engagementStatus}>
     <div>
@@ -341,6 +378,10 @@ function ContractorRow({
       </details> : null}
     </div>
     <div className="contractor-row-actions">
+      {invite ? <span className={`invite-badge is-${invite.status}`}>{invite.status[0]?.toUpperCase()}{invite.status.slice(1)}</span> : null}
+      {!invite && contractor.email.trim() ? <button type="button" className="button small" disabled={inviteBusy} onClick={onInvite} aria-label={`Invite ${contractor.name}`}>Invite</button> : null}
+      {invite && (invite.status === "pending" || invite.status === "expired") ? <button type="button" className="button small secondary" disabled={inviteBusy} onClick={() => onResend(invite.id)} aria-label={`Resend invitation to ${contractor.name}`}>Resend</button> : null}
+      {invite?.status === "pending" ? <button type="button" className="button small secondary" disabled={inviteBusy} onClick={() => onRevoke(invite.id)} aria-label={`Revoke invitation for ${contractor.name}`}>Revoke</button> : null}
       <button type="button" className="button small secondary" onClick={onEdit} aria-label={`Edit ${contractor.name}`}>Edit</button>
       {contractorShowsArchive(contractor.engagementStatus)
         ? <button type="button" className="button small secondary" onClick={onArchive} disabled={busy} aria-label={`Archive ${contractor.name}`}>Archive</button>

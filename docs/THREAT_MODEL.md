@@ -24,7 +24,7 @@ Contractor identity/contact data, site locations, rates, work notes, time record
 | Cross-owner read or edit of engagement notes, GST number, or emergency contact | Same `404 { error: "not_found" }` with no writes. Those columns are read only with owner and business predicates. Responses omit `ownerUserId` and `businessId` |
 | Draft, suspended, or archived contractor is newly assigned | `active` is derived from `engagement_status`. A status change that disagrees with `active` aborts. An active-only write is aligned to `active` or `archived`. Assignment and time-entry creates still require `contractor.active` |
 | GST metadata changes historical pay | Payroll and remittance read snapshotted `time_entry` rows only. GST columns are not inputs to `calculateEntryPayCents` |
-| Suspended or archived contractor keeps portal access | `contractorMayHoldPortalAccess` is true only for `invited` and `active`. Portal routes are not in this change; a later slice must use that predicate |
+| Suspended or archived contractor keeps portal access | Account role joins `contractor_user` to contractor on contractor, owner, and business keys and permits only `invited` or `active`. `/contractor` resolves the session and role on the server before rendering; the link is retained so restored access can recover. |
 | Archive is mistaken for hard-delete | Archive sets `active = false` and deactivates that site's assignments; the site row and historical time entries remain |
 | Unassign deletes history | Unassign only sets `active=false`; time entries and snapshotted rates remain |
 | Duplicate daily entry inflates pay | Unique owner/contractor/site/date index, pre-insert owner-scoped lookup, pre-update lookup that excludes the current entry id, and a specific `duplicate_entry` error |
@@ -52,7 +52,7 @@ Contractor identity/contact data, site locations, rates, work notes, time record
 | Site rollup or week brief recomputes pay from current rates | Both are derived from the owner-scoped dashboard entries already loaded; positive minutes use `calculateEntryPayCents` on the snapshotted `rateCents`. No new route, write, or log |
 | Week brief leaves the browser | Copy is an explicit owner action of names, durations, and totals already on screen. The text omits rates, notes, email, and phone, and it is not sent to an API |
 | Unexpected server error returns driver text | JSON API failures return `500 { error: "internal_error", correlationId }` and do not return driver text. Logs and optional Sentry events are scrubbed |
-| Sensitive data reaches logs | No request-body, business profile, site name/address, PDF bytes, contractor, rate, or pay logging. Query failures are redacted to `query_failed` without SQL or bound values. Optional `SENTRY_DSN` is a Worker secret and receives the same scrub; automated boundary test |
+| Sensitive data reaches logs | No request-body, business profile, site name/address, PDF bytes, contractor, rate, or pay logging. Query failures are redacted to `query_failed` without SQL or bound values. Concrete `/invite/<token>` and `/api/invites/<token>/...` segments in routes, messages, and stacks become `[token]` before console or Sentry output. Cloudflare automatic invocation logs and traces are disabled because pre-Worker request URLs cannot be scrubbed. Optional `SENTRY_DSN` is a Worker secret and receives the same scrub; automated boundary tests force an invite-route failure. |
 | Cloud agent reaches production | Cursor receives no production secrets; trusted GitHub workflows own merge/deploy gates |
 | Ops bot token is guessed or logged | `OPS_BOT_TOKEN` is a Worker secret. Authorization is `Bearer` only, compared by SHA-256 digest. Missing or empty secrets fail closed. The token, confirm tokens, SQL, and parameters are not logged |
 | Session cookie calls the ops API | `/api/ops/*` ignores the owner session and returns `unauthorized` without a matching bearer token |
@@ -61,6 +61,23 @@ Contractor identity/contact data, site locations, rates, work notes, time record
 | Ops rate change or revert rewrites historical pay | Contractor rate edits and rate reverts update `contractor.default_rate_cents` only. Time-entry revert restores the snapshotted `rate_cents` from the audit row |
 | Ops edit bypasses an approved week by accident | Time-entry create, update, delete, and revert call the week lock. `confirmLockedWeek: true` is required to proceed. A day over 14 paid hours is flagged on the response |
 | Raw SQL cannot be expressed as a named revert | `POST /api/ops/revert` restores named contractor and time-entry actions only. D1 Time Travel is the operator backstop for other writes |
+
+## Contractor invitation threats
+
+| Threat | Control |
+| --- | --- |
+| Token guessing or database disclosure | 32 random bytes from `crypto.getRandomValues`; email receives base64url while D1 stores only a SHA-256 digest. |
+| Link replay or transition race | Acceptance compare-and-sets exact digest, `pending`, unexpired timestamp, normalized invited email, scoped contractor keys, and current `invited`/`active` status. A unique acceptance nonce conditionally gates the link insert and activation in the same D1 batch; every write must affect one row. Accepted, revoked, expired, malformed, missing, raced, and replayed tokens share `invite_unavailable`. |
+| Invite creation races suspension or archive | Creation uses a conditional invite insert that rechecks contractor id, owner, business, recipient email, and `invited`/`active` status in the D1 batch. Contractor activation requires that exact insert, and affected-row checks reject the stale operation without an invite. |
+| Old link after resend | Resend compare-and-sets the previously read digest, status, expiry, owner, and business before replacing the digest and seven-day expiry. A stale acceptance of the old digest cannot claim or create a link. |
+| Resend or revoke overwrites another transition | Both owner writes match the previously read digest, status, and expiry and require one affected row. Resend also requires the contractor recipient email and eligible status read for delivery to remain unchanged. A CAS loser returns the same owner-side `not_found` and sends no email. |
+| Wrong account signs up or accepts | Invite sign-up derives the account email from the server-side token snapshot and returns generic account-creation failures. Acceptance independently compares the normalized authenticated account email with that same snapshot; the read-only browser field is display-only. |
+| Cross-business invite id | Owner operations derive owner and business from the session and filter both invite and contractor joins by both keys; misses are uniform 404s. |
+| Duplicate contractor identity | Acceptance inserts only `contractor_user` and updates the existing contractor; it never inserts a contractor. Unique indexes allow one accepted identity per business/contractor. |
+| Email/account enumeration | Owner and accept responses are generic and do not report whether an unrelated Better Auth account exists. |
+| Token or PII leakage | Owner APIs omit raw tokens. Invite HTML and API responses are `no-store`. Token path segments are normalized before application reporting, and automatic edge invocation logs/traces are disabled. Logging of recipient, link, body, token, and provider response is prohibited; transport errors are canned. |
+| Email configuration fails after invitation mutation | Provider credentials, sender, and HTTP(S) app base URL are validated before create/resend services run. Missing or malformed configuration returns canned `email_not_configured` with no database write. |
+| Accidental production Mailpit | Mailpit is refused unless both app and Mailpit URLs use loopback hostnames. Production has no provider by default. |
 
 ## Residual risks
 

@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import { AuthShell } from "@/components/auth-shell";
 import { AUTH_MIN_PASSWORD_LENGTH } from "@/lib/accounts-config";
 import { authClient } from "@/lib/auth-client";
+import { authenticatedLandingPath } from "@/lib/role-routing";
 
 export default function SignUpPage() {
   const [name, setName] = useState(""); const [email, setEmail] = useState(""); const [password, setPassword] = useState("");
@@ -13,7 +14,7 @@ export default function SignUpPage() {
     try {
       const result = await authClient.signUp.email({ name, email, password, callbackURL: "/dashboard" });
       if (result.error) { setError(result.error.status === 429 ? "Too many attempts. Try again shortly." : "We could not create that account."); return; }
-      window.location.assign("/dashboard");
+      window.location.assign(await authenticatedLandingPath());
     } catch {
       setError("Could not connect. Check your connection and try again.");
     } finally {

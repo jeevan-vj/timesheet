@@ -16,13 +16,13 @@ Owners can create, list, view, edit, archive, and restore cleaning sites. Site n
 
 Owners can list, create, read, update, archive, and restore contractors. A contractor has a default hourly rate in integer cents and may work at many sites. Contractor names are unique per owner, including archived rows; different owners may share names. Archive deactivates the contractor and that owner's assignments for the contractor; it does not delete rows or time entries. Restore reactivates the same contractor row and those assignments. Dashboard contractor and site selects stay limited to schedulable contractors.
 
-The same contractor row stores an engagement profile: optional preferred name, optional start date (`YYYY-MM-DD`), engagement status (`draft`, `invited`, `active`, `suspended`, or `archived`), a GST-registered flag, an optional GST number (8 or 9 digits when supplied), optional internal notes, and optional emergency contact name and phone. GST fields are metadata only. They do not change entry pay, weekly totals, or remittance. `invited` is a stored status only; invitation tokens, accounts, and portal routes are out of scope.
+The same contractor row stores an engagement profile: optional preferred name, optional start date (`YYYY-MM-DD`), engagement status (`draft`, `invited`, `active`, `suspended`, or `archived`), a GST-registered flag, an optional GST number (8 or 9 digits when supplied), optional internal notes, and optional emergency contact name and phone. GST fields are metadata only. They do not change entry pay, weekly totals, or remittance. Invitation accounts and the placeholder contractor route are specified in CT-016; contractor self-service data remains out of scope.
 
 `engagement_status` is the lifecycle source of truth. The existing `active` flag remains what assignment, schedule, and dashboard selects read, and it stays true only for `invited` and `active`. `draft`, `suspended`, and `archived` cannot be newly assigned or scheduled: those creates return `not_found`. Migration `0006_contractor_engagement.sql` maps an existing `active = 1` row to `active` and an existing `active = 0` row to `archived`. It does not change time entries, rates, or paid minutes. A trigger rejects any other status. An update that changes `engagement_status` to a value that disagrees with `active` fails with `engagement_active_mismatch`. An update that changes only `active` is kept consistent: the row becomes `active` when the flag turns on and `archived` when it turns off. That keeps a pre-0006 archive or restore from aborting during the migration window.
 
 The default contractor list includes every status except `archived`. `includeArchived` adds archived rows, so draft and suspended contractors stay visible and stay off shift-entry selects. Archive sets status `archived` and deactivates that owner's assignments. Restore sets status `active` and reactivates those assignments. Saving status `archived` does the same assignment deactivation. Saving `invited` or `active` over an archived contractor reactivates those assignments. Saving `draft` or `suspended` changes only the contractor row. Historical entries stay readable for every status.
 
-Portal access, when a later slice adds it, is allowed only for `invited` and `active` (`contractorMayHoldPortalAccess`). `draft`, `suspended`, and `archived` must not receive it. This slice does not enforce that rule on a route.
+Portal access is allowed only for `invited` and `active` (`contractorMayHoldPortalAccess`). `draft`, `suspended`, and `archived` must not receive it. CT-016 enforces that rule before the placeholder `/contractor` route renders.
 
 ### CT-003 Site assignments
 
@@ -126,10 +126,24 @@ Wage reads are owner-scoped for one Monday week, optionally one contractor or si
 
 One `SELECT` runs immediately and returns at most 100 rows. `INSERT` and `UPDATE` return a dry-run count, a sample, and a short-lived confirm token, then execute only with that token. `DROP`, `ALTER`, `CREATE`, `PRAGMA`, `ATTACH`, every `DELETE`, multi-statements, and writes to `ops_audit` are rejected.
 
+### CT-016 Contractor invitations and sign-in
+
+An owner may invite an existing contractor row that has an email address and an `invited` or `active` engagement status. Invitations are scoped by both the session-derived owner and active owner business. Creation rechecks the contractor id, owner, business, email, and eligible engagement status in its write batch; a concurrent suspension/archive creates no invite and cannot reactivate the contractor. A contractor has at most one invitation row, with state `pending`, `accepted`, `expired`, or `revoked`. A pending invitation expires after seven days. Resend is allowed only for pending or expired invitations and replaces the token digest and seven-day expiry; the previous link immediately stops working. Revoke is allowed only while pending. Resend and revoke are compare-and-set writes over the previously read digest, stored status, expiry, owner, and business. Resend also compare-and-sets the recipient email and eligible contractor status. A concurrent transition wins and the stale operation returns `not_found` without sending mail.
+
+Invitation tokens contain 32 cryptographically random bytes encoded as base64url. Only the SHA-256 digest is stored. The raw token exists only while constructing the email and is never returned by an owner API or logged. Token-bearing application paths are normalized to `/invite/[token]` or `/api/invites/[token]` before console or error-reporter output; Cloudflare automatic invocation logs and traces are disabled because their raw request URL cannot be application-redacted. Token-bearing page and API responses use `Cache-Control: no-store`.
+
+Acceptance requires an authenticated account whose normalized email equals the snapshotted invited address. Its database batch first compare-and-sets the exact digest, pending status, unexpired timestamp, matching email, owner/business/contractor keys, and a currently `invited` or `active` contractor. The contractor-user insert and contractor activation are conditional on that unique acceptance claim, and every affected-row count must be one. A concurrent resend, revoke, acceptance, expiry, suspension, or archive therefore creates no link. Acceptance never inserts a contractor or changes rates, assignments, schedules, time entries, or historical pay. Expired, revoked, accepted, malformed, wrong-email, raced, and replayed links return the same unavailable result.
+
+Invite sign-up posts only the token, name, and password to an invite-aware server endpoint. The endpoint revalidates the pending invitation, derives the account email from its stored snapshot, invokes the Better Auth server API, preserves the session cookie, and returns a generic failure that does not disclose account existence. The read-only browser email is display-only and is never authoritative.
+
+An accepted contractor-only user signs in through the normal account page and lands on `/contractor`; owner users continue to `/dashboard`. Contractor role resolution joins the account link to the contractor on contractor, owner, and business keys and permits only `invited` or `active`. `/contractor` checks the session and that role on the server before rendering, so suspended and archived links retain no portal access. The contractor landing page is intentionally a placeholder for the later self-service portal. Owners see invitation state beside each contractor and may invite, resend, or revoke when the state permits.
+
+Email delivery is selected by `EMAIL_PROVIDER`. `resend` uses the Resend HTTPS API. `mailpit` is limited to loopback app and Mailpit URLs for local/E2E use. Provider credentials, sender, and an HTTP(S) `APP_BASE_URL` are all validated before invitation creation or rotation. An unset, unknown, malformed, or incomplete provider returns `email_not_configured` before database mutation, so production remains unable to send until explicitly configured.
+
 ## Non-goals
 
 - tax, holiday pay, GST, expenses, invoicing, or bank payments;
-- contractor self-service, contractor invitations, and clock-in geolocation;
+- contractor self-service beyond the invitation landing page, and clock-in geolocation;
 - manager membership and switching between businesses;
 - overlapping/multi-shift days;
 - accounting exports;

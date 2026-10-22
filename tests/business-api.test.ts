@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/sql-js";
 import initSqlJs, { type Database as SqlJsDatabase } from "sql.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { businessIdForUser, membershipIdForUser } from "../src/lib/business";
-import { execContractorEngagementMigration } from "./owner-workspace";
+import { execContractorEngagementMigration, execContractorInviteMigration, seedOwnerWorkspace } from "./owner-workspace";
 import { summarizeWeek, weekEnd } from "../src/lib/payroll";
 import { toDashboardApproval } from "../src/services/week-approval";
 
@@ -118,6 +118,7 @@ async function openMemoryDb() {
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0003_recurring_schedules.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0004_business_workspace.sql"), "utf8"));
   execContractorEngagementMigration(sqlite);
+  execContractorInviteMigration(sqlite);
   handle.sqlite = sqlite;
   handle.database = drizzle(sqlite);
   return sqlite;
@@ -369,6 +370,19 @@ describe("business workspace API", () => {
     expect(await invalid.json()).toEqual({ error: "invalid_request" });
     expect(count(sqlite, "business")).toBe(0);
     expect(count(sqlite, "business_member")).toBe(0);
+  });
+
+  it("denies owner workspace creation to a contractor-only account", async () => {
+    const sqlite = handle.sqlite!;
+    seedOwnerWorkspace(sqlite, "owner-a");
+    insertUser(sqlite, "contractor-user");
+    sqlite.run("INSERT INTO contractor (id, owner_user_id, business_id, created_at, updated_at, name, email, phone, default_rate_cents, currency, active, engagement_status) VALUES ('contractor-a','owner-a','biz_owner-a',1700000000,1700000000,'Contractor A','contractor-user@example.test','',3200,'NZD',1,'active')");
+    sqlite.run("INSERT INTO contractor_user (id, owner_user_id, business_id, contractor_id, user_id, created_at, updated_at) VALUES ('link-a','owner-a','biz_owner-a','contractor-a','contractor-user',1700000000,1700000000)");
+    session.user = { id: "contractor-user", email: "contractor-user@example.test", name: "Contractor User" };
+    const response = await createBusiness(jsonRequest("https://app.example.test/api/business", validProfile));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "forbidden" });
+    expect(count(sqlite, "business")).toBe(1);
   });
 
   it("attaches the business resource on a dashboard read after membership exists", async () => {

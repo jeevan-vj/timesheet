@@ -6,6 +6,12 @@ interface __BaseEnv_Env {
 	AUTH_TRUSTED_ORIGINS: "";
 	RELEASE_SHA: "local";
 	BETTER_AUTH_SECRET: string;
+	OPS_BOT_TOKEN: string;
+	EMAIL_PROVIDER?: string;
+	RESEND_API_KEY?: string;
+	EMAIL_FROM?: string;
+	MAILPIT_URL?: string;
+	APP_BASE_URL?: string;
 }
 declare namespace Cloudflare {
 	interface Env extends __BaseEnv_Env {}
@@ -15,5 +21,5 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "BETTER_AUTH_URL" | "AUTH_TRUSTED_ORIGINS" | "RELEASE_SHA" | "BETTER_AUTH_SECRET">> {}
+interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "BETTER_AUTH_URL" | "AUTH_TRUSTED_ORIGINS" | "RELEASE_SHA" | "BETTER_AUTH_SECRET" | "OPS_BOT_TOKEN" | "EMAIL_PROVIDER" | "RESEND_API_KEY" | "EMAIL_FROM" | "MAILPIT_URL" | "APP_BASE_URL">> {}
 }
