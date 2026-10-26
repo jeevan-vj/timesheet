@@ -115,6 +115,7 @@ describe("invitation routes", () => {
     expect(conflict.invitation.state).toBe("pending");
     expect(JSON.stringify(conflict)).not.toContain(token);
 
+    sqlite.run("UPDATE contractor_invitation SET last_sent_at = last_sent_at - 61 WHERE contractor_id = 'c1'");
     const resent = await resendInvitation(cookieRequest("https://app.example.test/api/contractors/c1/invitation/resend", "POST"), params);
     expect(resent.status).toBe(200);
     const resentBody = await resent.json() as { inviteLink: string };
@@ -124,6 +125,37 @@ describe("invitation routes", () => {
     expect(revoked.status).toBe(200);
     expect(await revoked.json()).toMatchObject({ invitation: { state: "revoked" } });
     expect(sqlRows(sqlite, "SELECT engagement_status FROM contractor WHERE id = 'c1'")).toEqual([["invited"]]);
+  });
+
+  it("returns 404 for another business on read, resend, and revoke", async () => {
+    const params = { params: Promise.resolve({ id: "c1" }) };
+    const created = await createInvitation(cookieRequest("https://app.example.test/api/contractors/c1/invitation", "POST"), params);
+    expect(created.status).toBe(201);
+    const before = sqlRows(sqlite, "SELECT token_digest, status, send_count FROM contractor_invitation");
+    session.user = { id: "owner-b", email: "owner-b@example.test", name: "Owner B" };
+    const read = await readInvitation(cookieRequest("https://app.example.test/api/contractors/c1/invitation"), params);
+    const resent = await resendInvitation(cookieRequest("https://app.example.test/api/contractors/c1/invitation/resend", "POST"), params);
+    const revoked = await revokeInvitation(cookieRequest("https://app.example.test/api/contractors/c1/invitation/revoke", "POST"), params);
+    expect(read.status).toBe(404);
+    expect(resent.status).toBe(404);
+    expect(revoked.status).toBe(404);
+    expect(await read.json()).toEqual({ error: "not_found" });
+    expect(await resent.json()).toEqual({ error: "not_found" });
+    expect(await revoked.json()).toEqual({ error: "not_found" });
+    expect(sqlRows(sqlite, "SELECT token_digest, status, send_count FROM contractor_invitation")).toEqual(before);
+  });
+
+  it("rejects a resend inside the cooldown", async () => {
+    const params = { params: Promise.resolve({ id: "c1" }) };
+    const fetchImpl = vi.fn(async () => Response.json({ id: "email_123" }));
+    vi.stubGlobal("fetch", fetchImpl);
+    const created = await createInvitation(cookieRequest("https://app.example.test/api/contractors/c1/invitation", "POST"), params);
+    expect(created.status).toBe(201);
+    const resent = await resendInvitation(cookieRequest("https://app.example.test/api/contractors/c1/invitation/resend", "POST"), params);
+    expect(resent.status).toBe(429);
+    expect(await resent.json()).toEqual({ error: "resend_too_soon" });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(sqlRows(sqlite, "SELECT send_count, status FROM contractor_invitation")).toEqual([[1, "pending"]]);
   });
 
   it("still creates the invite when the key is missing and does not call Resend", async () => {

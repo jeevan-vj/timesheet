@@ -3,6 +3,13 @@
 import { useEffect, useState } from "react";
 import { asViewerShape, landingPath, type ViewerShape } from "@/lib/viewer-path";
 
+export function LoadWhenViewerReady({ ready, load }: { ready: boolean; load: () => Promise<void> }) {
+  useEffect(() => {
+    if (ready) void load();
+  }, [load, ready]);
+  return null;
+}
+
 export function useViewerGate(): { ready: boolean; viewer: ViewerShape | null } {
   const [viewer, setViewer] = useState<ViewerShape | null>(null);
   useEffect(() => {

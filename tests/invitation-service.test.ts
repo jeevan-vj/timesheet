@@ -2,7 +2,7 @@ import type { Database as SqlJsDatabase } from "sql.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { InvitationExistsError } from "../src/lib/invitation-errors";
 import { invitationTokenDigest, invitationTokenMatches } from "../src/lib/invitation-token";
-import { INVITATION_TTL_MS } from "../src/lib/invitation-view";
+import { INVITATION_TTL_MS, RESEND_COOLDOWN_MS } from "../src/lib/invitation-view";
 import type { SendEmailInput, SendEmailResult } from "../src/lib/mailer";
 import { updateContractor } from "../src/services/timesheet";
 import {
@@ -173,6 +173,28 @@ describe("contractor invitations", () => {
     });
     expect((await getContractorInvitation(database, "owner-a", "c1", deps())).state).toBe("revoked");
     expect(sqlRows(sqlite, "SELECT rate_cents FROM time_entry")).toEqual([]);
+  });
+
+  it("waits 60 seconds before another resend and drops a resend that lost send_count", async () => {
+    await open();
+    await createContractorInvitation(database, "owner-a", "c1", PUBLIC_URL, deps());
+    await expect(resendContractorInvitation(database, "owner-a", "c1", PUBLIC_URL, deps())).rejects.toThrow("resend_too_soon");
+    now = new Date(now.getTime() + RESEND_COOLDOWN_MS - 1);
+    await expect(resendContractorInvitation(database, "owner-a", "c1", PUBLIC_URL, deps())).rejects.toThrow("resend_too_soon");
+    expect(sent).toHaveLength(1);
+    expect(digests(sqlite)[0]?.[3]).toBe(1);
+
+    now = new Date(now.getTime() + 1);
+    const raced = deps();
+    raced.createToken = () => {
+      sqlite.run("UPDATE contractor_invitation SET send_count = send_count + 1 WHERE contractor_id = 'c1'");
+      return "token-stale-should-not-mail";
+    };
+    await expect(resendContractorInvitation(database, "owner-a", "c1", PUBLIC_URL, raced)).rejects.toThrow("invitation_conflict");
+    expect(sent).toHaveLength(1);
+    expect(sent.some((input) => input.text.includes("token-stale-should-not-mail"))).toBe(false);
+    expect(await invitationTokenMatches("token-one-aaaaaaaa", String(digests(sqlite)[0]?.[0]))).toBe(true);
+    expect(digests(sqlite)[0]?.[3]).toBe(2);
   });
 
   it("records a PII-free failure and still returns the link", async () => {

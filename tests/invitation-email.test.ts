@@ -4,6 +4,7 @@ import { invitationAcceptUrl, invitationTokenDigest, invitationTokenMatches } fr
 import {
   invitationActions,
   invitationDeliveryNotice,
+  invitationErrorMessage,
   maskEmail,
   parseInvitationView,
 } from "../src/lib/invitation-ui";
@@ -60,5 +61,7 @@ describe("invitation owner copy", () => {
     expect(invitationActions({ state: "expired", eligible: false, hasLink: false })).toEqual(["revoke"]);
     expect(invitationActions({ state: "accepted", eligible: true, hasLink: false })).toEqual([]);
     expect(parseInvitationView({ state: "none", expiresAt: null, sendCount: null, lastDelivery: null })?.state).toBe("none");
+    expect(invitationErrorMessage("resend_too_soon")).toBe("Wait a minute before sending another link.");
+    expect(invitationErrorMessage("invitation_conflict")).toBe("That link was just replaced. Refresh and try again.");
   });
 });

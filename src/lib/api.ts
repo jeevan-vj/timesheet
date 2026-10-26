@@ -26,6 +26,8 @@ const expectedErrors: Record<string, { status: number; error: string }> = {
   contractor_email_required: { status: 409, error: "contractor_email_required" },
   invitation_exists: { status: 409, error: "invitation_exists" },
   invitation_not_pending: { status: 409, error: "invitation_not_pending" },
+  invitation_conflict: { status: 409, error: "invitation_conflict" },
+  resend_too_soon: { status: 429, error: "resend_too_soon" },
   already_linked: { status: 409, error: "already_linked" },
 };
 

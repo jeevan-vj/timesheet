@@ -87,6 +87,8 @@ export function invitationErrorMessage(code: string): string {
   if (code === "already_linked") return "This contractor already has a portal login.";
   if (code === "invitation_not_pending") return "Only a pending invitation can be changed.";
   if (code === "invitation_exists") return "An invitation is already pending.";
+  if (code === "resend_too_soon") return "Wait a minute before sending another link.";
+  if (code === "invitation_conflict") return "That link was just replaced. Refresh and try again.";
   if (code === "not_found") return "That contractor could not be invited.";
   return "The invitation could not be updated. Please try again.";
 }

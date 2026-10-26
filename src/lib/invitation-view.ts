@@ -1,4 +1,5 @@
 export const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+export const RESEND_COOLDOWN_MS = 60_000;
 
 export type InvitationDelivery = "email" | "link_only" | "email_failed";
 export type InvitationStateName = "none" | "pending" | "expired" | "accepted" | "revoked";
@@ -40,6 +41,10 @@ export function invitationState(row: Pick<InvitationSnapshot, "status" | "expire
   if (row.status !== "pending") return row.status;
   if (asDate(row.expiresAt).getTime() < now.getTime()) return "expired";
   return "pending";
+}
+
+export function resendTooSoon(lastSentAt: Date | number, now: Date): boolean {
+  return now.getTime() - asDate(lastSentAt).getTime() < RESEND_COOLDOWN_MS;
 }
 
 export function asDate(value: Date | number): Date {

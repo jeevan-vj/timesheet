@@ -7,6 +7,7 @@ import { generateInvitationToken, invitationAcceptUrl, invitationTokenDigest } f
 import {
   emptyInvitationView,
   INVITATION_TTL_MS,
+  resendTooSoon,
   snapshotEmail,
   toInvitationView,
   type InvitationDelivery,
@@ -92,8 +93,7 @@ export async function resendContractorInvitation(
 ): Promise<InvitationIssued> {
   const ctx = await loadInviteContext(database, ownerUserId, contractorId, publicUrl, deps);
   assertCanInvite(ctx.contractor);
-  const pending = await findPending(ctx);
-  if (!pending) throw new Error("invitation_not_pending");
+  const pending = requirePendingResend(await findPending(ctx), ctx.now());
   const token = ctx.createToken();
   const row = await rotateInvite(ctx, pending, token);
   return deliverAndView(ctx, row, token);
@@ -247,6 +247,12 @@ async function markInvited(ctx: InviteCtx): Promise<void> {
   ));
 }
 
+function requirePendingResend(pending: InvitationRow | null, now: Date): InvitationRow {
+  if (!pending) throw new Error("invitation_not_pending");
+  if (resendTooSoon(pending.lastSentAt, now)) throw new Error("resend_too_soon");
+  return pending;
+}
+
 async function rotateInvite(ctx: InviteCtx, pending: InvitationRow, token: string): Promise<InvitationRow> {
   const clock = ctx.now();
   const next: InvitationRow = {
@@ -259,7 +265,7 @@ async function rotateInvite(ctx: InviteCtx, pending: InvitationRow, token: strin
     lastDelivery: "link_only",
     updatedAt: clock,
   };
-  await ctx.database.update(contractorInvitation).set({
+  const [updated] = await ctx.database.update(contractorInvitation).set({
     email: next.email,
     tokenDigest: next.tokenDigest,
     expiresAt: next.expiresAt,
@@ -267,7 +273,11 @@ async function rotateInvite(ctx: InviteCtx, pending: InvitationRow, token: strin
     lastSentAt: next.lastSentAt,
     lastDelivery: next.lastDelivery,
     updatedAt: next.updatedAt,
-  }).where(pendingWhere(ctx, pending.id));
+  }).where(and(
+    pendingWhere(ctx, pending.id),
+    eq(contractorInvitation.sendCount, pending.sendCount),
+  )).returning({ id: contractorInvitation.id });
+  if (!updated) throw new Error("invitation_conflict");
   return next;
 }
 
