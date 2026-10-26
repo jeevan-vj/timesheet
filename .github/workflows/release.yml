@@ -55,14 +55,40 @@ jobs:
       - name: Apply production D1 migrations
         run: pnpm exec wrangler d1 migrations apply cleantrack-timesheet --remote --config wrangler.jsonc
       - name: Deploy production release
-        run: >-
-          pnpm exec wrangler deploy
-          --config dist/server/wrangler.json
-          --tag "$GITHUB_SHA"
-          --message "GitHub Actions release $GITHUB_SHA"
-          --var "BETTER_AUTH_URL:${PRODUCTION_URL}"
-          --var "AUTH_TRUSTED_ORIGINS:"
-          --var "RELEASE_SHA:${GITHUB_SHA}"
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          secrets_file=""
+          cleanup() {
+            if [ -n "${secrets_file}" ]; then
+              rm -f -- "${secrets_file}"
+            fi
+          }
+          trap cleanup EXIT
+          deploy_args=(
+            deploy
+            --config dist/server/wrangler.json
+            --tag "$GITHUB_SHA"
+            --message "GitHub Actions release $GITHUB_SHA"
+            --var "BETTER_AUTH_URL:${PRODUCTION_URL}"
+            --var "AUTH_TRUSTED_ORIGINS:"
+            --var "RELEASE_SHA:${GITHUB_SHA}"
+          )
+          if [ -z "${RESEND_API_KEY:-}" ]; then
+            echo "RESEND_API_KEY is unset; continuing without provisioning the Worker secret."
+          else
+            secrets_file="${RUNNER_TEMP}/resend-api-key.json"
+            previous_umask="$(umask)"
+            umask 077
+            rm -f -- "${secrets_file}"
+            node -e 'const fs=require("node:fs"); fs.writeFileSync(process.argv[1], JSON.stringify({RESEND_API_KEY:process.env.RESEND_API_KEY}), {mode:0o600});' "${secrets_file}"
+            chmod 600 "${secrets_file}"
+            umask "${previous_umask}"
+            deploy_args+=(--secrets-file "${secrets_file}")
+          fi
+          pnpm exec wrangler "${deploy_args[@]}"
       - name: Verify active release identity
         shell: bash
         run: |
