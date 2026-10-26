@@ -2,6 +2,8 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { AssignmentManager } from "@/components/assignments";
+import { RoleSwitcher } from "@/components/role-switcher";
+import { LoadWhenViewerReady, useViewerGate } from "@/components/viewer-gate";
 import { authClient } from "@/lib/auth-client";
 import { ContractorsPanel } from "@/components/contractors";
 import { ShiftEntrySheet } from "@/components/shift-entry";
@@ -116,6 +118,7 @@ export function Dashboard() {
   const [loading, setLoading] = useState(true); const [message, setMessage] = useState("");
   const [loadFailed, setLoadFailed] = useState(false);
   const [editing, setEditing] = useState<ManualEntry | null>(null);
+  const gate = useViewerGate();
   const loadGeneration = useRef(0);
   const loadAbort = useRef<AbortController | null>(null);
   const load = useCallback(async (quiet = false) => {
@@ -159,7 +162,6 @@ export function Dashboard() {
       setLoading(false);
     }
   }, [week]);
-  useEffect(() => { void load(); }, [load]);
   const onboarding = data ? onboardingStep({
     business: data.business,
     activeSiteCount: data.sites.length,
@@ -234,7 +236,9 @@ export function Dashboard() {
   })).current;
 
   return <main className="app-shell">
+    <LoadWhenViewerReady ready={gate.ready} load={load} />
     <header className="app-header"><a className="brand" href="/"><span className="brand-mark">C</span> CleanTrack</a><nav><a href="#team">Team & sites</a><button className="link-button" onClick={() => void authClient.signOut().then(() => window.location.assign("/"))}>Sign out</button></nav></header>
+    <RoleSwitcher viewer={gate.viewer} current="dashboard" />
     <section className="dashboard-heading"><div><p className="eyebrow">Weekly workspace</p><h1>Hours & contractor pay</h1><p className="muted">Gross contractor payments before tax, GST, expenses, or adjustments.</p></div><div className="week-heading-tools"><WeekPicker week={week} onChange={setWeek} />{!loading && data ? <WeekApprovalBar status={data.approval.status} onApprove={() => approvalFlow.requestApprove()} onReopen={() => approvalFlow.requestReopen()} /> : null}</div></section>
     {message ? <p className="notice" role="status">{message}</p> : null}
     {loading ? <section className="loading-card" role="status">Loading your week…</section> : loadFailed || !data ? <section className="loading-card" role="alert"><p>Could not refresh this week. Any confirmed changes are saved.</p><button type="button" className="button" onClick={() => void load()}>Try again</button></section> : <LoadedWeek data={data} onboarding={onboarding} totalMinutes={totalMinutes} totalPay={totalPay} siteSummary={siteSummary} weekLocked={weekLocked} editing={editing} onReload={() => load(true)} onAnnounce={setMessage} onCopyWeekBrief={() => void copyWeekBrief()} onEdit={setEditing} onDelete={(target) => deleteFlow.request(target)} onRemittance={(target) => remittanceFlow.request(target)} />}

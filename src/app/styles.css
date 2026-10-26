@@ -144,6 +144,13 @@ input[aria-invalid="true"],select[aria-invalid="true"] { border-color:#c45c45; }
 .contractor-form textarea { min-height:72px; resize:vertical; }
 .contractor-gst-toggle { margin:4px 0 0; }
 .contractor-notes { white-space:pre-wrap; overflow-wrap:anywhere; }
+.contractor-invitation { display:grid; gap:8px; margin-top:10px; }
+.access-badge { display:inline-flex; width:fit-content; padding:2px 8px; border-radius:999px; background:var(--mint); color:var(--green); font-size:.72rem; font-weight:800; }
+.invite-link-field { width:100%; font-size:.75rem; }
+.role-switcher { max-width:1240px; margin:0 auto 8px; padding:0 30px; display:flex; flex-wrap:wrap; gap:12px; }
+.role-switcher a { text-decoration:none; font-weight:700; }
+.role-switcher a[aria-current="page"] { color:var(--green); }
+.portal-links { padding-left:1.2rem; }
 .row-actions { display:inline-flex; align-items:center; gap:8px; white-space:nowrap; }
 .row-actions .button.small { padding:6px 10px; box-shadow:none; }
 .summary-panel { position:sticky; top:15px; }.summary-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }.summary-heading h2 { margin:0; }.summary-copy { flex:none; margin-top:18px; }.summary-subhead { margin:8px 0 0; font-size:.95rem; }.site-summary { margin-top:18px; padding-top:8px; border-top:1px solid var(--line); }.summary-row { display:flex; justify-content:space-between; align-items:flex-start; gap:15px; padding:16px 0; border-bottom:1px solid #edeee9; }.summary-row div strong,.summary-row div small { display:block; }.summary-row small { color:var(--muted); margin-top:4px; font-size:.74rem; }.summary-row .button.small { margin-top:8px; padding:6px 10px; font-size:.78rem; box-shadow:none; }.summary-row b { flex:none; white-space:nowrap; }.summary-total { display:flex; justify-content:space-between; padding-top:22px; }.summary-total strong { font-size:1.35rem; font-weight:800; }.roomy { margin-top:32px; }

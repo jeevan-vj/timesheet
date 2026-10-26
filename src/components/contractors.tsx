@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState, type MouseEvent, type RefObject } from "react";
 import { formatNzd } from "@/lib/shift-entry";
+import { ContractorInvitation } from "@/components/contractor-invitation";
 import {
   CONTRACTOR_SUCCESS,
   contractorArchivePrompt,
@@ -281,6 +282,7 @@ export function ContractorsPanel({
           onEdit={() => openEdit(contractor)}
           onArchive={() => archiveFlow.request({ id: contractor.id, name: contractor.name })}
           onRestore={() => void restore(contractor)}
+          onInvitationChanged={async () => { await Promise.all([loadList(), onChanged()]); }}
         />
       ))}
     </div>
@@ -317,12 +319,14 @@ function ContractorRow({
   onEdit,
   onArchive,
   onRestore,
+  onInvitationChanged,
 }: {
   contractor: ContractorResource;
   busy: boolean;
   onEdit: () => void;
   onArchive: () => void;
   onRestore: () => void;
+  onInvitationChanged: () => Promise<void>;
 }) {
   return <div className="compact-row contractor-row" data-engagement-status={contractor.engagementStatus}>
     <div>
@@ -339,6 +343,13 @@ function ContractorRow({
         <summary>Internal notes</summary>
         <small className="contractor-notes">{contractor.internalNotes}</small>
       </details> : null}
+      <ContractorInvitation
+        contractorId={contractor.id}
+        contractorName={contractor.name}
+        email={contractor.email}
+        engagementStatus={contractor.engagementStatus}
+        onChanged={onInvitationChanged}
+      />
     </div>
     <div className="contractor-row-actions">
       <button type="button" className="button small secondary" onClick={onEdit} aria-label={`Edit ${contractor.name}`}>Edit</button>

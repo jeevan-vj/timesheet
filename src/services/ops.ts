@@ -1,7 +1,7 @@
 import { and, eq, gte, lte } from "drizzle-orm";
 import type { db } from "@/db/client";
 import { assignments, contractors, opsAudit, sites, timeEntries } from "@/db/schema";
-import { sha256Bytes } from "@/lib/ops-auth";
+import { sha256Bytes } from "@/lib/crypto";
 import {
   OPS_SELECT_ROW_CAP,
   planOpsSql,

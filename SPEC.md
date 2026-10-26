@@ -16,13 +16,13 @@ Owners can create, list, view, edit, archive, and restore cleaning sites. Site n
 
 Owners can list, create, read, update, archive, and restore contractors. A contractor has a default hourly rate in integer cents and may work at many sites. Contractor names are unique per owner, including archived rows; different owners may share names. Archive deactivates the contractor and that owner's assignments for the contractor; it does not delete rows or time entries. Restore reactivates the same contractor row and those assignments. Dashboard contractor and site selects stay limited to schedulable contractors.
 
-The same contractor row stores an engagement profile: optional preferred name, optional start date (`YYYY-MM-DD`), engagement status (`draft`, `invited`, `active`, `suspended`, or `archived`), a GST-registered flag, an optional GST number (8 or 9 digits when supplied), optional internal notes, and optional emergency contact name and phone. GST fields are metadata only. They do not change entry pay, weekly totals, or remittance. `invited` is a stored status only; invitation tokens, accounts, and portal routes are out of scope.
+The same contractor row stores an engagement profile: optional preferred name, optional start date (`YYYY-MM-DD`), engagement status (`draft`, `invited`, `active`, `suspended`, or `archived`), a GST-registered flag, an optional GST number (8 or 9 digits when supplied), optional internal notes, and optional emergency contact name and phone. GST fields are metadata only. They do not change entry pay, weekly totals, or remittance. Owners issue a portal invitation for an `invited` or `active` contractor (CT-016). Accepting that invitation and the read-only portal data are later slices (CT-017).
 
 `engagement_status` is the lifecycle source of truth. The existing `active` flag remains what assignment, schedule, and dashboard selects read, and it stays true only for `invited` and `active`. `draft`, `suspended`, and `archived` cannot be newly assigned or scheduled: those creates return `not_found`. Migration `0006_contractor_engagement.sql` maps an existing `active = 1` row to `active` and an existing `active = 0` row to `archived`. It does not change time entries, rates, or paid minutes. A trigger rejects any other status. An update that changes `engagement_status` to a value that disagrees with `active` fails with `engagement_active_mismatch`. An update that changes only `active` is kept consistent: the row becomes `active` when the flag turns on and `archived` when it turns off. That keeps a pre-0006 archive or restore from aborting during the migration window.
 
 The default contractor list includes every status except `archived`. `includeArchived` adds archived rows, so draft and suspended contractors stay visible and stay off shift-entry selects. Archive sets status `archived` and deactivates that owner's assignments. Restore sets status `active` and reactivates those assignments. Saving status `archived` does the same assignment deactivation. Saving `invited` or `active` over an archived contractor reactivates those assignments. Saving `draft` or `suspended` changes only the contractor row. Historical entries stay readable for every status.
 
-Portal access, when a later slice adds it, is allowed only for `invited` and `active` (`contractorMayHoldPortalAccess`). `draft`, `suspended`, and `archived` must not receive it. This slice does not enforce that rule on a route.
+Portal access is allowed only for `invited` and `active` (`contractorMayHoldPortalAccess`). `draft`, `suspended`, and `archived` must not receive a new invitation. Invitation create and resend enforce that rule. Portal week, sites, and payment routes are not in this change.
 
 ### CT-003 Site assignments
 
@@ -126,11 +126,35 @@ Wage reads are owner-scoped for one Monday week, optionally one contractor or si
 
 One `SELECT` runs immediately and returns at most 100 rows. `INSERT` and `UPDATE` return a dry-run count, a sample, and a short-lived confirm token, then execute only with that token. `DROP`, `ALTER`, `CREATE`, `PRAGMA`, `ATTACH`, every `DELETE`, multi-statements, and writes to `ops_audit` are rejected.
 
+### CT-016 Contractor invitations
+
+An owner invites one existing contractor to a later read-only portal. The invitation is owner-scoped and business-scoped. Cross-owner and cross-business ids return `404 { error: "not_found" }` and write nothing.
+
+Create and resend require `contractorMayHoldPortalAccess` and a non-blank contractor email. A blank email returns `409 contractor_email_required`. A contractor who already has a `contractor_account` row returns `409 already_linked`. A second create while a pending row exists returns `409 invitation_exists` with the current state and does not mint a second token. Resend and revoke of a row that is not pending return `409 invitation_not_pending`. A resend within 60 seconds of `last_sent_at` returns `429 resend_too_soon` and does not rotate the token or send email. A resend whose stored `send_count` no longer matches the row just read returns `409 invitation_conflict` and does not send email.
+
+The token is 32 random bytes, base64url. Only `sha256(token)` hex is stored. The link is `${BETTER_AUTH_URL}/invite#<token>`. The token is never in the path, the query, a GET response, or a log. The invitation expires 7 days after it is sent. Expired is `pending` and `expires_at < now`. Resend rotates the digest, refreshes the email snapshot, resets the 7-day window, and increments `send_count`. Revoke is allowed only while the row is pending, including when that pending row is already expired. Changing `contractor.email` to a different address (case-insensitive) revokes a pending invitation. Create sets `engagement_status` to `invited`.
+
+`GET /api/contractors/:id/invitation` returns `state` (`none`, `pending`, `expired`, `accepted`, or `revoked`), `expiresAt`, `sendCount`, and `lastDelivery` (`email`, `link_only`, or `email_failed`). It never returns the token. Create and resend commit the row first, then try email, and return `{ invitation, delivery, inviteLink }` once so the owner can copy the link. Cookie-authenticated invitation mutations require a trusted origin.
+
+Email is one `POST https://api.resend.com/emails` from `src/lib/mailer.ts`. `EMAIL_FROM` is `CleanTrack <invites@jnok.co.nz>`. The optional Worker secret is provisioned as `docs/DEPLOYMENT.md` describes. When it is missing, or Resend returns an error or times out, the invitation stays pending and the response still includes `inviteLink`. The message subject is `<Business name> invited you to CleanTrack`. The body names the business and the contractor's first name and links to the fragment URL. It does not include rates, pay, or notes. `reply_to` is the business contact email. The idempotency key is `invite/<invitationId>/<sendCount>`. Operational logs may record `email_not_configured` or `email_send_failed` with `kind: invitation` and an optional `httpStatus`. They do not record the token, link, recipient, business name, request body, or provider body.
+
+Accepting the invitation and linking `contractor_account` are not in this change. Password reset is not in this change.
+
+### CT-017 Contractor portal
+
+`GET /api/me` returns `{ owner, contractorOf }` for the signed-in user. `owner` is the active owner business profile, or null. `contractorOf` lists active `contractor_account` links as `{ businessId, businessName }`. A signed-out request is `401`.
+
+After sign-in, a user with no owner membership and at least one contractor link is sent to `/portal`. A user with no owner membership and no link still sees owner onboarding. A user who is both an owner and a contractor sees a switcher for the owner workspace and their contractor work. `/portal` is a placeholder. It does not show week entries, sites, rates, notes, or pay.
+
+Sign-in and sign-up accept a same-origin `returnTo` of `/invite`, `/portal`, or `/dashboard`. Any other value, including an absolute URL, is ignored and the browser goes to `/dashboard`.
+
+The read-only week, sites, and payments views, remittance download for contractors, and invitation acceptance are later slices. No portal route accepts a client-supplied `contractorId`.
+
 ## Non-goals
 
 - tax, holiday pay, GST, expenses, invoicing, or bank payments;
-- contractor self-service, contractor invitations, and clock-in geolocation;
-- manager membership and switching between businesses;
+- contractor time submission and clock-in geolocation;
+- manager membership and an owner switching between businesses;
 - overlapping/multi-shift days;
 - accounting exports;
 - multiple currencies inside one business workspace.

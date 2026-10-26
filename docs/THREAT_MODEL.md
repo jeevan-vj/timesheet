@@ -24,7 +24,7 @@ Contractor identity/contact data, site locations, rates, work notes, time record
 | Cross-owner read or edit of engagement notes, GST number, or emergency contact | Same `404 { error: "not_found" }` with no writes. Those columns are read only with owner and business predicates. Responses omit `ownerUserId` and `businessId` |
 | Draft, suspended, or archived contractor is newly assigned | `active` is derived from `engagement_status`. A status change that disagrees with `active` aborts. An active-only write is aligned to `active` or `archived`. Assignment and time-entry creates still require `contractor.active` |
 | GST metadata changes historical pay | Payroll and remittance read snapshotted `time_entry` rows only. GST columns are not inputs to `calculateEntryPayCents` |
-| Suspended or archived contractor keeps portal access | `contractorMayHoldPortalAccess` is true only for `invited` and `active`. Portal routes are not in this change; a later slice must use that predicate |
+| Suspended or archived contractor keeps portal access | Invitation create and resend require `contractorMayHoldPortalAccess` (`invited` or `active`). A changed contractor email revokes a pending invite. Portal data routes are a later slice |
 | Archive is mistaken for hard-delete | Archive sets `active = false` and deactivates that site's assignments; the site row and historical time entries remain |
 | Unassign deletes history | Unassign only sets `active=false`; time entries and snapshotted rates remain |
 | Duplicate daily entry inflates pay | Unique owner/contractor/site/date index, pre-insert owner-scoped lookup, pre-update lookup that excludes the current entry id, and a specific `duplicate_entry` error |
@@ -61,6 +61,12 @@ Contractor identity/contact data, site locations, rates, work notes, time record
 | Ops rate change or revert rewrites historical pay | Contractor rate edits and rate reverts update `contractor.default_rate_cents` only. Time-entry revert restores the snapshotted `rate_cents` from the audit row |
 | Ops edit bypasses an approved week by accident | Time-entry create, update, delete, and revert call the week lock. `confirmLockedWeek: true` is required to proceed. A day over 14 paid hours is flagged on the response |
 | Raw SQL cannot be expressed as a named revert | `POST /api/ops/revert` restores named contractor and time-entry actions only. D1 Time Travel is the operator backstop for other writes |
+| Invitation token is logged or stored | The token is 32 random bytes. The database stores hex SHA-256 only. The link carries it in the URL fragment, and mutations send it in a POST body in a later slice. GET responses, operational logs, and Resend tags omit it |
+| Owner invites another owner's contractor | Invitation reads and writes use the session owner and that owner's business. A foreign id is `404 not_found` |
+| CSRF sends or revokes an invitation | Cookie-authenticated invitation create, resend, and revoke require a configured trusted Origin |
+| Invite email leaks rates or the API key | The message names the business and a first name and links to the fragment URL. The optional Worker secret is not in `secrets.required`. Provisioning is in `docs/DEPLOYMENT.md`. Logs allow only `event`, `kind`, and `httpStatus` |
+| Copy-link invite is forwarded | When email is not configured or the send fails, the owner is given the link once and must send it privately. The account-email check on accept is a later slice |
+| Open redirect after sign-in | `returnTo` is limited to `/invite`, `/portal`, and `/dashboard`. Absolute and protocol-relative values are ignored |
 
 ## Residual risks
 
