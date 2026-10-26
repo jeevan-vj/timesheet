@@ -1,19 +1,28 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { AuthShell } from "@/components/auth-shell";
 import { AUTH_MIN_PASSWORD_LENGTH } from "@/lib/accounts-config";
 import { authClient } from "@/lib/auth-client";
+import { safeReturnTo } from "@/lib/return-to";
+
+function returnToFromLocation(): string {
+  if (typeof window === "undefined") return "/dashboard";
+  return safeReturnTo(new URLSearchParams(window.location.search).get("returnTo"));
+}
 
 export default function SignUpPage() {
   const [name, setName] = useState(""); const [email, setEmail] = useState(""); const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false); const [error, setError] = useState("");
+  const [returnTo, setReturnTo] = useState("/dashboard");
+  useEffect(() => { setReturnTo(returnToFromLocation()); }, []);
   async function submit(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError("");
+    const next = returnToFromLocation();
     try {
-      const result = await authClient.signUp.email({ name, email, password, callbackURL: "/dashboard" });
+      const result = await authClient.signUp.email({ name, email, password, callbackURL: next });
       if (result.error) { setError(result.error.status === 429 ? "Too many attempts. Try again shortly." : "We could not create that account."); return; }
-      window.location.assign("/dashboard");
+      window.location.assign(next);
     } catch {
       setError("Could not connect. Check your connection and try again.");
     } finally {
@@ -29,6 +38,6 @@ export default function SignUpPage() {
       {error ? <p className="alert" role="alert">{error}</p> : null}
       <button className="button" disabled={busy}>{busy ? "Creating…" : "Create account"}</button>
     </form>
-    <p className="switch-copy">Already set up? <a href="/sign-in">Sign in</a></p>
+    <p className="switch-copy">Already set up? <a href={`/sign-in?returnTo=${encodeURIComponent(returnTo)}`}>Sign in</a></p>
   </AuthShell>;
 }

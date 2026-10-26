@@ -23,6 +23,10 @@ const expectedErrors: Record<string, { status: number; error: string }> = {
   schedule_exists: { status: 409, error: "schedule_exists" },
   no_schedule: { status: 409, error: "no_schedule" },
   business_required: { status: 409, error: "business_required" },
+  contractor_email_required: { status: 409, error: "contractor_email_required" },
+  invitation_exists: { status: 409, error: "invitation_exists" },
+  invitation_not_pending: { status: 409, error: "invitation_not_pending" },
+  already_linked: { status: 409, error: "already_linked" },
 };
 
 export async function authorize(request: Request, mutation = false): Promise<{ user: SessionUser } | { response: Response }> {

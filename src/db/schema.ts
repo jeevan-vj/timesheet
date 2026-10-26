@@ -179,6 +179,47 @@ export const opsAudit = sqliteTable("ops_audit", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 }, (t) => [index("ops_audit_created_at_idx").on(t.createdAt)]);
 
+export const contractorInvitation = sqliteTable("contractor_invitation", {
+  id: text("id").primaryKey(),
+  businessId: text("business_id").notNull().references(() => business.id, { onDelete: "restrict" }),
+  ownerUserId: text("owner_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  contractorId: text("contractor_id").notNull().references(() => contractors.id, { onDelete: "restrict" }),
+  email: text("email").notNull(),
+  tokenDigest: text("token_digest").notNull(),
+  status: text("status").notNull().$type<"pending" | "accepted" | "revoked">(),
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+  sendCount: integer("send_count").notNull().default(1),
+  lastSentAt: integer("last_sent_at", { mode: "timestamp" }).notNull(),
+  lastDelivery: text("last_delivery").notNull().$type<"email" | "link_only" | "email_failed">(),
+  acceptedAt: integer("accepted_at", { mode: "timestamp" }),
+  acceptedUserId: text("accepted_user_id").references(() => user.id, { onDelete: "set null" }),
+  revokedAt: integer("revoked_at", { mode: "timestamp" }),
+  createdByUserId: text("created_by_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (t) => [
+  uniqueIndex("contractor_invitation_token_digest_uq").on(t.tokenDigest),
+  uniqueIndex("contractor_invitation_pending_uq").on(t.contractorId).where(sql`${t.status} = 'pending'`),
+  index("contractor_invitation_business_idx").on(t.businessId, t.contractorId),
+]);
+
+export const contractorAccount = sqliteTable("contractor_account", {
+  id: text("id").primaryKey(),
+  businessId: text("business_id").notNull().references(() => business.id, { onDelete: "restrict" }),
+  ownerUserId: text("owner_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  contractorId: text("contractor_id").notNull().references(() => contractors.id, { onDelete: "restrict" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  invitationId: text("invitation_id").references(() => contractorInvitation.id, { onDelete: "set null" }),
+  active: integer("active").notNull().default(1),
+  revokedAt: integer("revoked_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (t) => [
+  uniqueIndex("contractor_account_contractor_uq").on(t.contractorId),
+  uniqueIndex("contractor_account_business_user_uq").on(t.businessId, t.userId),
+  index("contractor_account_user_idx").on(t.userId),
+]);
+
 export const weekApprovals = sqliteTable("week_approval", {
   id: text("id").primaryKey(),
   ...ownedFields,

@@ -1,21 +1,6 @@
-function bytesOf(value: string): Uint8Array<ArrayBuffer> {
-  const encoded = new TextEncoder().encode(value);
-  const copy = new Uint8Array(encoded.byteLength);
-  copy.set(encoded);
-  return copy;
-}
+import { sha256Bytes, timingSafeEqual } from "@/lib/crypto";
 
-export async function sha256Bytes(value: string): Promise<Uint8Array> {
-  const digest = await crypto.subtle.digest("SHA-256", bytesOf(value));
-  return new Uint8Array(digest);
-}
-
-export function timingSafeEqual(left: Uint8Array, right: Uint8Array): boolean {
-  if (left.length !== right.length) return false;
-  let diff = 0;
-  for (let i = 0; i < left.length; i += 1) diff |= left[i]! ^ right[i]!;
-  return diff === 0;
-}
+export { sha256Bytes, timingSafeEqual } from "@/lib/crypto";
 
 export async function opsBearerAuthorized(authorization: string | null, secret: string): Promise<boolean> {
   const prefix = "Bearer ";

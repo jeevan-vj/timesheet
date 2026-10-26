@@ -40,7 +40,23 @@ An owner inspects one recorded shift with GET `/api/time-entries/:id`, which ret
 
 A contractor row stays in place for the owner's history. Archive sets `engagement_status='archived'` and `active=false` on the contractor, and sets `active=false` on all of that owner's assignments for the contractor. Restore sets `engagement_status='active'` and `active=true` on the same contractor row first, then reactivates those assignments. Neither inserts a new contractor. Both writes are issued in one Drizzle D1 `batch` so they share a single round trip. D1 batch is not rollback-atomic; retry remains safe because the operations are idempotent. Both never write `time_entry`.
 
-`engagement_status` is the lifecycle source of truth: `draft`, `invited`, `active`, `suspended`, or `archived`. `active` is true only for `invited` and `active`, which is what assignment, schedule, and dashboard selects already require. `draft`, `suspended`, and `archived` therefore cannot be newly assigned. Saving `archived` deactivates assignments; saving `invited` or `active` from `archived` reactivates them; saving `draft` or `suspended` does not change assignments. Migration `0006_contractor_engagement.sql` backfills `active` rows to `active` and inactive rows to `archived`. Triggers reject an unknown status. A status change that disagrees with `active` fails. A write that changes only `active` is aligned to `active` or `archived`, so a pre-0006 Worker archive or restore still commits. The migration does not rewrite `time_entry`. Portal access is allowed only for `invited` and `active` (`contractorMayHoldPortalAccess`). No portal route enforces that yet.
+`engagement_status` is the lifecycle source of truth: `draft`, `invited`, `active`, `suspended`, or `archived`. `active` is true only for `invited` and `active`, which is what assignment, schedule, and dashboard selects already require. `draft`, `suspended`, and `archived` therefore cannot be newly assigned. Saving `archived` deactivates assignments; saving `invited` or `active` from `archived` reactivates them; saving `draft` or `suspended` does not change assignments. Migration `0006_contractor_engagement.sql` backfills `active` rows to `active` and inactive rows to `archived`. Triggers reject an unknown status. A status change that disagrees with `active` fails. A write that changes only `active` is aligned to `active` or `archived`, so a pre-0006 Worker archive or restore still commits. The migration does not rewrite `time_entry`. Portal access is allowed only for `invited` and `active` (`contractorMayHoldPortalAccess`). Invitation create and resend enforce that predicate. Week, sites, and payment portal routes are not built yet.
+
+## Viewer and invitations
+
+`GET /api/me` calls `resolveViewer`. The owner half is the active owner membership and its business. The contractor half is active `contractor_account` rows for the session user, joined to `business` for the display name. Contractor links are not `business_member` rows, so the one-active-membership index still allows a person to own one business and work at others. Until an invitation is accepted, `contractorOf` is empty. `/dashboard` sends a contractor-only user to the `/portal` placeholder. Sign-in and sign-up keep a same-origin `returnTo` of `/invite`, `/portal`, or `/dashboard`.
+
+Migration `0007_contractor_portal_access.sql` adds `contractor_invitation` and `contractor_account`. Nothing is backfilled. Tokens are stored as hex SHA-256 digests. The deliverable link puts the token in the URL fragment. Create and resend write the row before calling Resend. `last_delivery` records `email`, `link_only`, or `email_failed`. A pending invite is revoked by a trigger when `contractor.email` changes to a different address. The sender is `CleanTrack <invites@jnok.co.nz>`. How the optional Worker secret is provisioned is in `docs/DEPLOYMENT.md`. Accepting an invitation is a later write into `contractor_account`.
+
+Invitation routes:
+
+| Method | Path | Cookie mutation | Success |
+| --- | --- | --- | --- |
+| GET | `/api/me` | no | `200 { owner, contractorOf }` |
+| GET | `/api/contractors/[id]/invitation` | no | `200` state, `expiresAt`, `sendCount`, `lastDelivery` |
+| POST | `/api/contractors/[id]/invitation` | yes | `201 { invitation, delivery, inviteLink }` |
+| POST | `/api/contractors/[id]/invitation/resend` | yes | `200 { invitation, delivery, inviteLink }` |
+| POST | `/api/contractors/[id]/invitation/revoke` | yes | `200 { invitation }` |
 
 The unique index `contractor_owner_name_uq` on `(owner_user_id, name)` includes archived rows. A same-owner create or rename that collides, including with an archived name, returns `409 { error: "duplicate_contractor" }`. Different owners may share names. Cross-owner get, update, archive, and restore return identical `404 { error: "not_found" }` with no writes.
 
