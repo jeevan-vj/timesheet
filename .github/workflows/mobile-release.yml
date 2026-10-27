@@ -37,6 +37,11 @@ jobs:
   decide:
     name: Decide OTA or iOS build
     if: github.repository == 'jeevan-vj/timesheet' && github.ref == 'refs/heads/main'
+    # GET /repos/{owner}/{repo}/environments/{name} returns 403 for a GitHub App
+    # token that only has contents: read. actions: read is the extra scope.
+    permissions:
+      contents: read
+      actions: read
     runs-on: ubuntu-latest
     timeout-minutes: 45
     outputs:

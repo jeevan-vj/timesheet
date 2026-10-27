@@ -345,10 +345,14 @@ describe("mobile release workflow contract", () => {
     const build = workflow.slice(workflow.indexOf("\n  build:"));
     expect(decide).toContain("secrets.EXPO_TOKEN_READ");
     expect(decide).not.toMatch(/secrets\.EXPO_TOKEN(?!_READ)/);
+    expect(decide).toContain("actions: read");
+    expect(decide).toContain("contents: read");
     expect(publish).toMatch(/secrets\.EXPO_TOKEN(?!_READ)/);
     expect(publish).not.toContain("EXPO_TOKEN_READ");
+    expect(publish).not.toContain("actions: read");
     expect(build).toMatch(/secrets\.EXPO_TOKEN(?!_READ)/);
     expect(build).not.toContain("EXPO_TOKEN_READ");
+    expect(build).not.toContain("actions: read");
     const publishCheck = publish.indexOf("--print-hash");
     const publishUpdate = publish.indexOf("update:production");
     expect(publishCheck).toBeGreaterThan(-1);

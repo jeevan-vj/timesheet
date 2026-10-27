@@ -128,7 +128,7 @@ The concurrency group is `cleantrack-mobile-production` with `cancel-in-progress
 
 The decide job is read-only. It does not use the `mobile-production` environment, and its summary is the record the reviewer sees.
 
-1. Read `GET /repos/jeevan-vj/timesheet/environments/mobile-production` with the workflow token (`contents: read` only) and stop unless that environment has a required reviewer. The response body is deleted and is not printed.
+1. Read `GET /repos/jeevan-vj/timesheet/environments/mobile-production` and stop unless that environment has a required reviewer. The decide job token has `contents: read` and `actions: read`. A GitHub App token with only `contents: read` gets 403 from that endpoint. Publish and build stay on `contents: read`. The response body is deleted and is not printed.
 2. Install dependencies and pin `eas-cli@25.3.0` with `npm install --ignore-scripts` (the same CLI version the TestFlight skill uses). `build:list --fingerprint-hash` is the filter that matches this runtime policy.
 3. Generate the iOS fingerprint with `APP_VARIANT=production` and this project's `expo-updates fingerprint:generate`. That is the hash an EAS Build of profile `production` embeds. `eas fingerprint:generate` is not used here: it uploads a fingerprint record.
 4. Generate the fingerprint again through `eas env:exec production`, which is the environment `update:production` loads. If the two hashes differ, the job stops. No OTA is published and no build starts, including `force-update`. `extra.apiUrl` is part of the fingerprint, so an `EXPO_PUBLIC_API_URL` that is not the build-profile value would publish an update the binary cannot receive.
@@ -148,7 +148,7 @@ Publish and build jobs check out that same commit. They refuse a dirty tracked t
 
 ### Approval and secrets
 
-Publish and build run in the GitHub environment `mobile-production`. The decide job calls `GET /repos/jeevan-vj/timesheet/environments/mobile-production` with the workflow's existing read token and refuses to continue unless that environment has at least one required reviewer. No extra token scope is added. Until the environment and reviewer exist, the workflow cannot publish or build. Create the environment and add Jeevan as a required reviewer before merging if the next push to `main` should be able to release.
+Publish and build run in the GitHub environment `mobile-production`. The decide job calls `GET /repos/jeevan-vj/timesheet/environments/mobile-production` and refuses to continue unless that environment has at least one required reviewer. That call needs `actions: read` on the decide job; `contents: read` alone returns 403 for the workflow's GitHub App token and would stop every release. Publish and build do not receive `actions: read`. Until the environment and reviewer exist, the workflow cannot publish or build. Create the environment and add Jeevan as a required reviewer before merging if the next push to `main` should be able to release.
 
 Two Expo robots, not one shared token:
 
