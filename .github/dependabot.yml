@@ -5,7 +5,37 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # Expo SDK upgrades stay manual via `npx expo install`.
+    ignore:
+      - dependency-name: react
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+      - dependency-name: react-dom
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+      - dependency-name: react-native
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+      - dependency-name: expo
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+      - dependency-name: expo-*
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+      - dependency-name: "@expo/*"
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
     groups:
+      drizzle:
+        patterns:
+          - drizzle-orm
+          - drizzle-kit
       npm-production:
         dependency-type: production
         patterns:

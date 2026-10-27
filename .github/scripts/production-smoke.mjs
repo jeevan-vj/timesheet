@@ -5,6 +5,35 @@ export const SMOKE_MUTATION_PATH = "/api/sites";
 export const SMOKE_ORIGIN = "https://smoke.invalid";
 export const SMOKE_COOKIE = "cleantrack-smoke=1";
 
+const NAMED_ENTITIES = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: "\"",
+  apos: "'",
+};
+
+export function decodeHtmlEntities(text) {
+  return text.replace(/&(?:#x([0-9a-fA-F]+)|#([0-9]+)|([a-z]+));/gi, (match, hex, decimal, name) => {
+    if (hex !== undefined) return characterFromCode(Number.parseInt(hex, 16), match);
+    if (decimal !== undefined) return characterFromCode(Number.parseInt(decimal, 10), match);
+    const named = NAMED_ENTITIES[name.toLowerCase()];
+    return named ?? match;
+  });
+}
+
+function characterFromCode(code, fallback) {
+  if (!Number.isInteger(code) || code < 0 || code > 0x10ffff) return fallback;
+  if (code >= 0xd800 && code <= 0xdfff) return fallback;
+  return String.fromCodePoint(code);
+}
+
+export function htmlTitleText(html) {
+  const match = html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i);
+  if (!match) return "";
+  return decodeHtmlEntities(match[1]).trim();
+}
+
 const requiredHeaders = {
   "cache-control": "no-store",
   "content-security-policy": "frame-ancestors 'none'",
@@ -34,7 +63,7 @@ async function assertHealthyResponse(response, releaseSha) {
     throw new SmokeCheckError("Health response was not valid JSON");
   }
 
-  if (body.status !== "ok" || body.database !== "ok" || body.release !== releaseSha) {
+  if (body.status !== "ok" || body.database !== "ok" || (releaseSha !== undefined && body.release !== releaseSha)) {
     throw new SmokeCheckError("Health response does not match the active release");
   }
 
@@ -43,6 +72,7 @@ async function assertHealthyResponse(response, releaseSha) {
       throw new SmokeCheckError(`Missing required ${name} response header`);
     }
   }
+  return body;
 }
 
 function cacheBust(url, releaseSha, attempt) {
@@ -51,15 +81,16 @@ function cacheBust(url, releaseSha, attempt) {
   return url;
 }
 
-async function assertReleaseSurface({ fetchImpl, productionUrl, releaseSha, attempt }) {
-  const healthUrl = cacheBust(new URL("/api/health", productionUrl), releaseSha, attempt);
+async function assertReleaseSurface({ fetchImpl, productionUrl, releaseSha, attempt, expectReleaseIdentity }) {
+  const cacheKey = releaseSha || "unscoped";
+  const healthUrl = cacheBust(new URL("/api/health", productionUrl), cacheKey, attempt);
   const health = await fetchImpl(healthUrl.toString(), {
     redirect: "error",
     headers: { "cache-control": "no-cache" },
   });
-  await assertHealthyResponse(health, releaseSha);
+  const healthBody = await assertHealthyResponse(health, expectReleaseIdentity ? releaseSha : undefined);
 
-  const meUrl = cacheBust(new URL("/api/me", productionUrl), releaseSha, attempt);
+  const meUrl = cacheBust(new URL("/api/me", productionUrl), cacheKey, attempt);
   const me = await fetchImpl(meUrl.toString(), {
     redirect: "error",
     headers: { "cache-control": "no-cache" },
@@ -81,14 +112,18 @@ async function assertReleaseSurface({ fetchImpl, productionUrl, releaseSha, atte
   if (mutation.status !== 403) throw new SmokeCheckError(`Cross-origin mutation returned ${mutation.status}`);
   await mutation.text();
 
-  const homeUrl = cacheBust(new URL("/", productionUrl), releaseSha, attempt);
+  const homeUrl = cacheBust(new URL("/", productionUrl), cacheKey, attempt);
   const home = await fetchImpl(homeUrl.toString(), {
     redirect: "error",
     headers: { "cache-control": "no-cache" },
   });
   if (home.status !== 200) throw new SmokeCheckError(`Home page returned ${home.status}`);
   const html = await home.text();
-  if (!html.includes(HOME_TITLE)) throw new SmokeCheckError("Home page is missing the expected title");
+  const title = htmlTitleText(html);
+  if (title !== HOME_TITLE) {
+    throw new SmokeCheckError(`Home page title does not match. Received: ${JSON.stringify(title.slice(0, 200))}`);
+  }
+  return healthBody;
 }
 
 export async function verifyProductionRelease({
@@ -97,14 +132,17 @@ export async function verifyProductionRelease({
   versionTag,
   maxAttempts = 36,
   retryDelayMs = 5_000,
+  expectReleaseIdentity = true,
   fetchImpl = fetch,
   sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay)),
   logger = console,
 }) {
   if (!productionUrl) throw new SmokeCheckError("PRODUCTION_URL is required");
-  if (!releaseSha) throw new SmokeCheckError("GITHUB_SHA is required");
-  if (versionTag !== releaseSha) {
-    throw new SmokeCheckError("Deployed version tag does not match the release SHA");
+  if (expectReleaseIdentity) {
+    if (!releaseSha) throw new SmokeCheckError("GITHUB_SHA is required");
+    if (versionTag !== releaseSha) {
+      throw new SmokeCheckError("Deployed version tag does not match the release SHA");
+    }
   }
 
   const attempts = positiveInteger(maxAttempts, 36, "maxAttempts");
@@ -113,7 +151,16 @@ export async function verifyProductionRelease({
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      await assertReleaseSurface({ fetchImpl, productionUrl, releaseSha, attempt });
+      const healthBody = await assertReleaseSurface({
+        fetchImpl,
+        productionUrl,
+        releaseSha,
+        attempt,
+        expectReleaseIdentity,
+      });
+      if (!expectReleaseIdentity) {
+        logger.warn(`Release identity check flagged and not enforced. Observed health release: ${healthBody.release ?? "missing"}. Version tag was not compared.`);
+      }
       return;
     } catch (error) {
       lastError = error instanceof SmokeCheckError
@@ -129,14 +176,20 @@ export async function verifyProductionRelease({
 }
 
 async function main() {
+  const expectReleaseIdentity = process.env.SMOKE_EXPECT_RELEASE_IDENTITY !== "0";
   await verifyProductionRelease({
     productionUrl: process.env.PRODUCTION_URL,
     releaseSha: process.env.GITHUB_SHA,
     versionTag: process.env.WORKER_VERSION_TAG,
     maxAttempts: process.env.SMOKE_MAX_ATTEMPTS,
     retryDelayMs: process.env.SMOKE_RETRY_DELAY_MS,
+    expectReleaseIdentity,
   });
-  console.log(`Production smoke test passed for release ${process.env.GITHUB_SHA.slice(0, 12)}`);
+  if (expectReleaseIdentity) {
+    console.log(`Production smoke test passed for release ${process.env.GITHUB_SHA.slice(0, 12)}`);
+    return;
+  }
+  console.log("Production smoke test passed with the release identity check flagged and not enforced");
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
