@@ -29,6 +29,8 @@ export function clientUserAgent(request: Request): string {
   return (request.headers.get("user-agent") ?? "").slice(0, 512);
 }
 
+type RateClaim = "allowed" | "denied" | "lost";
+
 export async function consumeInvitationRate(
   database: Database,
   bucket: InviteBucket,
@@ -36,17 +38,28 @@ export async function consumeInvitationRate(
   nowMs: number,
 ): Promise<boolean> {
   const key = `invite-${bucket}:${address}`;
+  const first = await claimInvitationSlot(database, key, LIMITS[bucket], nowMs);
+  if (first !== "lost") return first === "allowed";
+  return await claimInvitationSlot(database, key, LIMITS[bucket], nowMs) === "allowed";
+}
+
+async function claimInvitationSlot(database: Database, key: string, limit: number, nowMs: number): Promise<RateClaim> {
   const [row] = await database.select().from(rateLimit).where(eq(rateLimit.key, key)).limit(1);
   if (!row || nowMs - row.lastRequest >= WINDOW_MS) {
     await openRateWindow(database, key, nowMs);
-    return true;
+    return "allowed";
   }
-  if (row.count >= LIMITS[bucket]) return false;
-  await database.update(rateLimit).set({ count: row.count + 1 }).where(and(
+  if (row.count >= limit) return "denied";
+  const changed = await incrementRateCount(database, key, row.count);
+  return changed ? "allowed" : "lost";
+}
+
+async function incrementRateCount(database: Database, key: string, count: number): Promise<boolean> {
+  const changed = await database.update(rateLimit).set({ count: count + 1 }).where(and(
     eq(rateLimit.key, key),
-    eq(rateLimit.count, row.count),
-  ));
-  return true;
+    eq(rateLimit.count, count),
+  )).returning({ id: rateLimit.id });
+  return changed.length > 0;
 }
 
 async function openRateWindow(database: Database, key: string, nowMs: number): Promise<void> {

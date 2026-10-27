@@ -147,6 +147,7 @@ async function signInOrRepair(database: Database, loaded: Extract<Loaded, { kind
 
 function repairWrites(database: Database, invite: InviteCore, input: AcceptInput, userId: string, hash: string, sessionToken: string, deps: AcceptDeps, timed: Clock) {
   return [
+    verifyInvitedEmail(database, invite, userId, timed),
     fillMissingPassword(database, userId, hash, timed.now),
     credentialInsert(database, userId, nextId(deps), hash, timed.seconds),
     linkInsert(database, invite, userId, nextId(deps), timed.seconds),
@@ -374,6 +375,13 @@ function credentialInsert(database: Database, userId: string, accountId: string,
     eq(user.id, userId),
     sql`not exists (select 1 from ${account} where ${account.userId} = ${userId} and ${account.issuer} = ${CREDENTIAL_ISSUER})`,
   )));
+}
+
+function verifyInvitedEmail(database: Database, invite: InviteCore, userId: string, timed: Clock) {
+  return database.update(user).set({ emailVerified: true, updatedAt: timed.now }).where(and(
+    eq(user.id, userId),
+    sql`exists (select 1 from ${contractorInvitation} where ${pendingFilter(invite, timed.seconds)})`,
+  ));
 }
 
 function fillMissingPassword(database: Database, userId: string, hash: string, now: Date) {

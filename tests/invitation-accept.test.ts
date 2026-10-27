@@ -212,7 +212,7 @@ describe("invitation accept", () => {
     });
     expect(repaired.ok).toBe(true);
     expect(sqlRows(sqlite, "SELECT email_verified, password FROM user JOIN account ON account.user_id = user.id")).toEqual([
-      [0, `hash:${PASSWORD}`],
+      [1, `hash:${PASSWORD}`],
     ]);
 
     sqlite.run("DELETE FROM session");
