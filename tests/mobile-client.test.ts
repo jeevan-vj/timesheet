@@ -37,7 +37,7 @@ import { POST as createContractor } from "../src/app/api/contractors/route";
 
 const TRUSTED = ["https://app.example.test", CLEANTRACK_APP_SCHEME];
 const PRODUCTION = "https://cleantrack-timesheet.jeevan90wijerathna.workers.dev";
-const PREVIEW = "https://cleantrack-timesheet-preview.example.workers.dev";
+const PREVIEW = "https://cleantrack-timesheet-preview.jeevan90wijerathna.workers.dev";
 
 function mutation(headers: Record<string, string>) {
   return new Request("https://app.example.test/api/contractors", { method: "POST", headers });
@@ -158,8 +158,13 @@ describe("app scheme trusted origins", () => {
     expect(origins.some((origin) => origin.startsWith("exp://"))).toBe(false);
   });
 
-  it("adds the preview scheme only for a preview host", () => {
+  it("adds the preview scheme only for the preview Worker hostname", () => {
     expect(trustedOriginsFor(PREVIEW)).toEqual([PREVIEW, CLEANTRACK_APP_SCHEME, CLEANTRACK_PREVIEW_SCHEME]);
+    expect(trustedOriginsFor("https://cleantrack-timesheet-preview.example.workers.dev")).toEqual([
+      "https://cleantrack-timesheet-preview.example.workers.dev",
+      CLEANTRACK_APP_SCHEME,
+    ]);
+    expect(trustedOriginsFor("https://preview.example.test")).not.toContain(CLEANTRACK_PREVIEW_SCHEME);
   });
 
   it("adds preview and exp schemes only for loopback HTTP", () => {

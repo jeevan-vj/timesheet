@@ -5,6 +5,7 @@ export const CLEANTRACK_PREVIEW_SCHEME = "cleantrack-preview://";
 
 const MOBILE_CLIENT_VALUE = /^mobile\/[0-9A-Za-z][0-9A-Za-z._+-]{0,31}$/;
 const LOCAL_EXPO_ORIGINS = ["exp://", "exp://**", "exp://192.168.*.*:*/**"];
+const PREVIEW_AUTH_HOST = "cleantrack-timesheet-preview.jeevan90wijerathna.workers.dev";
 
 export function parseTrustedOrigins(baseURL: string | undefined, extra = ""): string[] {
   const origins = new Set<string>();
@@ -55,7 +56,7 @@ function isLoopbackHttp(baseURL: string | undefined): boolean {
 }
 
 function isPreviewHost(baseURL: string | undefined): boolean {
-  return authUrl(baseURL)?.hostname.toLowerCase().includes("preview") ?? false;
+  return authUrl(baseURL)?.hostname === PREVIEW_AUTH_HOST;
 }
 
 function authUrl(baseURL: string | undefined): URL | null {
