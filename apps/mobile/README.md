@@ -91,9 +91,15 @@ The GitHub Actions production workflow publishes with `update:production` and ro
 
 ## Production build
 
-Production builds are refused unless the bytes of every tracked file match `HEAD` and `HEAD` is contained in `origin/main`. Untracked files do not fail the check. File mode bits do not fail the check. The check is `scripts/check-release.mjs`. EAS runs it as the `eas-build-pre-install` hook. On an EAS build (`EAS_BUILD=true`), an empty or unknown profile fails closed. `development` and `preview` skip the git check. A local run with no profile also skips it.
+A production iOS binary is uploaded only from a clean commit that is on `main`. The check is split, because the EAS worker has no GitHub credentials and cannot `git fetch` this private repo.
 
-Run it locally before a production build:
+Before upload, `pnpm -F mobile build:production` runs `scripts/check-release.mjs` where credentials exist, then `eas build --platform ios --profile production`. Locally that script fetches `origin/main`, deepens a shallow clone with `git fetch --unshallow origin main`, and requires `git merge-base --is-ancestor HEAD origin/main`. On GitHub Actions it does not fetch: `GITHUB_REF` must be `refs/heads/main` and `HEAD` must equal `GITHUB_SHA`. The mobile release workflow calls this same command. Extra arguments are forwarded to `eas build`.
+
+On the EAS worker, `eas-build-pre-install` runs the same script with `EAS_BUILD=true`. It does not contact GitHub. It checks that the bytes of every tracked file match `HEAD`, and that `HEAD` equals `EAS_BUILD_GIT_COMMIT_HASH`. A missing or different build commit hash fails closed. Untracked files do not fail the check. File mode bits do not fail the check. An empty index does not fail the check. A changed or missing tracked file fails, and the error names each path and whether the difference is `content`, `missing`, `unreadable`, or `unsupported`. The hook may run in `apps/mobile`; the comparison still covers the whole checkout. A checkout with no `.git` fails closed. An empty or unknown profile fails closed on EAS. `development` and `preview` skip the git check. A local run with no profile also skips it.
+
+`eas.json` sets `cli.requireCommit` so EAS CLI refuses to upload an uncommitted tree. That does not prove the commit is on `main`. Use `build:production` for the store build.
+
+Run the pre-upload check on its own:
 
 ```
 git fetch origin main
@@ -102,16 +108,13 @@ git pull --ff-only
 EAS_BUILD_PROFILE=production node apps/mobile/scripts/check-release.mjs
 ```
 
-The script fetches `origin/main`. A shallow clone is deepened with `git fetch --unshallow origin main` before `git merge-base --is-ancestor HEAD origin/main`. If `origin/main` cannot be fetched, or the shallow history cannot be deepened, the production profile fails. Tracked content is the blob hash of each path in `HEAD`, not `git diff`. The hook may run in `apps/mobile`; the comparison still covers the whole checkout. An empty index or an executable-bit change does not fail the check. A changed or missing tracked file fails, and the error names each path and whether the difference is `content`, `missing`, `unreadable`, or `unsupported`. A feature-branch commit fails the production profile. A local upload that strips `.git` fails closed.
-
-From `apps/mobile`, after the check passes:
+Ship the iOS production build from the repo root:
 
 ```
-npx eas-cli build --platform ios --profile production
-npx eas-cli submit --platform ios --profile production
+pnpm -F mobile build:production -- --non-interactive
 ```
 
-Use `--platform android` for the Play build. `eas.json` `build.production` is the store profile (`distribution: store`, `channel: production`, `autoIncrement: true`). Submit uses the pins in Store submit above.
+Submit uses the pins in Store submit above. `eas.json` `build.production` is the store profile (`distribution: store`, `channel: production`, `autoIncrement: true`).
 
 ## GitHub Actions production release
 
@@ -139,10 +142,10 @@ The decide job is read-only. It does not use the `mobile-production` environment
    ```
 
    A finished build whose EAS artifact has expired still counts. The installed TestFlight binary can receive an OTA after the artifact is gone. Errored and canceled builds do not count. An in-progress build counts, so the workflow publishes an OTA instead of starting a second store build. A missing, empty, whitespace, or `unknown` hash does not match. When both fingerprint fields are absent, a runtime version equal to the fingerprint still matches. `unknown` in a fingerprint field does not fall through to that runtime version. Empty or whitespace platform, profile, channel, or distribution does not count.
-6. `auto` with a matching build runs `pnpm -F mobile update:production`. Immediately before that publish, the job recomputes the production-environment fingerprint and refuses to publish if it is not the approved hash. `auto` with no match runs `eas build --platform ios --profile production --auto-submit --freeze-credentials --non-interactive` and waits for the build and the TestFlight submission.
+6. `auto` with a matching build runs `pnpm -F mobile update:production`. Immediately before that publish, the job recomputes the production-environment fingerprint and refuses to publish if it is not the approved hash. `auto` with no match runs `pnpm -F mobile build:production` with `--auto-submit --freeze-credentials --non-interactive` and waits for the build and the TestFlight submission. That command checks the commit is the `main` checkout before EAS uploads it.
 7. `force-build` always builds and submits, and the remote build number still increments once. `force-update` publishes the OTA only when the two fingerprints match. If no binary has the fingerprint, the summary says the update will not reach devices until one exists.
 
-Publish and build jobs check out that same commit. They refuse a dirty tracked tree. Production builds still run `eas-build-pre-install` → `scripts/check-release.mjs` on the EAS builder.
+Publish and build jobs check out that same commit. They refuse a dirty tracked tree. The build job then runs `pnpm -F mobile build:production`, which checks `HEAD` against `GITHUB_SHA` on `refs/heads/main` before upload. The EAS worker still runs `eas-build-pre-install` → `scripts/check-release.mjs`, and that worker check compares blob bytes to `HEAD` and `EAS_BUILD_GIT_COMMIT_HASH` without fetching GitHub.
 
 `expo/expo-github-action/continuous-deploy-fingerprint` is not used. Its own README marks it as not ready. The copy on `main` still queries `eas build:list` with `--runtime-version`, which does not select fingerprint-policy builds. It also publishes an update and can start a build in the same step, so the decision cannot be shown before approval. On pull requests it drops builds that expire within a day, so an installed binary whose artifact has expired can be treated as missing.
 

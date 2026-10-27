@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 const KNOWN_PROFILES = new Set(["development", "preview", "production"]);
 const REGULAR_FILE_MODES = new Set(["100644", "100755"]);
 const HASH_CHUNK = 100;
+const COMMIT_SHA = /^[a-f0-9]{40}$/;
 
 export function resolveProfile(env, argv) {
   const inline = argv.find((arg) => arg.startsWith("--profile="));
@@ -31,6 +32,17 @@ function gitFailure(message) {
 
 function isEasBuild(env) {
   return env.EAS_BUILD === "true" || env.EAS_BUILD === "1";
+}
+
+function normalizeSha(value) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+async function readHead(run) {
+  const head = await run(["rev-parse", "HEAD"]);
+  const sha = normalizeSha(head.stdout);
+  if (head.code !== 0 || !COMMIT_SHA.test(sha)) throw gitFailure("could not read HEAD");
+  return sha;
 }
 
 export function parseLsTreeZ(stdout) {
@@ -120,12 +132,22 @@ export async function assertTrackedContentMatchesHead(run) {
   if (diffs.length > 0) throw new Error(formatTrackedDiffError(diffs));
 }
 
-export async function assertProductionCheckout(run) {
-  const inside = await run(["rev-parse", "--is-inside-work-tree"]);
-  if (inside.code !== 0 || inside.stdout.trim() !== "true") {
-    throw gitFailure("git checkout is required");
+export async function assertHeadMatchesEasCommit(run, env) {
+  const expected = normalizeSha(env.EAS_BUILD_GIT_COMMIT_HASH);
+  if (!COMMIT_SHA.test(expected)) throw gitFailure("EAS build commit hash is missing");
+  const actual = await readHead(run);
+  if (actual !== expected) throw gitFailure("EAS build commit hash does not match HEAD");
+}
+
+export async function assertHeadOnOriginMain(run, env = {}) {
+  if (env.GITHUB_ACTIONS === "true") {
+    if (env.GITHUB_REF !== "refs/heads/main") throw gitFailure("HEAD is not on origin/main");
+    const expected = normalizeSha(env.GITHUB_SHA);
+    if (!COMMIT_SHA.test(expected)) throw gitFailure("HEAD is not on origin/main");
+    const actual = await readHead(run);
+    if (actual !== expected) throw gitFailure("HEAD is not the commit GitHub checked out from main");
+    return;
   }
-  await assertTrackedContentMatchesHead(run);
   const fetched = await run(["fetch", "origin", "main"]);
   if (fetched.code !== 0) {
     throw gitFailure("could not fetch origin/main");
@@ -144,6 +166,21 @@ export async function assertProductionCheckout(run) {
   if (ancestor.code !== 0) throw gitFailure("HEAD is not on origin/main");
 }
 
+// The EAS worker cannot reach a private GitHub remote. It checks blob bytes and
+// EAS_BUILD_GIT_COMMIT_HASH. The origin/main check runs before upload.
+export async function assertProductionCheckout(run, env = {}) {
+  const inside = await run(["rev-parse", "--is-inside-work-tree"]);
+  if (inside.code !== 0 || inside.stdout.trim() !== "true") {
+    throw gitFailure("git checkout is required");
+  }
+  await assertTrackedContentMatchesHead(run);
+  if (isEasBuild(env)) {
+    await assertHeadMatchesEasCommit(run, env);
+    return;
+  }
+  await assertHeadOnOriginMain(run, env);
+}
+
 export async function checkRelease({ env, argv, run = execGit, stdout = (line) => process.stdout.write(`${line}\n`) }) {
   const profile = resolveProfile(env, argv);
   if (isEasBuild(env) && !KNOWN_PROFILES.has(profile)) {
@@ -153,7 +190,7 @@ export async function checkRelease({ env, argv, run = execGit, stdout = (line) =
     stdout(`production release check skipped for profile ${profile || "unset"}`);
     return { ok: true, skipped: true };
   }
-  await assertProductionCheckout(run);
+  await assertProductionCheckout(run, env);
   stdout("production release check passed");
   return { ok: true, skipped: false };
 }

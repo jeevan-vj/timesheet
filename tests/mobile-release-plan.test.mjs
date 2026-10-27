@@ -353,6 +353,10 @@ describe("mobile release workflow contract", () => {
     expect(build).toMatch(/secrets\.EXPO_TOKEN(?!_READ)/);
     expect(build).not.toContain("EXPO_TOKEN_READ");
     expect(build).not.toContain("actions: read");
+    expect(build).toContain("pnpm -F mobile build:production --");
+    expect(build).toContain("--auto-submit");
+    expect(build).toContain("--freeze-credentials");
+    expect(build).toContain("--ignore-scripts");
     const publishCheck = publish.indexOf("--print-hash");
     const publishUpdate = publish.indexOf("update:production");
     expect(publishCheck).toBeGreaterThan(-1);
@@ -369,6 +373,7 @@ describe("mobile release workflow contract", () => {
   it("keeps remote iOS build numbers and the fingerprint runtime policy", () => {
     const eas = JSON.parse(readFileSync(new URL("../apps/mobile/eas.json", import.meta.url), "utf8"));
     expect(eas.cli.appVersionSource).toBe("remote");
+    expect(eas.cli.requireCommit).toBe(true);
     expect(eas.build.production.autoIncrement).toBe(true);
     expect(eas.build.production.channel).toBe("production");
     expect(eas.submit.production.ios.ascAppId).toBe("6827417051");
@@ -379,5 +384,6 @@ describe("mobile release workflow contract", () => {
       "APP_VARIANT=production eas update --channel production --environment production",
     );
     expect(scripts.scripts["eas-build-pre-install"]).toBe("node scripts/check-release.mjs");
+    expect(scripts.scripts["build:production"]).toBe("node scripts/build-production.mjs");
   });
 });
