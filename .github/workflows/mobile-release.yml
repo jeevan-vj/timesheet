@@ -1,0 +1,307 @@
+name: Mobile release
+
+# iOS production release for apps/mobile. The decide job is read-only.
+# Publish and build wait for the mobile-production environment.
+# The web Worker release stays in release.yml.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/mobile/**"
+      - "packages/core/**"
+      - "pnpm-lock.yaml"
+      - "package.json"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/mobile-release.yml"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: auto follows the fingerprint. force-build ships an iOS binary. force-update publishes an OTA.
+        type: choice
+        required: true
+        default: auto
+        options:
+          - auto
+          - force-build
+          - force-update
+
+concurrency:
+  group: cleantrack-mobile-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  decide:
+    name: Decide OTA or iOS build
+    if: github.repository == 'jeevan-vj/timesheet' && github.ref == 'refs/heads/main'
+    # GET /repos/{owner}/{repo}/environments/{name} returns 403 for a GitHub App
+    # token that only has contents: read. actions: read is the extra scope.
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      sha: ${{ steps.plan.outputs.sha }}
+      path: ${{ steps.plan.outputs.path }}
+      fingerprint: ${{ steps.plan.outputs.fingerprint }}
+      matching_build_id: ${{ steps.plan.outputs.matching_build_id }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: Require a protected mobile-production environment
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -f "$RUNNER_TEMP/environment.json"
+          http_code="$(curl -sS -o "$RUNNER_TEMP/environment.json" -w '%{http_code}' \
+            --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/environments/mobile-production")"
+          if [ "$http_code" != "200" ]; then
+            printf '%s\n' '### Mobile production release' '' "mobile-production is not available (HTTP ${http_code}). Create the environment, add a required reviewer, and save the protection rule before this workflow can publish or build." >> "$GITHUB_STEP_SUMMARY"
+            rm -f "$RUNNER_TEMP/environment.json"
+            exit 1
+          fi
+          if ! node apps/mobile/scripts/plan-release.mjs --require-reviewers "$RUNNER_TEMP/environment.json"; then
+            printf '%s\n' '### Mobile production release' '' 'mobile-production has no required reviewer, or its protection rules could not be read. Add a required reviewer and save the rule before this workflow can publish or build.' >> "$GITHUB_STEP_SUMMARY"
+            rm -f "$RUNNER_TEMP/environment.json"
+            exit 1
+          fi
+          rm -f "$RUNNER_TEMP/environment.json"
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Pin eas-cli 25.3.0
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/eas-cli" --ignore-scripts eas-cli@25.3.0
+          echo "$RUNNER_TEMP/eas-cli/node_modules/.bin" >> "$GITHUB_PATH"
+      - name: Decide from the production fingerprint
+        id: plan
+        working-directory: apps/mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN_READ }}
+          RELEASE_MODE: ${{ github.event.inputs.mode || 'auto' }}
+        run: |
+          set -euo pipefail
+          cleanup() {
+            rm -f \
+              "$RUNNER_TEMP/fingerprint-build.json" \
+              "$RUNNER_TEMP/fingerprint-update.json" \
+              "$RUNNER_TEMP/gen-fingerprint.sh" \
+              "$RUNNER_TEMP"/builds-*.json
+          }
+          trap cleanup EXIT
+          if [ -z "${EXPO_TOKEN:-}" ]; then
+            printf '%s\n' '### Mobile production release' '' 'EXPO_TOKEN_READ is unset. Add a repository secret named EXPO_TOKEN_READ for an Expo robot with the Viewer role. The decide job does not read EXPO_TOKEN.' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          case "$RELEASE_MODE" in
+            auto|force-build|force-update) ;;
+            *)
+              printf '%s\n' '### Mobile production release' '' 'Unknown release mode. Use auto, force-build, or force-update.' >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+              ;;
+          esac
+          version="$(eas --version)"
+          case "$version" in
+            *25.3.0*) ;;
+            *)
+              printf '%s\n' "Expected eas-cli 25.3.0, found ${version}."
+              exit 1
+              ;;
+          esac
+          # $1 and $2 are arguments of the generated script, not this step.
+          # shellcheck disable=SC2016
+          printf '%s\n' \
+            '#!/bin/bash' \
+            'set -euo pipefail' \
+            'cd "$1"' \
+            'APP_VARIANT=production ./node_modules/.bin/expo-updates fingerprint:generate --platform ios > "$2"' \
+            > "$RUNNER_TEMP/gen-fingerprint.sh"
+          chmod 700 "$RUNNER_TEMP/gen-fingerprint.sh"
+          bash "$RUNNER_TEMP/gen-fingerprint.sh" "$PWD" "$RUNNER_TEMP/fingerprint-build.json"
+          eas env:exec --non-interactive production "bash $RUNNER_TEMP/gen-fingerprint.sh $PWD $RUNNER_TEMP/fingerprint-update.json"
+          build_hash="$(node scripts/plan-release.mjs --print-hash "$RUNNER_TEMP/fingerprint-build.json")"
+          for status in finished in-progress in-queue new; do
+            eas build:list \
+              --platform ios \
+              --build-profile production \
+              --channel production \
+              --distribution store \
+              --fingerprint-hash "$build_hash" \
+              --status "$status" \
+              --limit 5 \
+              --json \
+              --non-interactive \
+              > "$RUNNER_TEMP/builds-$status.json"
+          done
+          node scripts/plan-release.mjs \
+            --mode "$RELEASE_MODE" \
+            --sha "$GITHUB_SHA" \
+            --fingerprint-file "$RUNNER_TEMP/fingerprint-build.json" \
+            --update-fingerprint-file "$RUNNER_TEMP/fingerprint-update.json" \
+            --builds "$RUNNER_TEMP/builds-finished.json" \
+            --builds "$RUNNER_TEMP/builds-in-progress.json" \
+            --builds "$RUNNER_TEMP/builds-in-queue.json" \
+            --builds "$RUNNER_TEMP/builds-new.json" \
+            --summary "$GITHUB_STEP_SUMMARY" \
+            --github-output "$GITHUB_OUTPUT"
+
+  publish:
+    name: Publish production OTA
+    needs: decide
+    if: needs.decide.result == 'success' && needs.decide.outputs.path == 'update'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment:
+      name: mobile-production
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.decide.outputs.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Pin eas-cli 25.3.0
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/eas-cli" --ignore-scripts eas-cli@25.3.0
+          echo "$RUNNER_TEMP/eas-cli/node_modules/.bin" >> "$GITHUB_PATH"
+      - name: Publish the approved commit
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          head="$(git rev-parse HEAD)"
+          if [ "$head" != "${{ needs.decide.outputs.sha }}" ]; then
+            printf '%s\n' "Checked out ${head}; the approved commit is ${{ needs.decide.outputs.sha }}."
+            exit 1
+          fi
+          if ! git diff --quiet HEAD; then
+            printf '%s\n' "tracked files differ from HEAD"
+            exit 1
+          fi
+          if [ -z "${EXPO_TOKEN:-}" ]; then
+            printf '%s\n' "EXPO_TOKEN is unset. Add it as an environment secret on mobile-production for an Expo robot that can build, submit, and publish. Do not store that token as a repository secret."
+            exit 1
+          fi
+          version="$(eas --version)"
+          case "$version" in
+            *25.3.0*) ;;
+            *)
+              printf '%s\n' "Expected eas-cli 25.3.0, found ${version}."
+              exit 1
+              ;;
+          esac
+          rm -f "$RUNNER_TEMP/fingerprint-update.json" "$RUNNER_TEMP/gen-fingerprint.sh"
+          # shellcheck disable=SC2016
+          printf '%s\n' \
+            '#!/bin/bash' \
+            'set -euo pipefail' \
+            'cd "$1"' \
+            'APP_VARIANT=production ./node_modules/.bin/expo-updates fingerprint:generate --platform ios > "$2"' \
+            > "$RUNNER_TEMP/gen-fingerprint.sh"
+          chmod 700 "$RUNNER_TEMP/gen-fingerprint.sh"
+          (
+            cd apps/mobile
+            eas env:exec --non-interactive production "bash $RUNNER_TEMP/gen-fingerprint.sh $PWD $RUNNER_TEMP/fingerprint-update.json"
+          )
+          update_hash="$(node apps/mobile/scripts/plan-release.mjs --print-hash "$RUNNER_TEMP/fingerprint-update.json")"
+          rm -f "$RUNNER_TEMP/fingerprint-update.json" "$RUNNER_TEMP/gen-fingerprint.sh"
+          if [ "$update_hash" != "${{ needs.decide.outputs.fingerprint }}" ]; then
+            printf '%s\n' "Refusing to publish. The production update fingerprint ${update_hash} does not match the approved fingerprint ${{ needs.decide.outputs.fingerprint }}."
+            exit 1
+          fi
+          pnpm -F mobile update:production -- --message "GitHub Actions production OTA ${GITHUB_SHA}" --non-interactive
+          {
+            echo "### Published production OTA"
+            echo ""
+            echo "- Commit: \`${{ needs.decide.outputs.sha }}\`"
+            echo "- Fingerprint: \`${{ needs.decide.outputs.fingerprint }}\`"
+            echo "- Matching build: \`${{ needs.decide.outputs.matching_build_id }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: Build and submit iOS
+    needs: decide
+    if: needs.decide.result == 'success' && needs.decide.outputs.path == 'build'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    environment:
+      name: mobile-production
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.decide.outputs.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Pin eas-cli 25.3.0
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/eas-cli" --ignore-scripts eas-cli@25.3.0
+          echo "$RUNNER_TEMP/eas-cli/node_modules/.bin" >> "$GITHUB_PATH"
+      - name: Build and submit the approved commit
+        working-directory: apps/mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          APP_VARIANT: production
+        run: |
+          set -euo pipefail
+          head="$(git rev-parse HEAD)"
+          if [ "$head" != "${{ needs.decide.outputs.sha }}" ]; then
+            printf '%s\n' "Checked out ${head}; the approved commit is ${{ needs.decide.outputs.sha }}."
+            exit 1
+          fi
+          if ! git diff --quiet HEAD; then
+            printf '%s\n' "tracked files differ from HEAD"
+            exit 1
+          fi
+          if [ -z "${EXPO_TOKEN:-}" ]; then
+            printf '%s\n' "EXPO_TOKEN is unset. Add it as an environment secret on mobile-production for an Expo robot that can build, submit, and publish. Do not store that token as a repository secret."
+            exit 1
+          fi
+          version="$(eas --version)"
+          case "$version" in
+            *25.3.0*) ;;
+            *)
+              printf '%s\n' "Expected eas-cli 25.3.0, found ${version}."
+              exit 1
+              ;;
+          esac
+          APP_VARIANT=production eas build \
+            --platform ios \
+            --profile production \
+            --auto-submit \
+            --freeze-credentials \
+            --non-interactive \
+            --message "GitHub Actions iOS production ${GITHUB_SHA}"
+          {
+            echo "### Submitted iOS production build"
+            echo ""
+            echo "- Commit: \`${{ needs.decide.outputs.sha }}\`"
+            echo "- Fingerprint: \`${{ needs.decide.outputs.fingerprint }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
