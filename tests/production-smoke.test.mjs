@@ -7,8 +7,12 @@ import {
   SMOKE_COOKIE,
   SMOKE_MUTATION_PATH,
   SMOKE_ORIGIN,
+  decodeHtmlEntities,
+  htmlTitleText,
   verifyProductionRelease,
 } from "../.github/scripts/production-smoke.mjs";
+
+const LIVE_HOME_TITLE_HTML = "<title>CleanTrack — contractor hours &amp; weekly pay</title>";
 
 const releaseSha = "release-123";
 
@@ -32,6 +36,42 @@ function textResponse(status, body, contentType) {
 }
 
 describe("production release smoke verification", () => {
+  it("decodes the live HTML title, including named and numeric entities", () => {
+    expect(LIVE_HOME_TITLE_HTML.includes(HOME_TITLE)).toBe(false);
+    expect(htmlTitleText(LIVE_HOME_TITLE_HTML)).toBe(HOME_TITLE);
+    expect(htmlTitleText(`<title>${HOME_TITLE.replace("&", "&#38;")}</title>`)).toBe(HOME_TITLE);
+    expect(htmlTitleText(`<title>${HOME_TITLE.replace("—", "&#x2014;")}</title>`)).toBe(HOME_TITLE);
+    expect(decodeHtmlEntities("&lt;&gt;&quot;&#39;&apos;")).toBe("<>\"''");
+    expect(decodeHtmlEntities("&amp;amp;")).toBe("&amp;");
+    expect(decodeHtmlEntities("&#xD800;")).toBe("&#xD800;");
+    expect(htmlTitleText("<html><body>no title</body></html>")).toBe("");
+  });
+
+  it("can flag a rolled-back release identity without skipping the page checks", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(healthyResponse({ release: "rolled-back-sha" }))
+      .mockResolvedValueOnce(textResponse(401, "", "application/json"))
+      .mockResolvedValueOnce(textResponse(403, "", "application/json"))
+      .mockResolvedValueOnce(textResponse(200, LIVE_HOME_TITLE_HTML, "text/html"));
+    const logger = { warn: vi.fn() };
+
+    await verifyProductionRelease({
+      productionUrl: "https://example.test",
+      releaseSha: undefined,
+      versionTag: "other-sha",
+      expectReleaseIdentity: false,
+      maxAttempts: 1,
+      fetchImpl,
+      sleep: vi.fn(),
+      logger,
+    });
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      "Release identity check flagged and not enforced. Observed health release: rolled-back-sha. Version tag was not compared.",
+    );
+  });
+
   it("retries a delayed security header and cache-busts each attempt", async () => {
     const fetchImpl = vi
       .fn()
@@ -141,7 +181,7 @@ describe("production release smoke verification", () => {
         }
         if (request.method === "GET" && url.pathname === "/") {
           response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-          response.end(`<!doctype html><title>${HOME_TITLE}</title>`);
+          response.end(`<!doctype html>${LIVE_HOME_TITLE_HTML}`);
           return;
         }
         response.writeHead(404);
