@@ -292,9 +292,7 @@ jobs:
               exit 1
               ;;
           esac
-          APP_VARIANT=production eas build \
-            --platform ios \
-            --profile production \
+          pnpm -F mobile build:production -- \
             --auto-submit \
             --freeze-credentials \
             --non-interactive \

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
+import { productionEasArgs, runProductionBuild } from "../apps/mobile/scripts/build-production.mjs";
 import {
   assertProductionCheckout,
   assertTrackedContentMatchesHead,
@@ -14,6 +15,8 @@ import {
   parseLsTreeZ,
   resolveProfile,
 } from "../apps/mobile/scripts/check-release.mjs";
+
+const MAIN_SHA = "0123456789abcdef0123456789abcdef01234567";
 
 const README_OID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const NOTES_OID = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -179,6 +182,120 @@ describe("mobile production release guard", () => {
     const broken = git({ ...clean, "ls-tree -r -z --full-tree HEAD": { code: 1, stdout: "" } });
     await expect(assertProductionCheckout(broken)).rejects.toThrow("tracked changes could not be read");
     expect(broken.mock.calls.some((call) => call[0][0] === "fetch")).toBe(false);
+  });
+
+  it("on an EAS worker checks the build commit and does not fetch when the remote is unreachable", async () => {
+    const worker = git({
+      ...clean,
+      "fetch origin main": { code: 1, stdout: "", stderr: "could not read Username" },
+      "rev-parse HEAD": { code: 0, stdout: `${MAIN_SHA}\n` },
+    });
+    await expect(
+      checkRelease({
+        env: { EAS_BUILD: "true", EAS_BUILD_PROFILE: "production", EAS_BUILD_GIT_COMMIT_HASH: MAIN_SHA.toUpperCase() },
+        argv: [],
+        run: worker,
+        stdout: vi.fn(),
+      }),
+    ).resolves.toEqual({ ok: true, skipped: false });
+    expect(worker.mock.calls.map((call) => call[0].join(" "))).toEqual([
+      "rev-parse --is-inside-work-tree",
+      "rev-parse --show-toplevel",
+      "ls-tree -r -z --full-tree HEAD",
+      "hash-object -- /repo/README.md",
+      "rev-parse HEAD",
+    ]);
+
+    const missingHash = git(clean);
+    await expect(
+      checkRelease({
+        env: { EAS_BUILD: "true", EAS_BUILD_PROFILE: "production" },
+        argv: [],
+        run: missingHash,
+        stdout: vi.fn(),
+      }),
+    ).rejects.toThrow("EAS build commit hash is missing");
+    expect(missingHash.mock.calls.some((call) => call[0][0] === "fetch")).toBe(false);
+
+    const otherCommit = git({ ...clean, "rev-parse HEAD": { code: 0, stdout: `${MAIN_SHA}\n` } });
+    await expect(
+      checkRelease({
+        env: {
+          EAS_BUILD: "1",
+          EAS_BUILD_PROFILE: "production",
+          EAS_BUILD_GIT_COMMIT_HASH: "abcdef0123456789abcdef0123456789abcdef01",
+          GITHUB_ACTIONS: "true",
+          GITHUB_REF: "refs/heads/main",
+          GITHUB_SHA: MAIN_SHA,
+        },
+        argv: [],
+        run: otherCommit,
+        stdout: vi.fn(),
+      }),
+    ).rejects.toThrow("EAS build commit hash does not match HEAD");
+    expect(otherCommit.mock.calls.some((call) => call[0][0] === "fetch")).toBe(false);
+  });
+
+  it("accepts the GitHub Actions main checkout without fetching", async () => {
+    const actions = git({ ...clean, "rev-parse HEAD": { code: 0, stdout: `${MAIN_SHA}\n` } });
+    await expect(
+      assertProductionCheckout(actions, { GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main", GITHUB_SHA: MAIN_SHA }),
+    ).resolves.toBeUndefined();
+    expect(actions.mock.calls.some((call) => call[0][0] === "fetch")).toBe(false);
+
+    const feature = git(clean);
+    await expect(
+      assertProductionCheckout(feature, { GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/feature", GITHUB_SHA: MAIN_SHA }),
+    ).rejects.toThrow("HEAD is not on origin/main");
+    expect(feature.mock.calls.some((call) => call[0][0] === "fetch" || call[0][0] === "rev-parse" && call[0][1] === "HEAD")).toBe(false);
+
+    const moved = git({ ...clean, "rev-parse HEAD": { code: 0, stdout: `${MAIN_SHA}\n` } });
+    await expect(
+      assertProductionCheckout(moved, {
+        GITHUB_ACTIONS: "true",
+        GITHUB_REF: "refs/heads/main",
+        GITHUB_SHA: "abcdef0123456789abcdef0123456789abcdef01",
+      }),
+    ).rejects.toThrow("HEAD is not the commit GitHub checked out from main");
+    expect(moved.mock.calls.some((call) => call[0][0] === "fetch")).toBe(false);
+  });
+});
+
+describe("production build wrapper", () => {
+  it("checks main before spawning eas and forwards eas arguments", async () => {
+    expect(productionEasArgs(["--", "--auto-submit", "--message", "GitHub Actions iOS production abc"])).toEqual([
+      "build",
+      "--platform",
+      "ios",
+      "--profile",
+      "production",
+      "--auto-submit",
+      "--message",
+      "GitHub Actions iOS production abc",
+    ]);
+
+    const spawnEas = vi.fn(async () => 0);
+    const runCheck = vi.fn(async () => ({ ok: true, skipped: false }));
+    await expect(
+      runProductionBuild({
+        env: { EAS_BUILD: "true", PATH: "/usr/bin", APP_VARIANT: "development" },
+        argv: ["--", "--non-interactive"],
+        runCheck,
+        spawnEas,
+      }),
+    ).resolves.toBe(0);
+    expect(runCheck).toHaveBeenCalledWith({ env: { PATH: "/usr/bin", APP_VARIANT: "development", EAS_BUILD_PROFILE: "production" }, argv: [] });
+    expect(spawnEas).toHaveBeenCalledWith(
+      ["build", "--platform", "ios", "--profile", "production", "--non-interactive"],
+      { EAS_BUILD: "true", PATH: "/usr/bin", APP_VARIANT: "production" },
+    );
+
+    const blocked = vi.fn(async () => {
+      throw new Error("production release check failed: HEAD is not on origin/main");
+    });
+    const eas = vi.fn();
+    await expect(runProductionBuild({ env: {}, argv: [], runCheck: blocked, spawnEas: eas })).rejects.toThrow("HEAD is not on origin/main");
+    expect(eas).not.toHaveBeenCalled();
   });
 });
 
