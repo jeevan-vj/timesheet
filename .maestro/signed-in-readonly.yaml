@@ -1,0 +1,18 @@
+# Signed-in smoke. Pass credentials only as env vars:
+#   maestro test -e MAESTRO_EMAIL=... -e MAESTRO_PASSWORD=... .maestro/signed-in-readonly.yaml
+# Signs in and checks Home. Does not create or edit hours, pay, or notes.
+appId: nz.co.jnok.cleantrack
+---
+- launchApp
+- tapOn:
+    id: "sign-in-email"
+- inputText: ${MAESTRO_EMAIL}
+- tapOn:
+    id: "sign-in-password"
+- inputText: ${MAESTRO_PASSWORD}
+- hideKeyboard
+- tapOn:
+    id: "sign-in-submit"
+- assertVisible:
+    id: "contractor-home"
+- assertNotVisible: "Something went wrong"

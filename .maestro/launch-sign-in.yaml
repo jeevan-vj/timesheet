@@ -1,0 +1,9 @@
+# Launch smoke. Asserts the signed-out screen. No account and no writes.
+appId: nz.co.jnok.cleantrack
+---
+- launchApp
+- assertVisible:
+    id: "sign-in-screen"
+- assertVisible: "Sign in"
+- assertVisible:
+    id: "sign-in-email"

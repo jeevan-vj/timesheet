@@ -1,5 +1,5 @@
 import AppTabs from "@/components/app-tabs";
-import { ErrorBoundary } from "@/components/route-error-boundary";
+import { ErrorBoundary, ScreenErrorBoundary } from "@/components/route-error-boundary";
 
 export { ErrorBoundary };
 
@@ -8,5 +8,9 @@ export const unstable_settings = {
 };
 
 export default function ContractorTabs() {
-  return <AppTabs />;
+  return (
+    <ScreenErrorBoundary>
+      <AppTabs />
+    </ScreenErrorBoundary>
+  );
 }

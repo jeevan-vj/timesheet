@@ -52,7 +52,7 @@ export function SignInForm() {
   }
 
   return (
-    <SafeAreaView style={styles.screen}>
+    <SafeAreaView style={styles.screen} testID="sign-in-screen">
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.fill}>
         <ScrollView
           automaticallyAdjustKeyboardInsets
@@ -68,6 +68,7 @@ export function SignInForm() {
             <Text style={styles.label}>Email</Text>
             <TextInput
               accessibilityLabel="Email"
+              testID="sign-in-email"
               autoCapitalize="none"
               autoComplete="email"
               autoCorrect={false}
@@ -91,6 +92,7 @@ export function SignInForm() {
             <TextInput
               ref={passwordRef}
               accessibilityLabel="Password"
+              testID="sign-in-password"
               autoCapitalize="none"
               autoComplete="current-password"
               autoCorrect={false}
@@ -127,6 +129,7 @@ export function SignInForm() {
           <Pressable
             accessibilityLabel={busy ? "Signing in" : "Sign in"}
             accessibilityRole="button"
+            testID="sign-in-submit"
             accessibilityState={{ busy, disabled: busy }}
             disabled={busy}
             onPress={() => {
