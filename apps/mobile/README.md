@@ -10,6 +10,20 @@ pnpm -F mobile typecheck
 pnpm -F mobile lint
 ```
 
+The API origin and bundle id live in `src/api-config.mjs` and `src/variant.mjs`. Payroll and validation come from `@cleantrack/core`.
+
+## Checks
+
+From the repository root:
+
+```
+pnpm --filter mobile typecheck
+pnpm --filter mobile lint
+pnpm --filter mobile test
+```
+
+`npx expo-doctor` runs in this directory. CI runs those four commands on every pull request.
+
 ## Store submit
 
 `eas submit` loads `app.config.ts` before it reads the submit profile, and a submit profile has no `env` field. Build-profile `env` is not applied. With `APP_VARIANT` unset, the config resolves the store bundle id `nz.co.jnok.cleantrack` (development and preview stay explicit).
@@ -70,3 +84,29 @@ npx eas-cli@latest update:roll-back-to-embedded --channel production --message "
 ```
 
 Use `--channel preview` for preview. `expo-updates` also falls back if a new update crashes on launch; that is not a substitute for publishing a rollback while the bad update remains current.
+
+`eas update` does not run `eas-build-pre-install`. `update:preview` and `update:production` are publishes, not builds, and they are not required to be on `origin/main`.
+
+## Production build
+
+Production builds are refused unless tracked files match `HEAD` and `HEAD` is contained in `origin/main`. Untracked files do not fail the check. The check is `scripts/check-release.mjs`. EAS runs it as the `eas-build-pre-install` hook. On an EAS build (`EAS_BUILD=true`), an empty or unknown profile fails closed. `development` and `preview` skip the git check. A local run with no profile also skips it.
+
+Run it locally before a production build:
+
+```
+git fetch origin main
+git checkout main
+git pull --ff-only
+EAS_BUILD_PROFILE=production node apps/mobile/scripts/check-release.mjs
+```
+
+The script fetches `origin/main`. A shallow clone is deepened with `git fetch --unshallow origin main` before `git merge-base --is-ancestor HEAD origin/main`. If `origin/main` cannot be fetched, or the shallow history cannot be deepened, the production profile fails. Tracked changes are `git diff --quiet HEAD`. A feature-branch commit or a dirty tracked tree fails the production profile. A local upload that strips `.git` fails closed.
+
+From `apps/mobile`, after the check passes:
+
+```
+npx eas-cli build --platform ios --profile production
+npx eas-cli submit --platform ios --profile production
+```
+
+Use `--platform android` for the Play build. `eas.json` `build.production` is the store profile (`distribution: store`, `channel: production`, `autoIncrement: true`). Submit uses the pins in Store submit above.

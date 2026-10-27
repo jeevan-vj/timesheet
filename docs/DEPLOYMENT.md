@@ -37,13 +37,25 @@ Rollback of contractor invitations: do not drop `contractor_invitation`, `contra
 
 ## Continuous delivery
 
-The release workflow runs verification first, serializes production deployments from `main`, rebuilds before migration, applies D1 migrations, deploys with the merge SHA as both the Worker version tag and application release marker, verifies the active Cloudflare version, and performs a cache-busted live health/header check.
+The release workflow runs verification first and serializes production deployments from `main`. Before `wrangler d1 migrations apply`, it records a D1 Time Travel bookmark (`wrangler d1 time-travel info cleantrack-timesheet --json`) and the Worker version currently at 100% traffic. Both values are written to the job summary and to the artifact `d1-recovery-<git sha>` (kept 30 days, the same window D1 will accept that bookmark). It then refuses the release when a pending migration contains `DROP TABLE`, `DROP COLUMN`, `DROP INDEX`, `TRUNCATE`, `DELETE FROM` without a `WHERE` clause, or a table rebuild, unless that migration is explicitly approved. A table rebuild is a script that creates a `*_new` or `__new_*` table, copies rows with `INSERT ... SELECT`, drops the original table, and renames the copy. `0008_account_provider_key.sql` matches that pattern. It is not pre-approved. If it is still pending on production, add its basename to `.github/migration-destructive-ok.txt` or label the merged pull request `migration-destructive-ok` before the next release.
+
+Approve a destructive migration in one of these ways:
+
+- Prefer a per-file opt-in: add the basename, one file per line, to `.github/migration-destructive-ok.txt` in the same change. This is the durable record and it names the migration.
+- Add the `migration-destructive-ok` label to the pull request. The deploy job reads labels with `GET /repos/{owner}/{repo}/commits/{sha}/pulls`. That label opts in every pending destructive migration in that release, not one file. Use the marker file when only some of the pending migrations should be approved.
+- Put a trailer on the merge commit, once per file: `Migration-Destructive-Ok: 0009_example.sql`.
+
+The workflow then applies D1 migrations and deploys with the merge SHA as both the Worker version tag and the `RELEASE_SHA` variable. It verifies the active Cloudflare version tag and runs the production smoke script. The smoke checks are read-only: `/api/health`, signed-out `GET /api/me` (401), `POST /api/sites` with a dummy cookie and an untrusted `Origin` (403, before any write), the home page title, and the deployed version tag equal to the SHA. If the identity check or the smoke test fails, the job runs `wrangler rollback <pre-deploy version id> --yes` and exits non-zero. The failure log prints the bookmark. It does not run `wrangler d1 time-travel restore`. Restore D1 by hand from an operator workstation only when you mean to move the database back:
+
+```
+pnpm exec wrangler d1 time-travel restore cleantrack-timesheet --bookmark=<bookmark>
+```
 
 The protected GitHub `production` environment contains `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, the optional `RESEND_API_KEY` secret, and the non-secret `PRODUCTION_URL` variable. The Cloudflare token must be dedicated to this deployment and scoped to the resolved account's Workers Scripts and D1 edit permissions. Keep `RESEND_API_KEY` on the production environment rather than as a repository secret, and leave it unset until the sending-only key exists. The release still succeeds when it is unset. The tagged `wrangler deploy --secrets-file` above is how the key reaches the Worker.
 
 ## Preview
 
-Pull requests run `.github/workflows/preview.yml`. Verification always runs. A preview Worker deploy runs only when every value below is present; otherwise the job exits successfully and prints this list. Preview Workers should not carry `RESEND_API_KEY`. `preview.yml` does not read it, and the production release is the workflow that can pass it.
+Pull requests run `.github/workflows/preview.yml`. Verification always runs. The `deploy-preview` job runs only when every value below is present. When one is missing, that job is skipped, `preview-config` writes the missing names to the job summary, and the check is not a successful deploy. When the values are present and the deploy fails, `deploy-preview` fails. Preview Workers should not carry `RESEND_API_KEY`. `preview.yml` does not read it, and the production release is the workflow that can pass it.
 
 Repository secrets (same account as production, scoped to the preview Worker and preview D1 only if you use a second token):
 

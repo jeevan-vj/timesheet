@@ -14,10 +14,10 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with: { persist-credentials: false }
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with: { node-version: 22 }
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
@@ -25,24 +25,21 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm build
 
-  deploy-preview:
+  preview-config:
+    name: preview-config
     needs: verify
     if: github.repository == 'jeevan-vj/timesheet'
     runs-on: ubuntu-latest
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      PREVIEW_D1_DATABASE_ID: ${{ vars.PREVIEW_D1_DATABASE_ID }}
-      PREVIEW_URL: ${{ vars.PREVIEW_URL }}
+    outputs:
+      ready: ${{ steps.config.outputs.ready }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-        with: { persist-credentials: false }
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with: { node-version: 22 }
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - name: Deploy preview Worker or report the missing configuration
+      - name: Check preview configuration
+        id: config
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PREVIEW_D1_DATABASE_ID: ${{ vars.PREVIEW_D1_DATABASE_ID }}
+          PREVIEW_URL: ${{ vars.PREVIEW_URL }}
         shell: bash
         run: |
           set -euo pipefail
@@ -52,12 +49,43 @@ jobs:
           [ -z "${PREVIEW_D1_DATABASE_ID}" ] && missing+=("variable PREVIEW_D1_DATABASE_ID")
           [ -z "${PREVIEW_URL}" ] && missing+=("variable PREVIEW_URL")
           if [ "${#missing[@]}" -gt 0 ]; then
-            echo "Preview deploy skipped. Add these on the GitHub repository, not in Cursor:"
-            printf ' - %s\n' "${missing[@]}"
-            echo "Also set Worker secret BETTER_AUTH_SECRET on cleantrack-timesheet-preview in Cloudflare."
-            echo "See docs/DEPLOYMENT.md."
+            {
+              echo "### Preview deploy skipped"
+              echo ""
+              echo "This is not a successful preview deploy. \`deploy-preview\` is skipped until the repository has:"
+              printf -- '- %s\n' "${missing[@]}"
+              echo ""
+              echo "Also set Worker secret BETTER_AUTH_SECRET on cleantrack-timesheet-preview in Cloudflare."
+              echo "See docs/DEPLOYMENT.md."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Preview deploy skipped::Preview configuration is missing. deploy-preview is skipped, not successful."
             exit 0
           fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+  deploy-preview:
+    name: deploy-preview
+    needs: [verify, preview-config]
+    if: needs.preview-config.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      PREVIEW_D1_DATABASE_ID: ${{ vars.PREVIEW_D1_DATABASE_ID }}
+      PREVIEW_URL: ${{ vars.PREVIEW_URL }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with: { persist-credentials: false }
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version: 22 }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Deploy preview Worker
+        shell: bash
+        run: |
+          set -euo pipefail
           node scripts/prepare-preview-wrangler.mjs dist/server/wrangler.json
           pnpm exec wrangler d1 migrations apply cleantrack-timesheet-preview --remote --config dist/server/wrangler.json
           pnpm exec wrangler deploy \

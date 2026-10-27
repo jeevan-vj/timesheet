@@ -5,7 +5,10 @@
 /docs/THREAT_MODEL.md @jeevan-vj
 /wrangler.jsonc @jeevan-vj
 /src/lib/auth.ts @jeevan-vj
+/src/lib/auth-client.ts @jeevan-vj
 /src/lib/auth-options.ts @jeevan-vj
+/src/app/api/auth/ @jeevan-vj
+/apps/mobile/src/auth-client.ts @jeevan-vj
 /src/lib/payroll.ts @jeevan-vj
 /src/db/ @jeevan-vj
 /drizzle/ @jeevan-vj
