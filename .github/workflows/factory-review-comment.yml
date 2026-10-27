@@ -31,7 +31,7 @@ jobs:
           printf '%s\n' "$PR" > "$RUNNER_TEMP/factory-review-comment/pr.txt"
           gh api "repos/$REPOSITORY/pulls/$PR" --jq .head.sha > "$RUNNER_TEMP/factory-review-comment/head.txt"
       - name: Upload review comment signal
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: factory-review-comment
           path: ${{ runner.temp }}/factory-review-comment
