@@ -23,6 +23,31 @@ type SmtpReader = {
 
 const encoder = new TextEncoder();
 
+export async function deliverMailpit(message: SmtpMail, endpoint: string, fetchImpl: typeof fetch): Promise<void> {
+  const from = mailpitParty(message.from);
+  const to = mailboxAddress(message.to);
+  if (!from || !to) throw new Error("smtp_failed");
+  const response = await fetchImpl(endpoint, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      From: from,
+      To: [{ Email: to }],
+      Subject: singleLine(message.subject),
+      Text: message.text,
+      HTML: message.html,
+    }),
+  });
+  if (!response.ok) throw new Error("smtp_failed");
+}
+
+function mailpitParty(value: string): { Email: string; Name?: string } | null {
+  const email = mailboxAddress(value);
+  if (!email) return null;
+  const name = singleLine(value).replace(/<[^<>]*>/g, "").trim();
+  return name ? { Email: email, Name: name } : { Email: email };
+}
+
 export async function deliverSmtp(message: SmtpMail, open: () => Promise<SmtpByteStream>, deadline = Date.now() + 5_000): Promise<void> {
   const from = mailboxAddress(message.from);
   const to = mailboxAddress(message.to);

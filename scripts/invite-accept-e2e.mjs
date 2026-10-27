@@ -47,7 +47,7 @@ function delay(ms) {
 }
 
 async function signUpOwner(page) {
-  await page.goto(`${baseUrl}/sign-up`);
+  await page.goto(`${baseUrl}/sign-up`, { waitUntil: "networkidle" });
   await page.getByLabel("Your name").fill("Owner Invite");
   await page.getByLabel("Email").fill(ownerEmail);
   await page.getByLabel("Password").fill(ownerPassword);
@@ -67,8 +67,8 @@ async function saveBusiness(page) {
 async function addContractor(page) {
   await page.getByRole("button", { name: "Add contractor" }).click();
   const dialog = page.getByRole("dialog");
-  await dialog.getByLabel("Name").fill("Aroha North");
-  await dialog.getByLabel("Email").fill(cleanerEmail);
+  await dialog.getByRole("textbox", { name: "Name", exact: true }).fill("Aroha North");
+  await dialog.getByRole("textbox", { name: /^Email\b/ }).fill(cleanerEmail);
   await dialog.getByLabel("Default hourly rate (NZD)").fill("32");
   await dialog.getByRole("button", { name: "Save contractor" }).click();
   await page.getByRole("button", { name: "Invite Aroha North" }).waitFor();
@@ -83,7 +83,7 @@ async function sendInvite(page) {
 }
 
 async function acceptInvite(page, link) {
-  await page.goto(link);
+  await page.goto(link, { waitUntil: "networkidle" });
   await page.getByRole("heading", { name: "Set up your CleanTrack account" }).waitFor();
   await shot(page, "05-set-password");
   const passwords = page.getByLabel("Password");
@@ -99,7 +99,7 @@ async function signInAgain(page) {
   await page.getByRole("button", { name: "Sign out" }).click();
   await page.waitForURL(/\/$/);
   await shot(page, "07-signed-out");
-  await page.goto(`${baseUrl}/sign-in`);
+  await page.goto(`${baseUrl}/sign-in`, { waitUntil: "networkidle" });
   await page.getByLabel("Email").fill(cleanerEmail);
   await page.getByLabel("Password").fill(cleanerPassword);
   await page.getByRole("button", { name: "Sign in" }).click();

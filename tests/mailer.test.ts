@@ -118,6 +118,25 @@ describe("sendEmail", () => {
     spy.mockRestore();
   });
 
+  it("uses the Mailpit HTTP API when the dev SMTP socket cannot connect", async () => {
+    const fetchImpl = vi.fn(async () => Response.json({ ID: "mailpit-1" }));
+    const openSmtp = vi.fn(async () => { throw new Error("smtp_failed"); });
+    const dev = { ...configured, transport: "smtp-dev", smtpHost: "127.0.0.1", smtpPort: 1025, smtpHttpPort: 8025, production: false };
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(sendEmail(message, dev, fetchImpl, openSmtp)).resolves.toEqual({ status: "sent", id: "smtp-dev" });
+    expect(openSmtp).toHaveBeenCalledOnce();
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("http://127.0.0.1:8025/api/v1/send");
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      From: { Email: "invites@jnok.co.nz", Name: "CleanTrack" },
+      To: [{ Email: "cleaner@example.test" }],
+      Subject: message.subject,
+      Text: message.text,
+    });
+    expect(loggedText(spy)).toBe("");
+    spy.mockRestore();
+  });
+
   it("aborts the request after 5 seconds", async () => {
     vi.useFakeTimers();
     const fetchImpl = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {

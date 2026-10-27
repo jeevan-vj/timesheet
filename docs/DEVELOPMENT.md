@@ -29,6 +29,6 @@ SMTP_HOST=127.0.0.1
 SMTP_PORT=1025
 ```
 
-`MAIL_TRANSPORT` is an empty Worker var so this local override is injected. Leave it empty in `wrangler.jsonc`. `smtp-dev` is refused when `NODE_ENV` is `production`, when `SMTP_HOST` is not `localhost`, `127.0.0.1`, or `::1`, or when the port is not an integer from 1 to 65535. A refused dev transport does not fall back to Resend.
+`MAIL_TRANSPORT` is an empty Worker var so this local override is injected. Leave it empty in `wrangler.jsonc`. `smtp-dev` is refused when `NODE_ENV` is `production`, when `SMTP_HOST` is not `localhost`, `127.0.0.1`, or `::1`, or when the port is not an integer from 1 to 65535. A refused dev transport does not fall back to Resend. If the Worker runtime cannot open the SMTP socket, the same dev transport posts the message to Mailpit's HTTP API at `http://<SMTP_HOST>:8025/api/v1/send` (`SMTP_HTTP_PORT` overrides 8025).
 
 `scripts/invite-accept-e2e.mjs` runs the owner invite, inbox, password, `/portal`, sign-out, and sign-in flow against this inbox. It is not part of `pnpm verify`.

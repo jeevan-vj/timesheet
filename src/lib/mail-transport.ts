@@ -4,6 +4,7 @@ export type MailConfig = {
   transport?: string;
   smtpHost?: string;
   smtpPort?: number;
+  smtpHttpPort?: number;
   production?: boolean;
 };
 

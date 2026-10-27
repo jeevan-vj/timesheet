@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { getEmailConfig } from "@/lib/runtime-env";
 import { decideTransport, type MailConfig } from "@/lib/mail-transport";
-import { deliverSmtp, openCloudflareSmtp, type SmtpByteStream } from "@/lib/smtp-dev";
+import { deliverMailpit, deliverSmtp, openCloudflareSmtp, type SmtpByteStream } from "@/lib/smtp-dev";
 import { reportOperationalEvent, type OperationalKind } from "@/lib/report-server-error";
 
 export const RESEND_EMAILS_URL = "https://api.resend.com/emails";
@@ -33,7 +33,7 @@ export async function sendEmail(
     reportOperationalEvent("email_dev_transport_refused", { kind: input.kind });
     return { status: "failed", httpStatus: 0 };
   }
-  if (transport === "smtp-dev") return sendDevSmtp(input, config, openSmtp);
+  if (transport === "smtp-dev") return sendDevSmtp(input, config, openSmtp, fetchImpl);
   if (config.apiKey.trim() === "" || config.from.trim() === "") {
     reportOperationalEvent("email_not_configured", { kind: input.kind });
     return { status: "not_configured" };
@@ -47,6 +47,7 @@ function readMailConfig(): MailConfig {
     transport: envString("MAIL_TRANSPORT"),
     smtpHost: envString("SMTP_HOST") || "localhost",
     smtpPort: parsePort(envString("SMTP_PORT")),
+    smtpHttpPort: parseHttpPort(envString("SMTP_HTTP_PORT")),
     production: process.env.NODE_ENV === "production",
   };
 }
@@ -62,6 +63,12 @@ function parsePort(value: string): number {
   return Number.isInteger(port) ? port : 0;
 }
 
+function parseHttpPort(value: string): number {
+  if (value === "") return 8025;
+  const port = Number(value);
+  return Number.isInteger(port) ? port : 0;
+}
+
 function openDevSmtp(config: MailConfig): Promise<SmtpByteStream> {
   return openCloudflareSmtp(config.smtpHost?.trim() || "localhost", config.smtpPort ?? 1025);
 }
@@ -70,19 +77,35 @@ async function sendDevSmtp(
   input: SendEmailInput,
   config: MailConfig,
   openSmtp: () => Promise<SmtpByteStream>,
+  fetchImpl: typeof fetch,
+): Promise<SendEmailResult> {
+  const message = { from: config.from, to: input.to, subject: input.subject, text: input.text, html: input.html };
+  try {
+    await deliverSmtp(message, openSmtp);
+    return { status: "sent", id: "smtp-dev" };
+  } catch {
+    return sendDevHttp(input, message, config, fetchImpl);
+  }
+}
+
+async function sendDevHttp(
+  input: SendEmailInput,
+  message: { from: string; to: string; subject: string; text: string; html: string },
+  config: MailConfig,
+  fetchImpl: typeof fetch,
 ): Promise<SendEmailResult> {
   try {
-    await deliverSmtp({
-      from: config.from,
-      to: input.to,
-      subject: input.subject,
-      text: input.text,
-      html: input.html,
-    }, openSmtp);
+    await deliverMailpit(message, mailpitEndpoint(config), fetchImpl);
     return { status: "sent", id: "smtp-dev" };
   } catch {
     return failed(input.kind, 0);
   }
+}
+
+function mailpitEndpoint(config: MailConfig): string {
+  const host = config.smtpHost?.trim() || "localhost";
+  const formatted = host.includes(":") ? `[${host}]` : host;
+  return `http://${formatted}:${config.smtpHttpPort ?? 8025}/api/v1/send`;
 }
 
 async function postResend(input: SendEmailInput, config: MailConfig, fetchImpl: typeof fetch): Promise<SendEmailResult> {
