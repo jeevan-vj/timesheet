@@ -1,7 +1,8 @@
+import { ENGAGEMENT_STATUSES, gstNumberDigits, type EngagementStatus } from "@cleantrack/core/engagement";
 import { isUniqueConstraintError } from "@/lib/db-errors";
 
-export const ENGAGEMENT_STATUSES = ["draft", "invited", "active", "suspended", "archived"] as const;
-export type EngagementStatus = (typeof ENGAGEMENT_STATUSES)[number];
+export { ENGAGEMENT_STATUSES, gstNumberDigits };
+export type { EngagementStatus };
 
 export type IncludeArchivedQuery = { ok: true; includeArchived: boolean } | { ok: false };
 
@@ -14,10 +15,6 @@ export function isEngagementStatus(value: string): value is EngagementStatus {
 
 export function activeForEngagementStatus(status: EngagementStatus): boolean {
   return SCHEDULABLE_STATUSES.has(status);
-}
-
-export function gstNumberDigits(value: string): string {
-  return value.trim().replace(/[\s-]/g, "");
 }
 
 export function contractorMayHoldPortalAccess(status: EngagementStatus): boolean {

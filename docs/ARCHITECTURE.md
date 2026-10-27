@@ -116,6 +116,14 @@ Contractor and time-entry writes, and wage reads, take `ownerUserId` and resolve
 - Gross totals are contractor payments before tax/GST/expenses and are not a payroll or tax determination.
 - Deleting a recorded shift requires confirmation that names the contractor, site, and work date before the owner-scoped DELETE runs.
 
+### Repository layout
+
+The web app stays at the repository root (`src/`, `drizzle/`, `wrangler.jsonc`, vinext). `pnpm-workspace.yaml` includes `.`, `apps/*`, and `packages/*`. A separate repository was rejected because it would copy schemas and split an API change from the client that calls it.
+
+`packages/core` (`@cleantrack/core`) holds the pure TypeScript shared by the web app and `apps/mobile`: Zod inputs, API error codes and response types, minute and money formatting, and week/date helpers. It does not import React, React Native, the DOM, or `cloudflare:*`. `src/lib/payroll.ts`, `src/lib/validation.ts`, and `src/lib/week-rollup.ts` re-export that package, so existing web imports stay on those paths. Pay still uses integer cents and `calculateEntryPayCents` on snapshotted rates.
+
+`apps/mobile` is an Expo SDK 58 dev-client app (not Expo Go) with Expo Router native tabs. The contractor shell is Home, My week, Pay, and Account. It does not sign in. Bundle id `nz.co.jnok.cleantrack`, with `.preview` and `.dev` variants. No EAS project id or credentials are stored in the repo. The Worker deploy command remains `pnpm deploy` from the root. Mobile pins TypeScript `~6.0.3` because Expo SDK 58 and `expo/tsconfig.base` expect that compiler, while the web app and `packages/core` stay on TypeScript 7.0.2; pnpm's isolated installs keep the two toolchains from overriding each other.
+
 ### Weekly approval HTTP contract
 
 `WeekApprovalResource` omits `ownerUserId` and serializes timestamps as ISO strings:

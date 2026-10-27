@@ -1,0 +1,17 @@
+{
+  "name": "@cleantrack/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./api-types": "./src/api-types.ts",
+    "./engagement": "./src/engagement.ts",
+    "./payroll": "./src/payroll.ts",
+    "./validation": "./src/validation.ts",
+    "./week-rollup": "./src/week-rollup.ts"
+  },
+  "peerDependencies": {
+    "zod": "4.4.3"
+  }
+}

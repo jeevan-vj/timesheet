@@ -160,6 +160,10 @@ Sign-in and sign-up accept a same-origin `returnTo` of `/invite`, `/portal`, or 
 
 The read-only week, sites, and payments views and remittance download for contractors are later slices. Invitation acceptance is CT-016. No portal route accepts a client-supplied `contractorId`.
 
+### CT-018 Mobile client scaffold
+
+`apps/mobile` is an Expo dev-client shell for contractors. The tabs are Home, My week, Pay, and Account. This slice does not sign in, call authenticated APIs, or show contractor or owner records. Zod inputs, API error codes, week helpers, and money and minute formatting live in `@cleantrack/core`. The web app keeps importing `@/lib/payroll`, `@/lib/validation`, and `@/lib/week-rollup`.
+
 ## Non-goals
 
 - tax, holiday pay, GST, expenses, invoicing, or bank payments;
