@@ -9,6 +9,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     ...config,
     name: applicationName(variant),
     slug: "cleantrack",
+    owner: "jnok",
     version: "0.1.0",
     orientation: "default",
     scheme: "cleantrack",
@@ -20,6 +21,10 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       ...config.ios,
       bundleIdentifier: id,
       supportsTablet: true,
+      infoPlist: {
+        ...config.ios?.infoPlist,
+        ITSAppUsesNonExemptEncryption: false,
+      },
     },
     android: {
       ...config.android,
@@ -50,6 +55,11 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     ],
     experiments: {
       typedRoutes: true,
+    },
+    extra: {
+      eas: {
+        projectId: "2ac1a147-bf37-4ee6-9274-d896f7bd87a9",
+      },
     },
   };
 };
