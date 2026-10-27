@@ -8,6 +8,7 @@
     "./api-types": "./src/api-types.ts",
     "./engagement": "./src/engagement.ts",
     "./payroll": "./src/payroll.ts",
+    "./portal": "./src/portal.ts",
     "./validation": "./src/validation.ts",
     "./week-rollup": "./src/week-rollup.ts"
   },

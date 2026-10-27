@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import { StyleSheet, View } from "react-native";
 import { ScreenError } from "@/components/screen-error";
 import { authClient } from "@/auth-client";
+import { PortalQueryProvider } from "@/query-client";
 import { theme } from "@/theme";
 
 void SplashScreen.preventAutoHideAsync().catch(() => undefined);
@@ -28,10 +29,12 @@ export default function RootLayout() {
     void SystemUI.setBackgroundColorAsync(theme.background);
   }, []);
   return (
-    <ThemeProvider value={navigationTheme}>
-      <StatusBar style="light" />
-      <RootNavigator />
-    </ThemeProvider>
+    <PortalQueryProvider>
+      <ThemeProvider value={navigationTheme}>
+        <StatusBar style="light" />
+        <RootNavigator />
+      </ThemeProvider>
+    </PortalQueryProvider>
   );
 }
 

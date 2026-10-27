@@ -1,6 +1,7 @@
 import { Platform } from "react-native";
 import { buildApiRequest, sessionEndsOnStatus } from "@/api-config";
 import { authClient } from "@/auth-client";
+import { clearStoredPortalCache } from "@/query-client";
 import { apiBaseUrl, appVersion } from "@/runtime-config";
 
 let endingSession = false;
@@ -8,6 +9,7 @@ let endingSession = false;
 export async function endSession(): Promise<void> {
   if (endingSession) return;
   endingSession = true;
+  clearStoredPortalCache();
   try {
     await authClient.signOut();
   } catch {

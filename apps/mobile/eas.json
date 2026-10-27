@@ -31,7 +31,8 @@
   "submit": {
     "production": {
       "ios": {
-        "ascAppId": "6827417051"
+        "ascAppId": "6827417051",
+        "bundleIdentifier": "nz.co.jnok.cleantrack"
       }
     }
   }
