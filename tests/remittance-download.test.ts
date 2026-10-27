@@ -151,7 +151,7 @@ describe("weekly dashboard remittance controls", () => {
   it("keeps empty-week copy and does not show a remittance CTA without summary rows", () => {
     expect(dashboard).toContain('title="No shifts this week"');
     expect(dashboard).toContain("Payment totals appear as shifts are added.");
-    expect(dashboard).toMatch(/data\.summary\.length \?[\s\S]*Remittance[\s\S]*: <p className="muted roomy">Payment totals appear as shifts are added\.<\/p>/);
+    expect(dashboard).toMatch(/summary\.length \?[\s\S]*Remittance[\s\S]*: <p className="muted roomy">Payment totals appear as shifts are added\.<\/p>/);
   });
 
   it("keeps remittance available on approved weeks", () => {

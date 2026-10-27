@@ -152,13 +152,13 @@ export const schedulePutInput = z.object({
 });
 
 export const occurrenceExceptionInput = z.object({
-  kind: z.enum(["absent", "worked_as_scheduled", "hours_override"]),
+  kind: z.enum(["absent", "worked_as_scheduled", "hours_override", "confirm_worked"]),
   paidMinutes: z.number().int().min(1).max(1439).optional(),
   scope: z.enum(["this_day", "going_forward"]),
 }).refine((value) => {
   if (value.kind === "hours_override" && value.paidMinutes == null) return false;
   if (value.scope === "going_forward" && value.kind !== "hours_override") return false;
-  if ((value.kind === "absent" || value.kind === "worked_as_scheduled") && value.scope !== "this_day") return false;
+  if (value.kind !== "hours_override" && value.scope !== "this_day") return false;
   return true;
 });
 

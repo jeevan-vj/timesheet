@@ -62,7 +62,7 @@ const ACTION = {
 const AUDIT_INSERT = "INSERT INTO ops_audit (id, action, sql_text, params_json, old_json, new_json, reason, row_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
 const ENTRY_MODES = new Set(["clock", "paid_hours", "absent"]);
-const OCCURRENCE_KINDS = new Set(["manual", "scheduled", "absent", "hours_override"]);
+const OCCURRENCE_KINDS = new Set(["manual", "scheduled", "worked", "absent", "hours_override"]);
 
 type ContractorSnapshot = {
   id: string;
@@ -99,7 +99,7 @@ type TimeEntrySnapshot = {
   rateCents: number;
   notes: string;
   entryMode: "clock" | "paid_hours" | "absent";
-  occurrenceKind: "manual" | "scheduled" | "absent" | "hours_override";
+  occurrenceKind: "manual" | "scheduled" | "worked" | "absent" | "hours_override";
   scheduleVersionId: string | null;
 };
 

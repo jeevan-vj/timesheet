@@ -58,8 +58,9 @@ Mon = 1, Tue = 2, Wed = 4, Thu = 8, Fri = 16, Sat = 32, Sun = 64. Mon–Fri = 31
 | Value | Meaning |
 | --- | --- |
 | `manual` | Owner-entered (default for all existing rows after `0003`) |
-| `scheduled` | Created by apply-schedule |
-| `absent` | Scheduled day marked absent |
+| `scheduled` | Created by apply-schedule. Pending until the owner confirms it. |
+| `worked` | Scheduled day confirmed worked as scheduled. Paid minutes come from that row's schedule version. A later going-forward schedule change does not rewrite it. |
+| `absent` | Scheduled day marked didn't work. `paid_minutes = 0`. |
 | `hours_override` | Scheduled day with different paid minutes |
 
 `entry_mode` type is `"clock" \| "paid_hours" \| "absent"`. Absent exception rows store `paid_minutes = 0` with `occurrence_kind = 'absent'` and do not change schedule versions.
@@ -92,8 +93,9 @@ Create mode inserts an open version (`effective_from = fromDate ?? weekStart`) t
 
 Owner-scoped by entry id. Manual rows return `no_schedule`. If the work date's week is approved and `this_day` would change the row, return `week_locked`. Use `assertUnlockedWeek` for `this_day` writes.
 
-- `absent` + `this_day`: `occurrence_kind=absent`, `entry_mode=absent`, paid/clock zeros. Do not change versions. Idempotent if already absent. Keep `rate_cents`.
-- `worked_as_scheduled` + `this_day`: restore `paid_minutes` from **this row's** `schedule_version_id` version, `occurrence_kind=scheduled`, `entry_mode=paid_hours`. Keep original `rate_cents`.
+- `absent` + `this_day`: `occurrence_kind=absent`, `entry_mode=absent`, paid/clock zeros. Do not change versions. Idempotent if already absent. Keep `rate_cents`. Didn't-work already persists on `occurrence_kind`; no extra column.
+- `confirm_worked` + `this_day`: `occurrence_kind=worked`, `entry_mode=paid_hours`, `paid_minutes` restored from **this row's** `schedule_version_id` version. Keep `rate_cents`. Idempotent when the row already matches. Approved weeks that would change return `week_locked`.
+- `worked_as_scheduled` + `this_day`: restore `paid_minutes` from **this row's** `schedule_version_id` version, `occurrence_kind=scheduled`, `entry_mode=paid_hours`. Keep original `rate_cents`. This is reset-to-scheduled, including undoing a confirmation.
 - `hours_override` + `this_day`: set `paid_minutes`, `occurrence_kind=hours_override`. Keep `rate_cents`. Do not change versions or other dates.
 - `hours_override` + `going_forward`: Monday of an unlocked week becomes `scheduled` under the new version. Tue–Sun keep this day as `hours_override` and open the new version from next Monday. If this week is approved, do not change this row; still persist a new version from next Monday without rewriting locked actuals.
 

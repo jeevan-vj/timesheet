@@ -23,7 +23,7 @@ describe("weekly dashboard empty-state copy", () => {
     expect(dashboard).toContain("Payment totals appear as shifts are added.");
     expect(dashboard).not.toContain("owner_user_id");
     expect(grid).toContain("Mon");
-    expect(grid).toContain("Not worked");
+    expect(grid).toContain("week-grid-legend");
     expect(grid).toContain("week-grid");
   });
 });
