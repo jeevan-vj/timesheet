@@ -40,9 +40,13 @@ describe("mobile screen error", () => {
     expect(screen).toContain("screenErrorCause(error)");
     expect(screen).toContain('accessibilityLabel="Try again"');
     const root = readFileSync("apps/mobile/src/app/_layout.tsx", "utf8");
+    const nested = readFileSync("apps/mobile/src/components/route-error-boundary.tsx", "utf8");
     expect(root).toContain("export function ErrorBoundary({ error, retry }: ErrorBoundaryProps)");
-    expect(root).toContain("reportScreenError(error)");
     expect(root).toContain("<RouteErrorBoundary error={error} retry={retry} />");
+    for (const source of [root, nested]) {
+      expect(source).toMatch(/useEffect\(\(\) => \{\s*reportScreenError\(error\);\s*\}, \[error\]\);/);
+      expect(source.match(/reportScreenError\(error\)/g)).toEqual(["reportScreenError(error)"]);
+    }
     for (const file of [
       "apps/mobile/src/app/(contractor)/_layout.tsx",
       "apps/mobile/src/app/(contractor)/(tabs)/_layout.tsx",

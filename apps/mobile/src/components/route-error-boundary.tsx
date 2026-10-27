@@ -1,4 +1,5 @@
 import { type ErrorBoundaryProps } from "expo-router";
+import { useEffect } from "react";
 import { StyleSheet, View } from "react-native";
 import { ScreenError } from "@/components/screen-error";
 import { reportScreenError } from "@/report-screen-error";
@@ -13,7 +14,9 @@ export function RouteErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 }
 
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  reportScreenError(error);
+  useEffect(() => {
+    reportScreenError(error);
+  }, [error]);
   return <RouteErrorBoundary error={error} retry={retry} />;
 }
 

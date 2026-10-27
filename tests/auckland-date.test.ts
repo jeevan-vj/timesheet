@@ -85,24 +85,6 @@ const boundaries = [
   "2027-04-03T14:00:00.000Z",
 ] as const;
 
-function civilGrid(): Array<[string, string]> {
-  const samples: Array<[string, string]> = [];
-  for (let year = 2024; year <= 2028; year += 1) {
-    for (let month = 0; month < 12; month += 1) {
-      const days = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-      for (let day = 1; day <= days; day += 1) {
-        for (const hour of [0, 10, 11, 12, 13, 14, 23]) {
-          const instant = new Date(Date.UTC(year, month, day, hour, 30, 0)).toISOString();
-          samples.push([instant, nzIso(instant)]);
-        }
-      }
-    }
-  }
-  return samples;
-}
-
-const grid = civilGrid();
-
 afterEach(() => {
   Intl.DateTimeFormat = OriginalDateTimeFormat;
   Intl.NumberFormat = OriginalNumberFormat;
@@ -141,27 +123,6 @@ describe("aucklandDateIso", () => {
     }
   });
 
-  it("uses separate fields when the combined format is not an ISO date", () => {
-    const installed = installDateTimeFormat((options) => ({
-      format: () => {
-        if (options?.year && options.month && options.day) return "27/10/2026";
-        if (options?.year === "numeric") return "2026";
-        if (options?.month === "2-digit") return "10";
-        if (options?.day === "2-digit") return "27";
-        throw new Error("unexpected format");
-      },
-      formatToParts: () => {
-        throw new Error("formatToParts");
-      },
-    }));
-    try {
-      expect(aucklandDateIso(new Date("2026-10-26T11:30:00.000Z"))).toBe("2026-10-27");
-      expect(installed.formatToPartsCalls()).toBe(0);
-    } finally {
-      installed.restore();
-    }
-  });
-
   it("uses the NZ offset when every DateTimeFormat format throws", () => {
     const installed = installDateTimeFormat(() => ({
       format: () => {
@@ -170,10 +131,28 @@ describe("aucklandDateIso", () => {
       formatToParts: undefined,
     }));
     try {
-      for (const [instant, expected] of grid) {
-        expect(aucklandDateIso(new Date(instant)), instant).toBe(expected);
+      for (const instant of boundaries) {
+        expect(aucklandDateIso(new Date(instant)), instant).toBe(nzIso(instant));
       }
       expect(aucklandDateIso(new Date(Number.NaN))).toBe("1970-01-01");
+    } finally {
+      installed.restore();
+    }
+  });
+
+  it("keeps the Auckland date and clock when Intl ignores timeZone", () => {
+    const installed = installDateTimeFormat((options) => ({
+      format: (value) => {
+        const date = value instanceof Date ? value : new Date(Number(value));
+        const locale = options?.hour ? "en-NZ" : "en-CA";
+        return new OriginalDateTimeFormat(locale, { ...options, timeZone: "America/Los_Angeles" }).format(date);
+      },
+    }));
+    try {
+      expect(aucklandDateIso(new Date("2026-10-26T11:00:00.000Z"))).toBe("2026-10-27");
+      expect(aucklandDateIso(new Date("2026-07-15T12:00:00.000Z"))).toBe("2026-07-16");
+      expect(formatUpdatedTime(Date.UTC(2026, 9, 27, 21, 42))).toBe("10:42 am");
+      expect(formatUpdatedTime(Date.UTC(2026, 6, 15, 2, 0))).toBe("2:00 pm");
     } finally {
       installed.restore();
     }

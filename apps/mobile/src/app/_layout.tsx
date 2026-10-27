@@ -59,7 +59,9 @@ function RootNavigator() {
 }
 
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  reportScreenError(error);
+  useEffect(() => {
+    reportScreenError(error);
+  }, [error]);
   return <RouteErrorBoundary error={error} retry={retry} />;
 }
 

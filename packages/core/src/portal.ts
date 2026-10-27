@@ -180,46 +180,9 @@ function readFormatted(locales: string, options: Intl.DateTimeFormatOptions, dat
   }
 }
 
-function isoFromYearFirst(value: string): string | null {
-  const match = /(\d{4})\D(\d{1,2})\D(\d{1,2})/.exec(value);
-  if (!match?.[1] || !match[2] || !match[3]) return null;
-  const iso = `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
-  return isIsoDate(iso) ? iso : null;
-}
-
-function numericField(date: Date, field: "year" | "month" | "day"): string | null {
-  const options: Intl.DateTimeFormatOptions = { timeZone: "Pacific/Auckland" };
-  if (field === "year") options.year = "numeric";
-  if (field === "month") options.month = "2-digit";
-  if (field === "day") options.day = "2-digit";
-  const value = readFormatted("en-US", options, date);
-  if (!value) return null;
-  const digits = value.replace(/\D/g, "");
-  if (field === "year") return /^\d{4}$/.test(digits) ? digits : null;
-  if (!/^\d{1,2}$/.test(digits)) return null;
-  const number = Number(digits);
-  const max = field === "month" ? 12 : 31;
-  if (number < 1 || number > max) return null;
-  return String(number).padStart(2, "0");
-}
-
 export function aucklandDateIso(now: Date): string {
   if (!(now instanceof Date) || !Number.isFinite(now.getTime())) return FALLBACK_TODAY;
-  const patterned = readFormatted("en-CA", {
-    timeZone: "Pacific/Auckland",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }, now);
-  const fromPattern = patterned ? isoFromYearFirst(patterned) : null;
-  if (fromPattern) return fromPattern;
-  const year = numericField(now, "year");
-  const month = numericField(now, "month");
-  const day = numericField(now, "day");
-  if (year && month && day) {
-    const iso = `${year}-${month}-${day}`;
-    if (isIsoDate(iso)) return iso;
-  }
+  // Device Intl can drop timeZone and report the handset's civil date. The offset is Auckland.
   return aucklandDateFromOffset(now.getTime()) ?? FALLBACK_TODAY;
 }
 
@@ -340,13 +303,14 @@ function formatAucklandClock(timestamp: number): string {
 
 export function formatUpdatedTime(timestamp: number): string {
   if (!Number.isFinite(timestamp)) throw new Error("invalid_request");
+  const clock = formatAucklandClock(timestamp);
   const formatted = readFormatted("en-NZ", {
     hour: "numeric",
     minute: "2-digit",
     timeZone: "Pacific/Auckland",
   }, new Date(timestamp));
-  if (formatted && !/invalid/i.test(formatted)) return formatted;
-  return formatAucklandClock(timestamp);
+  if (formatted && !/invalid/i.test(formatted) && formatted === clock) return formatted;
+  return clock;
 }
 
 export function offlineBannerText(updatedAt: number | null): string {
