@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Pressable, StyleSheet, Text } from "react-native";
+import { Alert, Platform, Pressable, StyleSheet, Text } from "react-native";
 import { endSession } from "@/api";
 import { authClient } from "@/auth-client";
 import { PlaceholderScreen } from "@/components/placeholder-screen";
@@ -12,16 +12,18 @@ export default function AccountScreen() {
   const email = data?.user.email?.trim() ?? "";
 
   function confirmSignOut() {
-    Alert.alert("Sign out?", "You will need your email and password to sign in again.", [
+    const signOut = () => {
+      setBusy(true);
+      void endSession().finally(() => setBusy(false));
+    };
+    const message = "You will need your email and password to sign in again.";
+    if (Platform.OS === "web") {
+      if (globalThis.confirm(`Sign out? ${message}`)) signOut();
+      return;
+    }
+    Alert.alert("Sign out?", message, [
       { text: "Cancel", style: "cancel" },
-      {
-        text: "Sign out",
-        style: "destructive",
-        onPress: () => {
-          setBusy(true);
-          void endSession().finally(() => setBusy(false));
-        },
-      },
+      { text: "Sign out", style: "destructive", onPress: signOut },
     ]);
   }
 
