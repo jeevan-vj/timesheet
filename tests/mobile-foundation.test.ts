@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { theme } from "../apps/mobile/src/theme";
 import { applicationId, applicationName, appVariant } from "../apps/mobile/src/variant";
@@ -21,13 +22,25 @@ function contrast(foreground: string, background: string): number {
 
 describe("mobile foundation", () => {
   it("uses dev and preview application ids beside production", () => {
-    expect(appVariant(undefined)).toBe("development");
+    expect(appVariant(undefined)).toBe("production");
+    expect(appVariant("")).toBe("production");
     expect(appVariant("development")).toBe("development");
+    expect(appVariant("typo")).toBe("development");
+    expect(applicationId(appVariant(undefined))).toBe("nz.co.jnok.cleantrack");
     expect(applicationId("development")).toBe("nz.co.jnok.cleantrack.dev");
     expect(applicationId("preview")).toBe("nz.co.jnok.cleantrack.preview");
     expect(applicationId("production")).toBe("nz.co.jnok.cleantrack");
     expect(applicationName("production")).toBe("CleanTrack");
     expect(applicationName("preview")).toBe("CleanTrack (Preview)");
+  });
+
+  it("pins the store bundle id on the production submit profile", () => {
+    const eas = JSON.parse(readFileSync("apps/mobile/eas.json", "utf8")) as {
+      submit: { production: { env?: unknown; ios: { ascAppId: string; bundleIdentifier: string } } };
+    };
+    expect(eas.submit.production.ios.ascAppId).toBe("6827417051");
+    expect(eas.submit.production.ios.bundleIdentifier).toBe("nz.co.jnok.cleantrack");
+    expect(eas.submit.production.env).toBeUndefined();
   });
 
   it("keeps muted text and lime accent above the dark-surface contrast floor", () => {

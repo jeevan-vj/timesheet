@@ -7,3 +7,8 @@ allowBuilds:
   workerd: true
 minimumReleaseAgeExclude:
   - '@cloudflare/workers-types@5.20260831.1'
+auditConfig:
+  ignoreGhsas:
+    # @expo/cli requires zod ^3.25.76, so this advisory stays on that CLI only.
+    # App, mobile, and @cleantrack/core pin zod 4.6.7 in tests/runtime-dependency-pins.test.mjs.
+    - GHSA-mrhx-c7xc-m3w5

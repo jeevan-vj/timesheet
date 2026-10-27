@@ -1,0 +1,112 @@
+# CleanTrack mobile (Expo)
+
+Expo SDK 58 contractor app (`expo-router`, Better Auth Expo client). Bundle id `nz.co.jnok.cleantrack` when `APP_VARIANT=production` (`.preview` / `.dev` otherwise). EAS project `@jnok/cleantrack`. Local scripts set `APP_VARIANT=development` so a dev-client keeps the `.dev` bundle id.
+
+## Local commands
+
+```sh
+pnpm -F mobile start
+pnpm -F mobile typecheck
+pnpm -F mobile lint
+```
+
+The API origin and bundle id live in `src/api-config.mjs` and `src/variant.mjs`. Payroll and validation come from `@cleantrack/core`.
+
+## Checks
+
+From the repository root:
+
+```
+pnpm --filter mobile typecheck
+pnpm --filter mobile lint
+pnpm --filter mobile test
+```
+
+`npx expo-doctor` runs in this directory. CI runs those four commands on every pull request.
+
+## Store submit
+
+`eas submit` loads `app.config.ts` before it reads the submit profile, and a submit profile has no `env` field. Build-profile `env` is not applied. With `APP_VARIANT` unset, the config resolves the store bundle id `nz.co.jnok.cleantrack` (development and preview stay explicit).
+
+`submit.production` also pins that bundle id and the App Store Connect app:
+
+- `ios.bundleIdentifier`: `nz.co.jnok.cleantrack`
+- `ios.ascAppId`: `6827417051`
+
+`eas submit --profile production` does not need `APP_VARIANT` exported in the shell. Development and preview builds still set `APP_VARIANT` on their build profiles.
+
+## EAS Update (OTA)
+
+`expo-updates` ships JavaScript and asset changes to binaries that already include it. `runtimeVersion.policy` is `fingerprint`, so a native change (new native module, permission, SDK upgrade, or other native app-config change) gets a new runtime and is **not** offered to older binaries. Those changes need a new EAS Build.
+
+Channels are set on the EAS build profiles in `eas.json` (not `updates.requestHeaders`), so the channel does not change the fingerprint between build and publish:
+
+| Build profile | Channel | Publish script |
+| --- | --- | --- |
+| `development` | `development` | (dev clients; prefer `expo start`) |
+| `preview` | `preview` | `pnpm -F mobile update:preview` |
+| `production` | `production` | `pnpm -F mobile update:production` |
+
+### Publish an update
+
+From `apps/mobile` (or via `pnpm -F mobile …` from the repo root). **Do not publish without Jeevan's explicit approval.**
+
+```sh
+pnpm -F mobile update:preview -- --message "fix home copy"
+pnpm -F mobile update:production -- --message "fix pay screen"
+```
+
+Each script sets `APP_VARIANT` to match the target profile (`preview` or `production`) so `app.config.ts` resolves the same name / bundle id as the build. It also passes `--environment` so EAS loads that environment's variables into the update bundle.
+
+**Important:** `eas.json` build `env` is applied by EAS Build, not by `eas update`. The scripts set `APP_VARIANT` explicitly. Other `EXPO_PUBLIC_*` values must live in the matching EAS environment (Dashboard → Project → Environment variables), or they fall back to app-config defaults (API URL → production Worker).
+
+After publish, force-quit and reopen the release build up to twice so the update downloads and applies. Default startup behavior is `checkAutomatically: ON_LOAD` with `fallbackToCacheTimeout: 0` (cold-start does not wait on the update server).
+
+### OTA-safe vs new build
+
+| Change | OTA? |
+| --- | --- |
+| JS / TS, styles, most assets, copy | Yes |
+| New or upgraded native module, Expo SDK bump | No — new build |
+| Native permissions / `infoPlist` / plugins that affect native | No — new build |
+| Bundle id / app name / `APP_VARIANT` wiring | No — new build (fingerprint) |
+
+Existing TestFlight / store builds that were compiled **before** this PR (no `expo-updates` / no `updates.url`) cannot receive OTA. Ship a new production build after merge, then OTA works for that binary and later matching fingerprints.
+
+### Rollback
+
+```sh
+# Re-point the channel at a previous update group
+npx eas-cli@latest update:republish --group <previous-update-group-id> --non-interactive
+
+# Or roll the channel back to the binary's embedded bundle
+npx eas-cli@latest update:roll-back-to-embedded --channel production --message "Roll back to embedded" --non-interactive
+```
+
+Use `--channel preview` for preview. `expo-updates` also falls back if a new update crashes on launch; that is not a substitute for publishing a rollback while the bad update remains current.
+
+`eas update` does not run `eas-build-pre-install`. `update:preview` and `update:production` are publishes, not builds, and they are not required to be on `origin/main`.
+
+## Production build
+
+Production builds are refused unless tracked files match `HEAD` and `HEAD` is contained in `origin/main`. Untracked files do not fail the check. The check is `scripts/check-release.mjs`. EAS runs it as the `eas-build-pre-install` hook. On an EAS build (`EAS_BUILD=true`), an empty or unknown profile fails closed. `development` and `preview` skip the git check. A local run with no profile also skips it.
+
+Run it locally before a production build:
+
+```
+git fetch origin main
+git checkout main
+git pull --ff-only
+EAS_BUILD_PROFILE=production node apps/mobile/scripts/check-release.mjs
+```
+
+The script fetches `origin/main`. A shallow clone is deepened with `git fetch --unshallow origin main` before `git merge-base --is-ancestor HEAD origin/main`. If `origin/main` cannot be fetched, or the shallow history cannot be deepened, the production profile fails. Tracked changes are `git diff --quiet HEAD`. A feature-branch commit or a dirty tracked tree fails the production profile. A local upload that strips `.git` fails closed.
+
+From `apps/mobile`, after the check passes:
+
+```
+npx eas-cli build --platform ios --profile production
+npx eas-cli submit --platform ios --profile production
+```
+
+Use `--platform android` for the Play build. `eas.json` `build.production` is the store profile (`distribution: store`, `channel: production`, `autoIncrement: true`). Submit uses the pins in Store submit above.

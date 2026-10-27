@@ -7,7 +7,8 @@ const VARIANTS = {
 };
 
 export function appVariant(value) {
-  if (value === "preview" || value === "production") return value;
+  if (value === "development" || value === "preview") return value;
+  if (value === "production" || value == null || value === "") return "production";
   return "development";
 }
 
