@@ -54,18 +54,40 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
+      - name: Require a protected mobile-production environment
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -f "$RUNNER_TEMP/environment.json"
+          http_code="$(curl -sS -o "$RUNNER_TEMP/environment.json" -w '%{http_code}' \
+            --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/environments/mobile-production")"
+          if [ "$http_code" != "200" ]; then
+            printf '%s\n' '### Mobile production release' '' "mobile-production is not available (HTTP ${http_code}). Create the environment, add a required reviewer, and save the protection rule before this workflow can publish or build." >> "$GITHUB_STEP_SUMMARY"
+            rm -f "$RUNNER_TEMP/environment.json"
+            exit 1
+          fi
+          if ! node apps/mobile/scripts/plan-release.mjs --require-reviewers "$RUNNER_TEMP/environment.json"; then
+            printf '%s\n' '### Mobile production release' '' 'mobile-production has no required reviewer, or its protection rules could not be read. Add a required reviewer and save the rule before this workflow can publish or build.' >> "$GITHUB_STEP_SUMMARY"
+            rm -f "$RUNNER_TEMP/environment.json"
+            exit 1
+          fi
+          rm -f "$RUNNER_TEMP/environment.json"
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Pin eas-cli 25.3.0
         run: |
           set -euo pipefail
-          npm install --prefix "$RUNNER_TEMP/eas-cli" eas-cli@25.3.0
+          npm install --prefix "$RUNNER_TEMP/eas-cli" --ignore-scripts eas-cli@25.3.0
           echo "$RUNNER_TEMP/eas-cli/node_modules/.bin" >> "$GITHUB_PATH"
       - name: Decide from the production fingerprint
         id: plan
         working-directory: apps/mobile
         env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN_READ }}
           RELEASE_MODE: ${{ github.event.inputs.mode || 'auto' }}
         run: |
           set -euo pipefail
@@ -78,7 +100,7 @@ jobs:
           }
           trap cleanup EXIT
           if [ -z "${EXPO_TOKEN:-}" ]; then
-            printf '%s\n' '### Mobile production release' '' 'EXPO_TOKEN is unset. Add it as a repository secret named EXPO_TOKEN. The decision job runs before the mobile-production environment, so an environment-only secret is not visible here.' >> "$GITHUB_STEP_SUMMARY"
+            printf '%s\n' '### Mobile production release' '' 'EXPO_TOKEN_READ is unset. Add a repository secret named EXPO_TOKEN_READ for an Expo robot with the Viewer role. The decide job does not read EXPO_TOKEN.' >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
           case "$RELEASE_MODE" in
@@ -156,7 +178,7 @@ jobs:
       - name: Pin eas-cli 25.3.0
         run: |
           set -euo pipefail
-          npm install --prefix "$RUNNER_TEMP/eas-cli" eas-cli@25.3.0
+          npm install --prefix "$RUNNER_TEMP/eas-cli" --ignore-scripts eas-cli@25.3.0
           echo "$RUNNER_TEMP/eas-cli/node_modules/.bin" >> "$GITHUB_PATH"
       - name: Publish the approved commit
         env:
@@ -173,7 +195,7 @@ jobs:
             exit 1
           fi
           if [ -z "${EXPO_TOKEN:-}" ]; then
-            printf '%s\n' "EXPO_TOKEN is unset."
+            printf '%s\n' "EXPO_TOKEN is unset. Add it as an environment secret on mobile-production for an Expo robot that can build, submit, and publish. Do not store that token as a repository secret."
             exit 1
           fi
           version="$(eas --version)"
@@ -184,6 +206,25 @@ jobs:
               exit 1
               ;;
           esac
+          rm -f "$RUNNER_TEMP/fingerprint-update.json" "$RUNNER_TEMP/gen-fingerprint.sh"
+          # shellcheck disable=SC2016
+          printf '%s\n' \
+            '#!/bin/bash' \
+            'set -euo pipefail' \
+            'cd "$1"' \
+            'APP_VARIANT=production ./node_modules/.bin/expo-updates fingerprint:generate --platform ios > "$2"' \
+            > "$RUNNER_TEMP/gen-fingerprint.sh"
+          chmod 700 "$RUNNER_TEMP/gen-fingerprint.sh"
+          (
+            cd apps/mobile
+            eas env:exec --non-interactive production "bash $RUNNER_TEMP/gen-fingerprint.sh $PWD $RUNNER_TEMP/fingerprint-update.json"
+          )
+          update_hash="$(node apps/mobile/scripts/plan-release.mjs --print-hash "$RUNNER_TEMP/fingerprint-update.json")"
+          rm -f "$RUNNER_TEMP/fingerprint-update.json" "$RUNNER_TEMP/gen-fingerprint.sh"
+          if [ "$update_hash" != "${{ needs.decide.outputs.fingerprint }}" ]; then
+            printf '%s\n' "Refusing to publish. The production update fingerprint ${update_hash} does not match the approved fingerprint ${{ needs.decide.outputs.fingerprint }}."
+            exit 1
+          fi
           pnpm -F mobile update:production -- --message "GitHub Actions production OTA ${GITHUB_SHA}" --non-interactive
           {
             echo "### Published production OTA"
@@ -216,7 +257,7 @@ jobs:
       - name: Pin eas-cli 25.3.0
         run: |
           set -euo pipefail
-          npm install --prefix "$RUNNER_TEMP/eas-cli" eas-cli@25.3.0
+          npm install --prefix "$RUNNER_TEMP/eas-cli" --ignore-scripts eas-cli@25.3.0
           echo "$RUNNER_TEMP/eas-cli/node_modules/.bin" >> "$GITHUB_PATH"
       - name: Build and submit the approved commit
         working-directory: apps/mobile
@@ -235,7 +276,7 @@ jobs:
             exit 1
           fi
           if [ -z "${EXPO_TOKEN:-}" ]; then
-            printf '%s\n' "EXPO_TOKEN is unset."
+            printf '%s\n' "EXPO_TOKEN is unset. Add it as an environment secret on mobile-production for an Expo robot that can build, submit, and publish. Do not store that token as a repository secret."
             exit 1
           fi
           version="$(eas --version)"

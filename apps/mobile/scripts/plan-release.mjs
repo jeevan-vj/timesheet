@@ -62,22 +62,35 @@ export function artifactExpired(build, now) {
 }
 
 function sameText(value, expected) {
-  const found = text(value);
-  return found === "" || found.toLowerCase() === expected;
+  return text(value).toLowerCase() === expected;
 }
 
 function storeDistribution(build) {
   if (build.simulator === true) return false;
-  const value = text(build.distribution).toUpperCase();
-  return value === "" || value === "STORE";
+  return text(build.distribution).toUpperCase() === "STORE";
 }
 
 function hashMatches(build, hash) {
   const fromFingerprint = [text(build.fingerprintHash), text(build.fingerprint?.hash)].filter(Boolean);
   if (fromFingerprint.length > 0) return fromFingerprint.some((candidate) => candidate.toLowerCase() === hash);
   const runtime = text(build.runtimeVersion);
-  if (runtime) return runtime.toLowerCase() === hash;
-  return true;
+  if (!runtime) return false;
+  return runtime.toLowerCase() === hash;
+}
+
+export function environmentReviewerCount(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("environment document is missing protection rules");
+  }
+  const rules = payload.protection_rules;
+  if (!Array.isArray(rules)) throw new Error("environment document is missing protection rules");
+  let count = 0;
+  for (const rule of rules) {
+    if (!rule || rule.type !== "required_reviewers" || !Array.isArray(rule.reviewers)) continue;
+    count += rule.reviewers.filter((entry) => entry && typeof entry === "object").length;
+  }
+  if (count === 0) throw new Error("mobile-production has no required reviewer");
+  return count;
 }
 
 function publicBuild(build, now) {
@@ -281,6 +294,18 @@ export function runPlanCli(argv, io = {}) {
     const printHash = singleOption(argv, "print-hash");
     if (printHash) {
       writeOut(`${readFingerprintDocument(readFileSync(printHash, "utf8"))}\n`);
+      return { exitCode: 0 };
+    }
+
+    const reviewersFile = singleOption(argv, "require-reviewers");
+    if (reviewersFile) {
+      let parsed;
+      try {
+        parsed = JSON.parse(readFileSync(reviewersFile, "utf8"));
+      } catch {
+        throw new Error("environment JSON could not be parsed");
+      }
+      writeOut(`reviewers=${environmentReviewerCount(parsed)}\n`);
       return { exitCode: 0 };
     }
 

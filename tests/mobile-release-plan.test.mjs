@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { planMobileRelease, runPlanCli } from "../apps/mobile/scripts/plan-release.mjs";
+import { environmentReviewerCount, planMobileRelease, runPlanCli } from "../apps/mobile/scripts/plan-release.mjs";
 
 const HASH = "a".repeat(40);
 const OTHER = "b".repeat(40);
@@ -100,6 +100,32 @@ describe("mobile release plan", () => {
     expect(decision.path).toBe("update");
   });
 
+  it("refuses an OTA when the fingerprint or runtime hash is missing, empty, or unknown", () => {
+    const bare = finished();
+    delete bare.fingerprint;
+    delete bare.fingerprintHash;
+    delete bare.runtimeVersion;
+    expect(plan({ builds: [bare] }).path).toBe("build");
+    expect(plan({ builds: [finished({ fingerprint: {}, fingerprintHash: "", runtimeVersion: "" })] }).path).toBe("build");
+    expect(plan({ builds: [finished({ fingerprint: { hash: "   " }, runtimeVersion: "" })] }).path).toBe("build");
+    expect(plan({ builds: [finished({ fingerprint: { hash: "unknown" }, runtimeVersion: HASH })] }).path).toBe("build");
+    expect(plan({ builds: [finished({ fingerprint: undefined, fingerprintHash: "", runtimeVersion: "unknown" })] }).path).toBe("build");
+  });
+
+  it("refuses an OTA when platform, profile, channel, or distribution is empty", () => {
+    expect(plan({ builds: [finished({ platform: "" })] }).path).toBe("build");
+    expect(plan({ builds: [finished({ platform: undefined })] }).path).toBe("build");
+    expect(plan({ builds: [finished({ buildProfile: "" })] }).path).toBe("build");
+    expect(plan({ builds: [finished({ channel: "" })] }).path).toBe("build");
+    expect(plan({ builds: [finished({ distribution: "" })] }).path).toBe("build");
+    expect(plan({ builds: [finished({ distribution: undefined })] }).path).toBe("build");
+    expect(plan({ builds: [finished({ platform: "   " })] }).path).toBe("build");
+    expect(plan({ builds: [finished({ buildProfile: "   " })] }).path).toBe("build");
+    expect(plan({ builds: [finished({ channel: "   " })] }).path).toBe("build");
+    expect(plan({ builds: [finished({ distribution: "   " })] }).path).toBe("build");
+    expect(plan({ builds: [finished({ fingerprint: { hash: "   " }, runtimeVersion: "   " })] }).path).toBe("build");
+  });
+
   it("accepts a flat fingerprintHash from eas build:list", () => {
     const decision = plan({
       builds: [finished({ fingerprint: undefined, fingerprintHash: HASH.toUpperCase() })],
@@ -120,7 +146,7 @@ describe("mobile release plan", () => {
     expect(plan({ mode: "force-update", builds: [finished()] }).warning).toBe("");
   });
 
-  it("stops when the update environment fingerprint differs from the build profile", () => {
+  it("stops, including force-update, when the update environment fingerprint differs", () => {
     for (const mode of ["auto", "force-build", "force-update"]) {
       const decision = plan({ mode, updateFingerprintHash: OTHER, builds: [finished()] });
       expect(decision.path).toBe("blocked");
@@ -234,6 +260,51 @@ describe("mobile release plan", () => {
     expect(stderr).toContain("could not be parsed");
     expect(stderr).not.toContain("{");
   });
+
+  it("requires a named reviewer and does not print the reviewer record", () => {
+    expect(environmentReviewerCount({
+      protection_rules: [{ type: "required_reviewers", reviewers: [{ type: "User", reviewer: { login: "jeevan-vj" } }] }],
+    })).toBe(1);
+    expect(() => environmentReviewerCount({ protection_rules: [] })).toThrow("no required reviewer");
+    expect(() => environmentReviewerCount({ protection_rules: [{ type: "wait_timer", wait_timer: 5 }] })).toThrow("no required reviewer");
+    expect(() => environmentReviewerCount({
+      protection_rules: [{ type: "required_reviewers", reviewers: [] }],
+    })).toThrow("no required reviewer");
+    expect(() => environmentReviewerCount({
+      protection_rules: [{ type: "required_reviewers", reviewers: [null] }],
+    })).toThrow("no required reviewer");
+    expect(() => environmentReviewerCount({})).toThrow("missing protection rules");
+
+    const dir = mkdtempSync(join(tmpdir(), "mobile-release-"));
+    const file = join(dir, "environment.json");
+    writeFileSync(file, JSON.stringify({
+      protection_rules: [{
+        type: "required_reviewers",
+        reviewers: [{ type: "User", reviewer: { login: "jeevan-vj", email: "hidden@example.com" } }],
+      }],
+    }));
+    let stdout = "";
+    let stderr = "";
+    const ok = runPlanCli(["--require-reviewers", file], {
+      stdout: (chunk) => { stdout += chunk; },
+      stderr: (chunk) => { stderr += chunk; },
+    });
+    expect(ok.exitCode).toBe(0);
+    expect(stdout).toBe("reviewers=1\n");
+    expect(stderr).toBe("");
+    expect(stdout).not.toContain("hidden@example.com");
+
+    writeFileSync(file, "{");
+    stdout = "";
+    stderr = "";
+    const bad = runPlanCli(["--require-reviewers", file], {
+      stdout: (chunk) => { stdout += chunk; },
+      stderr: (chunk) => { stderr += chunk; },
+    });
+    expect(bad.exitCode).toBe(1);
+    expect(stderr).toContain("could not be parsed");
+    expect(stderr).not.toContain("{");
+  });
 });
 
 describe("mobile release workflow contract", () => {
@@ -265,6 +336,23 @@ describe("mobile release workflow contract", () => {
     expect(workflow).not.toContain("echo \"$EXPO_TOKEN\"");
     expect(workflow).not.toContain("echo ${{ secrets");
     expect(workflow).not.toContain("cancel-in-progress: true");
+    expect(workflow).toContain("--ignore-scripts");
+    expect(workflow).toContain("--require-reviewers");
+    expect(workflow).toContain("environments/mobile-production");
+
+    const decide = workflow.slice(0, workflow.indexOf("\n  publish:"));
+    const publish = workflow.slice(workflow.indexOf("\n  publish:"), workflow.indexOf("\n  build:"));
+    const build = workflow.slice(workflow.indexOf("\n  build:"));
+    expect(decide).toContain("secrets.EXPO_TOKEN_READ");
+    expect(decide).not.toMatch(/secrets\.EXPO_TOKEN(?!_READ)/);
+    expect(publish).toMatch(/secrets\.EXPO_TOKEN(?!_READ)/);
+    expect(publish).not.toContain("EXPO_TOKEN_READ");
+    expect(build).toMatch(/secrets\.EXPO_TOKEN(?!_READ)/);
+    expect(build).not.toContain("EXPO_TOKEN_READ");
+    const publishCheck = publish.indexOf("--print-hash");
+    const publishUpdate = publish.indexOf("update:production");
+    expect(publishCheck).toBeGreaterThan(-1);
+    expect(publishCheck).toBeLessThan(publishUpdate);
   });
 
   it("keeps the web Worker release on its own workflow", () => {
