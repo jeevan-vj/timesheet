@@ -1,5 +1,12 @@
 import { Stack } from "expo-router";
+import { ErrorBoundary } from "@/components/route-error-boundary";
 import { theme } from "@/theme";
+
+export { ErrorBoundary };
+
+export const unstable_settings = {
+  screenErrorBoundary: ErrorBoundary,
+};
 
 export default function ContractorLayout() {
   return (

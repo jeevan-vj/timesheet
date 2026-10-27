@@ -16,6 +16,6 @@
     "zod": "4.6.7"
   },
   "scripts": {
-    "test": "pnpm --dir ../.. exec vitest run tests/core-package.test.ts tests/payroll.test.ts tests/validation.test.ts tests/week-rollup.test.ts"
+    "test": "pnpm --dir ../.. exec vitest run tests/core-package.test.ts tests/payroll.test.ts tests/validation.test.ts tests/week-rollup.test.ts tests/auckland-date.test.ts"
   }
 }

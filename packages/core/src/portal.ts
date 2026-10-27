@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isIsoDate, isMonday } from "./payroll";
+import { isIsoDate, isMonday, weekStartFromDate } from "./payroll";
 
 export const PORTAL_UPCOMING_DAYS = 14;
 
@@ -128,18 +128,81 @@ export function shiftWeek(weekStart: string, direction: -1 | 1): string {
   return addDaysIso(weekStart, direction * 7);
 }
 
+const FALLBACK_TODAY = "1970-01-01";
+const FALLBACK_WEEK_START = "1969-12-29";
+const HOUR_MS = 60 * 60 * 1000;
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+// NZDT (UTC+13) runs from 02:00 NZST on the last Sunday in September
+// until 03:00 NZDT on the first Sunday in April. Every other instant is NZST (UTC+12).
+function lastSundayDay(year: number, monthIndex: number): number {
+  const last = new Date(Date.UTC(year, monthIndex + 1, 0));
+  return last.getUTCDate() - last.getUTCDay();
+}
+
+function firstSundayDay(year: number, monthIndex: number): number {
+  const weekday = new Date(Date.UTC(year, monthIndex, 1)).getUTCDay();
+  return weekday === 0 ? 1 : 1 + (7 - weekday);
+}
+
+function nzdtStartMs(year: number): number {
+  return Date.UTC(year, 8, lastSundayDay(year, 8), 2 - 12, 0, 0, 0);
+}
+
+function nzdtEndMs(year: number): number {
+  return Date.UTC(year, 3, firstSundayDay(year, 3), 3 - 13, 0, 0, 0);
+}
+
+function aucklandOffsetHours(utcMs: number): 12 | 13 {
+  const year = new Date(utcMs).getUTCFullYear();
+  if (utcMs >= nzdtStartMs(year) && utcMs < nzdtEndMs(year + 1)) return 13;
+  if (utcMs >= nzdtStartMs(year - 1) && utcMs < nzdtEndMs(year)) return 13;
+  return 12;
+}
+
+function aucklandDateFromOffset(utcMs: number): string | null {
+  if (!Number.isFinite(utcMs)) return null;
+  const local = new Date(utcMs + aucklandOffsetHours(utcMs) * HOUR_MS);
+  const iso = local.toISOString().slice(0, 10);
+  return isIsoDate(iso) ? iso : null;
+}
+
+function readFormatted(locales: string, options: Intl.DateTimeFormatOptions, date: Date): string | null {
+  try {
+    if (typeof Intl === "undefined" || typeof Intl.DateTimeFormat !== "function") return null;
+    const formatter = new Intl.DateTimeFormat(locales, options);
+    if (typeof formatter.format !== "function") return null;
+    const value = formatter.format(date);
+    return typeof value === "string" && value.length > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 export function aucklandDateIso(now: Date): string {
-  const parts = new Intl.DateTimeFormat("en-NZ", {
-    timeZone: "Pacific/Auckland",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(now);
-  const year = parts.find((part) => part.type === "year")?.value;
-  const month = parts.find((part) => part.type === "month")?.value;
-  const day = parts.find((part) => part.type === "day")?.value;
-  if (!year || !month || !day) throw new Error("invalid_request");
-  return `${year}-${month}-${day}`;
+  if (!(now instanceof Date) || !Number.isFinite(now.getTime())) return FALLBACK_TODAY;
+  // Device Intl can drop timeZone and report the handset's civil date. The offset is Auckland.
+  return aucklandDateFromOffset(now.getTime()) ?? FALLBACK_TODAY;
+}
+
+export function weekStartOrFallback(isoDate: string): string {
+  try {
+    return weekStartFromDate(isoDate);
+  } catch {
+    return FALLBACK_WEEK_START;
+  }
+}
+
+export function portalCalendar(now: Date = new Date()): { today: string; weekStart: string } {
+  let today = FALLBACK_TODAY;
+  try {
+    const iso = aucklandDateIso(now);
+    if (isIsoDate(iso)) today = iso;
+  } catch {
+    today = FALLBACK_TODAY;
+  }
+  return { today, weekStart: weekStartOrFallback(today) };
 }
 
 export function upcomingRange(today: string, days = PORTAL_UPCOMING_DAYS): { from: string; to: string } {
@@ -214,32 +277,44 @@ export function formatShiftTime(shift: Pick<PortalShift, "entryMode" | "occurren
   return `${sign}${Math.floor(abs / 60)}h ${String(abs % 60).padStart(2, "0")}m`;
 }
 
+function dayMonthLabel(isoDate: string): string {
+  const date = new Date(`${isoDate}T00:00:00.000Z`);
+  const intlLabel = readFormatted("en-NZ", { day: "numeric", month: "short", timeZone: "UTC" }, date);
+  if (intlLabel && !/invalid/i.test(intlLabel)) return intlLabel;
+  return `${date.getUTCDate()} ${MONTHS[date.getUTCMonth()] ?? ""}`;
+}
+
 export function formatDayHeading(isoDate: string): string {
   if (!isIsoDate(isoDate)) throw new Error("invalid_request");
   const date = new Date(`${isoDate}T00:00:00.000Z`);
-  const weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][date.getUTCDay()];
-  const rest = new Intl.DateTimeFormat("en-NZ", { day: "numeric", month: "short", timeZone: "UTC" }).format(date);
-  return `${weekday} ${rest}`;
+  const weekday = WEEKDAYS[date.getUTCDay()] ?? "";
+  return `${weekday} ${dayMonthLabel(isoDate)}`;
 }
 
 export function formatWeekRange(weekStart: string, end: string): string {
   if (!isMonday(weekStart) || !isIsoDate(end)) throw new Error("invalid_week");
-  const startLabel = new Intl.DateTimeFormat("en-NZ", { day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${weekStart}T00:00:00.000Z`));
-  const endLabel = new Intl.DateTimeFormat("en-NZ", { day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${end}T00:00:00.000Z`));
-  return `${startLabel} – ${endLabel}`;
+  return `${dayMonthLabel(weekStart)} – ${dayMonthLabel(end)}`;
+}
+
+function formatAucklandClock(timestamp: number): string {
+  const local = new Date(timestamp + aucklandOffsetHours(timestamp) * HOUR_MS);
+  return formatClockMinutes(local.getUTCHours() * 60 + local.getUTCMinutes());
 }
 
 export function formatUpdatedTime(timestamp: number): string {
   if (!Number.isFinite(timestamp)) throw new Error("invalid_request");
-  return new Intl.DateTimeFormat("en-NZ", {
+  const clock = formatAucklandClock(timestamp);
+  const formatted = readFormatted("en-NZ", {
     hour: "numeric",
     minute: "2-digit",
     timeZone: "Pacific/Auckland",
-  }).format(new Date(timestamp));
+  }, new Date(timestamp));
+  if (formatted && !/invalid/i.test(formatted) && formatted === clock) return formatted;
+  return clock;
 }
 
 export function offlineBannerText(updatedAt: number | null): string {
-  if (updatedAt == null) return "Offline. Last updated time is not saved yet.";
+  if (updatedAt == null || !Number.isFinite(updatedAt)) return "Offline. Last updated time is not saved yet.";
   return `Offline. Last updated ${formatUpdatedTime(updatedAt)}.`;
 }
 

@@ -1,10 +1,9 @@
 import {
-  aucklandDateIso,
   formatMinutes,
   formatNzd,
   formatWeekRange,
+  portalCalendar,
   spokenNzd,
-  weekStartFromDate,
 } from "@cleantrack/core";
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
@@ -12,8 +11,10 @@ import { ScreenScroll } from "@/components/screen-scroll";
 import { usePortalPaymentDetail, usePortalPayments } from "@/portal-client";
 import { theme } from "@/theme";
 
+export { ErrorBoundary } from "@/components/route-error-boundary";
+
 export default function PayScreen() {
-  const weekStart = weekStartFromDate(aucklandDateIso(new Date()));
+  const { weekStart } = portalCalendar();
   const payments = usePortalPayments(weekStart);
   const [selected, setSelected] = useState<string | null>(null);
   const detail = usePortalPaymentDetail(selected);

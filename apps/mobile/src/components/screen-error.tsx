@@ -1,14 +1,28 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { screenErrorCause } from "@/screen-error-cause";
 import { theme } from "@/theme";
 
-export function ScreenError({ retry }: { retry: () => void }) {
+export function ScreenError({
+  error,
+  retry,
+}: {
+  error: { name?: string; message?: string };
+  retry: () => void | Promise<void>;
+}) {
   return (
     <View style={styles.screen}>
       <Text accessibilityRole="header" style={styles.title}>
         Something went wrong
       </Text>
       <Text style={styles.detail}>This screen could not be shown. Try again.</Text>
-      <Pressable accessibilityLabel="Try again" onPress={retry} style={styles.button}>
+      <Text style={styles.cause}>{screenErrorCause(error)}</Text>
+      <Pressable
+        accessibilityLabel="Try again"
+        onPress={() => {
+          void retry();
+        }}
+        style={styles.button}
+      >
         <Text style={styles.buttonText}>Try again</Text>
       </Pressable>
     </View>
@@ -32,6 +46,12 @@ const styles = StyleSheet.create({
     color: theme.muted,
     fontSize: 16,
     lineHeight: 24,
+  },
+  cause: {
+    color: theme.muted,
+    fontSize: 13,
+    lineHeight: 18,
+    flexShrink: 1,
   },
   button: {
     alignSelf: "flex-start",
