@@ -21,7 +21,8 @@
     "mobile:start": "pnpm -F mobile start",
     "mobile:typecheck": "pnpm -F mobile typecheck",
     "mobile:lint": "pnpm -F mobile lint",
-    "verify": "pnpm lint && pnpm test && pnpm typecheck && pnpm typecheck:core && pnpm build && pnpm mobile:typecheck && pnpm mobile:lint",
+    "verify": "pnpm lint && pnpm test && pnpm typecheck && pnpm typecheck:core && pnpm build",
+    "verify:mobile": "pnpm typecheck:core && pnpm mobile:typecheck && pnpm mobile:lint",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply cleantrack-timesheet --local",
     "cf:types": "wrangler types worker-configuration.d.ts --include-runtime false"

@@ -11,6 +11,12 @@ pnpm dev
 
 Open `http://localhost:3000`. `pnpm dev` is the local Worker dev server. A production build refuses the dev mail transport below, including `pnpm start` of that build.
 
+## Checks
+
+`pnpm verify` checks the web app: lint, test, web typecheck, `packages/core` typecheck, and the vinext build. `pnpm verify:mobile` typechecks `packages/core`, then typechecks and lints `apps/mobile`. Core stays on both commands so a web-only run still typechecks the shared package.
+
+GitHub Actions still runs the web lint, test, typecheck, and build steps and does not run the mobile app. CI will need a path-filtered job later for changes under `apps/mobile` (core is already typechecked by `pnpm verify`). Do not add that job until the workflow change is in scope.
+
 ## Invitation inbox
 
 Production sends contractor invitations through Resend. Locally, capture them in Mailpit:

@@ -6,7 +6,7 @@
   },
   "protected": { "exact": ["AGENTS.md"], "prefixes": [".github/", ".factory/"] },
   "high": {
-    "exact": ["SECURITY.md", "docs/THREAT_MODEL.md", "wrangler.jsonc", "src/lib/accounts-config.ts", "src/lib/api.ts", "src/lib/auth.ts", "src/lib/auth-client.ts", "src/lib/auth-options.ts", "src/lib/db-errors.ts", "src/lib/payroll.ts", "src/lib/week-rollup.ts", "src/lib/request-session.ts", "src/lib/runtime-env.ts", "src/lib/security-headers.ts", "src/lib/time-entry-write.ts", "src/lib/validation.ts"],
+    "exact": ["SECURITY.md", "docs/THREAT_MODEL.md", "wrangler.jsonc", "src/lib/accounts-config.ts", "src/lib/api.ts", "src/lib/auth.ts", "src/lib/auth-client.ts", "src/lib/auth-options.ts", "src/lib/db-errors.ts", "src/lib/payroll.ts", "src/lib/week-rollup.ts", "src/lib/request-session.ts", "src/lib/runtime-env.ts", "src/lib/security-headers.ts", "src/lib/time-entry-write.ts", "src/lib/validation.ts", "packages/core/src/payroll.ts", "packages/core/src/validation.ts", "packages/core/src/week-rollup.ts"],
     "prefixes": ["src/app/api/auth/", "src/db/", "drizzle/"]
   },
   "medium": { "exact": ["package.json", "pnpm-lock.yaml"], "prefixes": ["src/app/api/", "src/services/"] }
