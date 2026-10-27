@@ -195,6 +195,66 @@ describe("contractor API", () => {
     expect(timesheet.archiveContractor).not.toHaveBeenCalled();
   });
 
+  it("passes engagement fields through and rejects an invalid GST number before a write", async () => {
+    timesheet.createContractor.mockResolvedValue({
+      ...resource,
+      preferredName: "Ro",
+      startDate: "2026-08-03",
+      engagementStatus: "draft",
+      active: false,
+      gstRegistered: true,
+      gstNumber: "123456789",
+      internalNotes: "Office only",
+      emergencyContactName: "Sam",
+      emergencyContactPhone: "021111111",
+    });
+    const response = await createContractor(jsonRequest("https://app.example.test/api/contractors", "POST", {
+      name: "Aroha",
+      defaultRateCents: 3200,
+      preferredName: "Ro",
+      startDate: "2026-08-03",
+      engagementStatus: "draft",
+      gstRegistered: true,
+      gstNumber: "123456789",
+      internalNotes: "Office only",
+      emergencyContactName: "Sam",
+      emergencyContactPhone: "021111111",
+      ownerUserId: "forged-owner",
+      active: true,
+    }));
+    expect(response.status).toBe(201);
+    expect(timesheet.createContractor).toHaveBeenCalledWith(db, "owner-1", {
+      name: "Aroha",
+      email: "",
+      phone: "",
+      defaultRateCents: 3200,
+      preferredName: "Ro",
+      startDate: "2026-08-03",
+      engagementStatus: "draft",
+      gstRegistered: true,
+      gstNumber: "123456789",
+      internalNotes: "Office only",
+      emergencyContactName: "Sam",
+      emergencyContactPhone: "021111111",
+    });
+    const body = await response.json() as { ownerUserId?: string; internalNotes?: string };
+    expect(body).not.toHaveProperty("ownerUserId");
+    expect(body.internalNotes).toBe("Office only");
+
+    timesheet.createContractor.mockClear();
+    const invalid = await createContractor(jsonRequest("https://app.example.test/api/contractors", "POST", {
+      name: "Aroha",
+      defaultRateCents: 3200,
+      gstNumber: "12-34",
+    }));
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toEqual({
+      error: "invalid_request",
+      fields: { gstNumber: "GST number must be 8 or 9 digits, or blank." },
+    });
+    expect(timesheet.createContractor).not.toHaveBeenCalled();
+  });
+
   it("patches the contractor from session-scoped input, including empty email and phone", async () => {
     timesheet.updateContractor.mockResolvedValue({ ...resource, email: "", phone: "", defaultRateCents: 4_000 });
     const response = await patchContractor(jsonRequest("https://app.example.test/api/contractors/c1", "PATCH", {
@@ -226,6 +286,29 @@ describe("contractor API", () => {
     expect(restored.status).toBe(200);
     expect(await restored.json()).toMatchObject({ id: "c1", active: true });
     expect(timesheet.restoreContractor).toHaveBeenCalledWith(db, "owner-1", "c1");
+  });
+
+  it("returns not_found for a mobile session that names another owner's contractor", async () => {
+    timesheet.updateContractor.mockRejectedValue(new Error("not_found"));
+    const encoded = JSON.stringify({ name: "Aroha", defaultRateCents: 3200 });
+    const response = await patchContractor(new Request("https://app.example.test/api/contractors/c9", {
+      method: "PATCH",
+      body: encoded,
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(Buffer.byteLength(encoded)),
+        cookie: "better-auth.session_token=test",
+        "x-cleantrack-client": "mobile/1.0.0",
+      },
+    }), idParams("c9"));
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "not_found" });
+    expect(timesheet.updateContractor).toHaveBeenCalledWith(db, "owner-1", "c9", {
+      name: "Aroha",
+      email: "",
+      phone: "",
+      defaultRateCents: 3200,
+    });
   });
 
   it("returns not_found for cross-owner archive and restore without writing", async () => {

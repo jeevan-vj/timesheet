@@ -79,6 +79,12 @@ const expectedErrors = [
   ["schedule_exists", 409, "schedule_exists"],
   ["no_schedule", 409, "no_schedule"],
   ["business_required", 409, "business_required"],
+  ["contractor_email_required", 409, "contractor_email_required"],
+  ["invitation_exists", 409, "invitation_exists"],
+  ["invitation_not_pending", 409, "invitation_not_pending"],
+  ["invitation_conflict", 409, "invitation_conflict"],
+  ["resend_too_soon", 429, "resend_too_soon"],
+  ["already_linked", 409, "already_linked"],
 ] as const;
 
 function filesUnder(root: string): string[] {

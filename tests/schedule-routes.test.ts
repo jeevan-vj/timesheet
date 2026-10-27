@@ -21,7 +21,7 @@ describe("recurring schedule route contracts", () => {
   const exceptionRoute = readSrc("src/app/api/time-entries/[id]/exception/route.ts");
   const dashboardRoute = readSrc("src/app/api/dashboard/route.ts");
   const assignmentIdRoute = readSrc("src/app/api/assignments/[id]/route.ts");
-  const validation = readSrc("src/lib/validation.ts");
+  const validation = readSrc("packages/core/src/validation.ts");
   const timesheet = readSrc("src/services/timesheet.ts");
   const schedule = readSrc("src/services/schedule.ts");
 

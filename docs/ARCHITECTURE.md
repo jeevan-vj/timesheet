@@ -38,26 +38,50 @@ An owner inspects one recorded shift with GET `/api/time-entries/:id`, which ret
 
 ## Contractor lifecycle
 
-A contractor row stays in place for the owner's history. Archive sets `active=false` on all of that owner's assignments for the contractor, then on the contractor row. Restore is the inverse on the same row (contractor first, then assignments) and never inserts a new contractor. Both writes are issued in one Drizzle D1 `batch` so they share a single round trip. D1 batch is not rollback-atomic; retry remains safe because the operations are idempotent. Both never write `time_entry`.
+A contractor row stays in place for the owner's history. Archive sets `engagement_status='archived'` and `active=false` on the contractor, and sets `active=false` on all of that owner's assignments for the contractor. Restore sets `engagement_status='active'` and `active=true` on the same contractor row first, then reactivates those assignments. Neither inserts a new contractor. Both writes are issued in one Drizzle D1 `batch` so they share a single round trip. D1 batch is not rollback-atomic; retry remains safe because the operations are idempotent. Both never write `time_entry`.
+
+`engagement_status` is the lifecycle source of truth: `draft`, `invited`, `active`, `suspended`, or `archived`. `active` is true only for `invited` and `active`, which is what assignment, schedule, and dashboard selects already require. `draft`, `suspended`, and `archived` therefore cannot be newly assigned. Saving `archived` deactivates assignments; saving `invited` or `active` from `archived` reactivates them; saving `draft` or `suspended` does not change assignments. Migration `0006_contractor_engagement.sql` backfills `active` rows to `active` and inactive rows to `archived`. Triggers reject an unknown status. A status change that disagrees with `active` fails. A write that changes only `active` is aligned to `active` or `archived`, so a pre-0006 Worker archive or restore still commits. The migration does not rewrite `time_entry`. Portal access is allowed only for `invited` and `active` (`contractorMayHoldPortalAccess`). Invitation create and resend enforce that predicate. Week, upcoming, and payment reads are `GET /api/portal/week`, `GET /api/portal/upcoming`, `GET /api/portal/payments`, and `GET /api/portal/payments/[week]`. They require a session and an active `contractor_account` joined to an invited or active engagement, and they ignore a client contractor id. Responses omit notes and rates. Recorded pay uses snapshotted rates through `calculateEntryPayCents`. Remittance download remains owner-scoped.
+
+## Viewer and invitations
+
+`GET /api/me` calls `resolveViewer`. The owner half is the active owner membership and its business. The contractor half is active `contractor_account` rows for the session user, joined to `business` for the display name. Contractor links are not `business_member` rows, so the one-active-membership index still allows a person to own one business and work at others. Until an invitation is accepted, `contractorOf` is empty. `/dashboard` sends a contractor-only user to the `/portal` placeholder. Sign-in and sign-up keep a same-origin `returnTo` of `/invite`, `/portal`, or `/dashboard`.
+
+Migration `0007_contractor_portal_access.sql` adds `contractor_invitation` and `contractor_account`. Nothing is backfilled. Tokens are stored as hex SHA-256 digests. The deliverable link puts the token in the URL fragment. Create and resend write the row before calling Resend. `last_delivery` records `email`, `link_only`, or `email_failed`. A pending invite is revoked by a trigger when `contractor.email` changes to a different address. The sender is `CleanTrack <invites@jnok.co.nz>`. How the optional Worker secret is provisioned is in `docs/DEPLOYMENT.md`. `MAIL_TRANSPORT=smtp-dev` is a local loopback SMTP transport and is refused when `NODE_ENV` is `production`.
+
+Accepting an invitation writes `user`, `account`, `contractor_account`, the invitation status, the contractor engagement status, and `session` from `POST /api/invitations/accept`. The statements share one D1 `batch`. D1 batch is not rollback-atomic, so each statement is conditional on the invite still being the pending row that was read, and a retry is safe. The page keeps the token in the fragment and in `sessionStorage` for the sign-in return trip. It is not placed on a server URL.
+
+Invitation routes:
+
+| Method | Path | Cookie mutation | Success |
+| --- | --- | --- | --- |
+| GET | `/api/me` | no | `200 { owner, contractorOf }` |
+| GET | `/api/contractors/[id]/invitation` | no | `200` state, `expiresAt`, `sendCount`, `lastDelivery` |
+| POST | `/api/contractors/[id]/invitation` | yes | `201 { invitation, delivery, inviteLink }` |
+| POST | `/api/contractors/[id]/invitation/resend` | yes | `200 { invitation, delivery, inviteLink }` |
+| POST | `/api/contractors/[id]/invitation/revoke` | yes | `200 { invitation }` |
+| POST | `/api/invitations/preview` | public, trusted Origin | `200` ready or closed state |
+| POST | `/api/invitations/accept` | public, trusted Origin | `200 { ok: true }` and session cookie |
 
 The unique index `contractor_owner_name_uq` on `(owner_user_id, name)` includes archived rows. A same-owner create or rename that collides, including with an archived name, returns `409 { error: "duplicate_contractor" }`. Different owners may share names. Cross-owner get, update, archive, and restore return identical `404 { error: "not_found" }` with no writes.
 
-`GET /api/dashboard` contractor and site selects remain active-only. The assignment query returns only active assignments whose contractor and site are also `active=true`. Time-entry joins still load contractors and sites without an active filter so historical weeks keep names and snapshotted pay. Creating an assignment or time entry still requires an active contractor and site; an archived contractor or site is `not_found`.
+`GET /api/dashboard` contractor and site selects remain limited to `active=true` rows, which for contractors means engagement status `invited` or `active`. The assignment query returns only active assignments whose contractor and site are also `active=true`. Time-entry joins still load contractors and sites without an active filter so historical weeks keep names and snapshotted pay. Creating an assignment or time entry still requires an active contractor and site; a draft, suspended, or archived contractor is `not_found`.
 
 ### Contractor HTTP contract
 
 `ContractorResource` omits `ownerUserId` and serializes timestamps as JSON dates:
 
-`{ id, name, email, phone, defaultRateCents, currency: "NZD", active, createdAt, updatedAt }`
+`{ id, name, email, phone, defaultRateCents, currency: "NZD", active, preferredName, startDate, engagementStatus, gstRegistered, gstNumber, internalNotes, emergencyContactName, emergencyContactPhone, createdAt, updatedAt }`
+
+`active` is derived from `engagementStatus` and is still returned. Omitted engagement fields on PATCH are left unchanged. Omitted engagement fields on POST default to an empty profile, `engagementStatus: "active"`, and `active: true`.
 
 | Method | Path | Cookie mutation | Success |
 | --- | --- | --- | --- |
-| GET | `/api/contractors` | no | `200 { contractors: ContractorResource[] }` name asc; `includeArchived` omit/false/0 = active only, true/1 = active+archived |
+| GET | `/api/contractors` | no | `200 { contractors: ContractorResource[] }` name asc; `includeArchived` omit/false/0 = every status except `archived`, true/1 = all statuses |
 | POST | `/api/contractors` | yes | `201 ContractorResource` |
 | GET | `/api/contractors/[id]` | no | `200 ContractorResource` (archived readable by owner) |
 | PATCH | `/api/contractors/[id]` | yes | `200 ContractorResource` |
-| POST | `/api/contractors/[id]/archive` | yes | `200 ContractorResource` `active: false` |
-| POST | `/api/contractors/[id]/restore` | yes | `200 ContractorResource` `active: true` |
+| POST | `/api/contractors/[id]/archive` | yes | `200 ContractorResource` `active: false`, `engagementStatus: "archived"` |
+| POST | `/api/contractors/[id]/restore` | yes | `200 ContractorResource` `active: true`, `engagementStatus: "active"` |
 | GET | `/api/contractors/[id]/remittance` | no | `200` PDF (`?week=YYYY-MM-DD` Monday) |
 
 There is no DELETE on contractors. Cookie-authenticated mutations use `authorize(request, true)`. Errors: `401 unauthorized`, `403 forbidden`, `404 not_found`, `409 duplicate_contractor`, `413 payload_too_large`, `400 invalid_request` (optional `fields` on create/patch Zod failures only), `500 internal_error` (correlation id) for unexpected failures.
@@ -68,7 +92,11 @@ There is no DELETE on contractors. Cookie-authenticated mutations use `authorize
 
 The vinext App Router runs as a Cloudflare Worker. D1 is accessed through the `DB` binding with Drizzle. Better Auth stores users and sessions in the same D1 database. The browser calls same-origin route handlers; route handlers validate input and invoke owner-scoped services.
 
-Site APIs are `GET/POST /api/sites`, `GET/PATCH/DELETE /api/sites/[id]`, and `POST /api/sites/[id]/restore`. Collection GET is a read (`authorize(request)`) and defaults to the owner's active sites; `?includeArchived=1` includes archived rows. Cookie-authenticated site mutations require a trusted Origin. Duplicate names map to `duplicate_site` (409). DELETE archives; it never issues `DELETE FROM site` and never updates `time_entry` rows. Archive and restore update the site and that site's owner-scoped assignments together through D1/Drizzle `batch`.
+A native client uses the same routes. Better Auth's Expo server plugin stores the session cookie for the app's secure storage and trusts the `cleantrack://` scheme. `cleantrack-preview://` is trusted only when `BETTER_AUTH_URL` is exactly `https://cleantrack-timesheet-preview.jeevan90wijerathna.workers.dev`, and also on loopback HTTP. `exp://` patterns are trusted only for loopback HTTP and are not production variables. Cookie mutations that omit `Origin` must send `X-CleanTrack-Client: mobile/<version>`. `GET /api/me` remains the signed-in role read for that cookie. There is no second role endpoint.
+
+Better Auth 1.7.13 identifies an account by `provider_id` and `account_id`. Migration `0008_account_provider_key.sql` keeps `issuer`, makes it nullable with default `local:credential`, drops the old issuer unique index, copies existing rows unchanged, and adds a unique index on `(provider_id, account_id)`. The Drizzle schema maps `issuer` as an optional column with default `local:credential`, which is the value invitation acceptance writes. Better Auth sign-up omits the column, so SQLite applies that default. The password hash stays on the row. The migration does not rewrite `time_entry`. Dropping the column is a later cleanup.
+
+Site APIs are `GET/POST /api/sites`, `GET/PATCH/DELETE /api/sites/[id]`, and `POST /api/sites/[id]/restore`. Collection GET is a read (`authorize(request)`) and defaults to the owner's active sites; `?includeArchived=1` includes archived rows. Cookie-authenticated site mutations require a trusted Origin, or `X-CleanTrack-Client: mobile/<version>` when Origin is absent. Duplicate names map to `duplicate_site` (409). DELETE archives; it never issues `DELETE FROM site` and never updates `time_entry` rows. Archive and restore update the site and that site's owner-scoped assignments together through D1/Drizzle `batch`.
 
 The dashboard continues to load only `sites.active = true` and `assignments.active = true` for pickers. The weekly time-entry join matches sites by id and owner only, so archived site names still render on historical rows while pay snapshots stay on the entry.
 
@@ -76,9 +104,9 @@ The dashboard continues to load only `sites.active = true` and `assignments.acti
 
 `/api/ops/*` is served by the same Worker and uses the `DB` binding. Authentication is `Authorization: Bearer` compared to the `OPS_BOT_TOKEN` secret. Cookie sessions are not accepted. Optional Cloudflare Access may proxy the path; the Worker still checks the bearer token.
 
-Contractor and time-entry writes, and wage reads, take `ownerUserId` and resolve `business_id` from that user's active owner membership. Wage JSON is `summarizeWeek`, `summarizeWeekBySite`, and `weekPayrollTotals` on the snapshotted entry rows. Contractor archive and restore execute `archiveWritePlan` / `restoreWritePlan` (assignment active flag, then contractor, or the reverse). Time-entry writes go through `createTimeEntry` / `updateTimeEntry`. `confirmLockedWeek` is the only way those writes skip `assertUnlockedWeek`. A contractor/day total above 840 paid minutes sets `longDay` on the response.
+Contractor and time-entry writes, and wage reads, take `ownerUserId` and resolve `business_id` from that user's active owner membership. Wage JSON is `summarizeWeek`, `summarizeWeekBySite`, and `weekPayrollTotals` on the snapshotted entry rows. Contractor archive and restore execute `archiveWritePlan` / `restoreWritePlan` (assignment active flag, then contractor, or the reverse). Named contractor responses and undo snapshots include `engagementStatus` and omit GST number, internal notes, and emergency contact. Undo of archive or restore writes the saved prior status. It refuses with `stale_preview` when that status has changed. Time-entry writes go through `createTimeEntry` / `updateTimeEntry`. `confirmLockedWeek` is the only way those writes skip `assertUnlockedWeek`. A contractor/day total above 840 paid minutes sets `longDay` on the response.
 
-`POST /api/ops/sql` classifies one statement. `SELECT` is wrapped in a 100-row cap. `INSERT` and `UPDATE` are previewed with a count and a five-row sample, then signed into a five-minute HMAC confirm token. Execute recomputes the count, rejects a mismatch, and commits the statement plus the audit insert together. `POST /api/ops/revert` reads one `ops_audit` row and applies the inverse of `contractor.create`, `contractor.update`, `contractor.rate`, `contractor.archive`, `contractor.restore`, `time_entry.create`, or `time_entry.update`. `sql.insert` and `sql.update` are not reverted here.
+`POST /api/ops/sql` classifies one statement. `SELECT` is wrapped in a 100-row cap. `INSERT` and `UPDATE` are previewed with a count and a five-row sample, then signed into a five-minute HMAC confirm token. An `UPDATE` that assigns `contractor.active` is `forbidden_sql` before the dry run. Execute recomputes the count, rejects a mismatch, and commits the statement plus the audit insert together. `POST /api/ops/revert` reads one `ops_audit` row and applies the inverse of `contractor.create`, `contractor.update`, `contractor.rate`, `contractor.archive`, `contractor.restore`, `time_entry.create`, or `time_entry.update`. `sql.insert` and `sql.update` are not reverted here.
 
 `ops_audit` columns are `action`, `sql_text`, `params_json`, `old_json`, `new_json`, `reason`, `row_count`, and `created_at`. Triggers abort updates and deletes. The audit insert is the log; request bodies and tokens are not written to Worker logs.
 
@@ -91,6 +119,14 @@ Contractor and time-entry writes, and wage reads, take `ownerUserId` and resolve
 - One contractor/site/date entry keeps entry and correction semantics simple for the first release. Duplicate creates or updates return `duplicate_entry`.
 - Gross totals are contractor payments before tax/GST/expenses and are not a payroll or tax determination.
 - Deleting a recorded shift requires confirmation that names the contractor, site, and work date before the owner-scoped DELETE runs.
+
+### Repository layout
+
+The web app stays at the repository root (`src/`, `drizzle/`, `wrangler.jsonc`, vinext). `pnpm-workspace.yaml` includes `.`, `apps/*`, and `packages/*`. A separate repository was rejected because it would copy schemas and split an API change from the client that calls it.
+
+`packages/core` (`@cleantrack/core`) holds the pure TypeScript shared by the web app and `apps/mobile`: Zod inputs, API error codes and response types, minute and money formatting, and week/date helpers. It does not import React, React Native, the DOM, or `cloudflare:*`. `src/lib/payroll.ts`, `src/lib/validation.ts`, and `src/lib/week-rollup.ts` re-export that package, so existing web imports stay on those paths. Pay still uses integer cents and `calculateEntryPayCents` on snapshotted rates.
+
+`apps/mobile` is an Expo SDK 58 dev-client app (not Expo Go) with Expo Router native tabs. The contractor shell is Home, My week, Pay, and Account. Sign-in uses `@better-auth/expo/client` with `expo-secure-store` and the `cleantrack` scheme. The API origin is `EXPO_PUBLIC_API_URL`, then app config `extra.apiUrl`, then `https://cleantrack-timesheet.jeevan90wijerathna.workers.dev`. Device requests send the stored session cookie with `credentials: "omit"` and `X-CleanTrack-Client: mobile/<version>`. A 401 clears the stored session and returns to sign-in. Home reads the role from `GET /api/me`. Creating an account and resetting a password open the website. Bundle id `nz.co.jnok.cleantrack`, with `.preview` and `.dev` variants. No EAS project id or credentials are stored in the repo. The Worker deploy command remains `pnpm deploy` from the root. Mobile pins TypeScript `~6.0.3` because Expo SDK 58 and `expo/tsconfig.base` expect that compiler, while the web app and `packages/core` stay on TypeScript 7.0.2; pnpm's isolated installs keep the two toolchains from overriding each other.
 
 ### Weekly approval HTTP contract
 
@@ -131,3 +167,9 @@ GET `/api/assignments` and GET `/api/assignments/[id]` include `schedule` as the
 | POST | `/api/business/onboarding/complete` | yes | `200 BusinessResource` |
 
 Cookie-authenticated mutations use `authorize(request, true)`. A forged `businessId` in the JSON is ignored. Errors: `401 unauthorized`, `403 forbidden`, `400 invalid_request`, `409 business_required` (complete with no membership), `413 payload_too_large`, `500 internal_error` (correlation id) for unexpected failures. Timezone must be `Pacific/Auckland`, currency `NZD`, and week start `monday`. NZBN is empty or 13 digits.
+
+### Client recovery and auth exception containment
+
+Sign-in and sign-up re-enable submission and announce connection errors when the auth client rejects. Exceptions escaping the Better Auth GET/POST handlers become a non-cacheable `503 service_unavailable` without forwarding the exception to the framework logger; normal Better Auth responses (including cookies and redirects) pass through unchanged.
+
+A failed dashboard read (HTTP, network, or JSON), including the read after applying schedules, hides stale week data and offers Retry. Confirmed mutation success notices remain visible separately from the refresh failure. Retry reloads the week through the existing idempotent schedule-application flow; it does not resubmit the original mutation. Empty or invalid date input leaves the selected Monday unchanged.

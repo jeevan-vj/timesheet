@@ -112,9 +112,13 @@ async function captureException(scrubbed: ScrubbedFailure, correlationId: string
   });
 }
 
+function writeServerLog(payload: Record<string, string | number>): void {
+  console.error(JSON.stringify(payload));
+}
+
 export async function reportServerError(error: unknown, request: Request, correlationId: string): Promise<void> {
   const scrubbed = scrubFailure(error);
-  console.error(JSON.stringify({
+  writeServerLog({
     route: requestPath(request),
     method: request.method,
     correlationId,
@@ -122,10 +126,30 @@ export async function reportServerError(error: unknown, request: Request, correl
     message: scrubbed.message,
     stack: scrubbed.stack,
     release: env.RELEASE_SHA,
-  }));
+  });
   try {
     await captureException(scrubbed, correlationId);
   } catch {
     // Capture must not change the API response.
   }
+}
+
+export const OPERATIONAL_EVENT_KEYS = ["event", "kind", "httpStatus"] as const;
+export type OperationalEventName = "email_not_configured" | "email_send_failed" | "email_dev_transport_refused";
+export type OperationalKind = "invitation";
+
+export function operationalEventPayload(
+  name: OperationalEventName,
+  fields: { kind: OperationalKind; httpStatus?: number },
+): Record<string, string | number> {
+  const payload: Record<string, string | number> = { event: name, kind: fields.kind };
+  if (typeof fields.httpStatus === "number") payload.httpStatus = fields.httpStatus;
+  return payload;
+}
+
+export function reportOperationalEvent(
+  name: OperationalEventName,
+  fields: { kind: OperationalKind; httpStatus?: number },
+): void {
+  writeServerLog(operationalEventPayload(name, fields));
 }

@@ -21,7 +21,7 @@ pnpm db:migrate:local
 pnpm dev
 ```
 
-Then create the first owner account at `/sign-up` and open `/dashboard`.
+Then create the first owner account at `/sign-up` and open `/dashboard`. Local invitation mail is in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Verification
 
@@ -41,9 +41,9 @@ Optional Cloudflare Access can sit in front of the `/api/ops` path (an Access ap
 
 Domain routes take `ownerUserId` and derive `business_id` from that user's active owner membership. Raw SQL is not owner-scoped; the bearer token is the authorization for it. Contractor deactivation uses archive/restore. There is no contractor hard delete. Time-entry writes require `reason`. A contractor day over 14 paid hours returns `longDay: true` and still saves. A week locked by approval returns `week_locked` unless the body sets `confirmLockedWeek: true`. Wage reads use `summarizeWeek` and `weekPayrollTotals`.
 
-`POST /api/ops/sql` runs one `SELECT` immediately, capped at 100 rows. `INSERT` and `UPDATE` return a dry-run row count, a sample, and a confirm token that expires after 5 minutes. `POST /api/ops/sql/execute` runs that statement only with the token. `DROP`, `ALTER`, `CREATE`, `PRAGMA`, `ATTACH`, every `DELETE`, comments, multi-statements, and any write to `ops_audit` are rejected. Each write appends an `ops_audit` row. `POST /api/ops/revert` undoes a named contractor or time-entry action by audit id. Raw SQL is not reverted that way.
+`POST /api/ops/sql` runs one `SELECT` immediately, capped at 100 rows. `INSERT` and `UPDATE` return a dry-run row count, a sample, and a confirm token that expires after 5 minutes. `POST /api/ops/sql/execute` runs that statement only with the token. `DROP`, `ALTER`, `CREATE`, `PRAGMA`, `ATTACH`, every `DELETE`, comments, multi-statements, any write to `ops_audit`, and any `UPDATE` that assigns `contractor.active` are rejected. Lifecycle changes go through the contractor archive and restore routes. Each write appends an `ops_audit` row. `POST /api/ops/revert` undoes a named contractor or time-entry action by audit id. Raw SQL is not reverted that way.
 
-Replace the host and token below. Do not send real contractor details in tickets or logs.
+Replace the host and token below. Do not send real contractor details in tickets or logs. Contractor create, update, archive, restore, and undo responses omit GST number, internal notes, and emergency contact.
 
 ```bash
 curl -sS -H "Authorization: Bearer $OPS_BOT_TOKEN" \

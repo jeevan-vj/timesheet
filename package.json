@@ -4,45 +4,63 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.26.0",
+  "pnpm": {
+    "overrides": {
+      "fast-uri": "3.1.7",
+      "node-forge": "1.4.1",
+      "source-map-js": "1.2.2"
+    }
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "wrangler dev --config dist/server/wrangler.json",
     "deploy": "vinext-cloudflare deploy",
     "test": "vitest run",
+    "test:mobile": "node scripts/mobile-screenshots.mjs --check-only",
     "test:watch": "vitest",
     "lint": "node scripts/lint-paved-path.mjs",
     "typecheck": "tsc --noEmit",
-    "verify": "pnpm lint && pnpm test && pnpm typecheck && pnpm build",
+    "typecheck:core": "tsc --noEmit -p packages/core",
+    "mobile:start": "pnpm -F mobile start",
+    "mobile:typecheck": "pnpm -F mobile typecheck",
+    "mobile:lint": "pnpm -F mobile lint",
+    "verify": "pnpm lint && pnpm test && pnpm typecheck && pnpm typecheck:core && pnpm build",
+    "verify:mobile": "pnpm typecheck:core && pnpm mobile:typecheck && pnpm mobile:lint",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply cleantrack-timesheet --local",
     "cf:types": "wrangler types worker-configuration.d.ts --include-runtime false"
   },
   "dependencies": {
-    "@better-auth/drizzle-adapter": "1.7.2",
-    "better-auth": "1.7.2",
+    "@cleantrack/core": "workspace:*",
+    "@better-auth/drizzle-adapter": "1.7.13",
+    "@better-auth/expo": "1.7.13",
+    "better-auth": "1.7.13",
     "drizzle-orm": "0.45.2",
     "pdf-lib": "1.17.1",
-    "react": "19.2.8",
-    "react-dom": "19.2.8",
-    "react-server-dom-webpack": "19.2.8",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-server-dom-webpack": "19.3.0",
     "vinext": "1.0.0-beta.8",
-    "zod": "4.4.3"
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.54.1",
     "@cloudflare/workers-types": "5.20260831.1",
     "@types/node": "26.4.0",
-    "@types/react": "19.2.18",
-    "@types/react-dom": "19.2.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
     "@types/sql.js": "1.4.11",
     "@vinext/cloudflare": "1.0.0-beta.6",
     "@vitejs/plugin-rsc": "0.5.34",
     "drizzle-kit": "0.31.10",
     "playwright": "1.55.0",
     "sql.js": "1.14.2",
-    "typescript": "7.0.2",
-    "vite": "8.2.2",
+    "typescript": "6.0.3",
+    "vite": "8.2.4",
     "vitest": "4.1.11",
     "wrangler": "4.127.0"
   }

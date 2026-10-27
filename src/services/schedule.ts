@@ -518,6 +518,62 @@ async function applyHoursOverrideGoingForward(
   return requireEntryResource(database, ownerUserId, existing.id);
 }
 
+type ThisDayOccurrence = {
+  occurrenceKind: "absent" | "scheduled" | "worked" | "hours_override";
+  entryMode: "absent" | "paid_hours";
+  paidMinutes: number;
+  startMinutes: number;
+  endMinutes: number;
+  breakMinutes: number;
+};
+
+function paidHoursOccurrence(kind: "scheduled" | "worked" | "hours_override", paidMinutes: number): ThisDayOccurrence {
+  return {
+    occurrenceKind: kind,
+    entryMode: "paid_hours",
+    paidMinutes,
+    ...paidHoursClockFields(paidMinutes),
+  };
+}
+
+async function scheduledVersionMinutes(
+  database: Database,
+  ownerUserId: string,
+  businessId: string,
+  scheduleVersionId: string | null,
+) {
+  if (!scheduleVersionId) throw new Error("no_schedule");
+  const [version] = await database
+    .select({ paidMinutes: assignmentScheduleVersions.paidMinutes })
+    .from(assignmentScheduleVersions)
+    .where(and(
+      eq(assignmentScheduleVersions.id, scheduleVersionId),
+      eq(assignmentScheduleVersions.ownerUserId, ownerUserId),
+      eq(assignmentScheduleVersions.businessId, businessId),
+    ))
+    .limit(1);
+  if (!version) throw new Error("not_found");
+  return version.paidMinutes;
+}
+
+async function nextThisDayOccurrence(
+  database: Database,
+  ownerUserId: string,
+  businessId: string,
+  existing: { scheduleVersionId: string | null },
+  input: OccurrenceExceptionInput,
+): Promise<ThisDayOccurrence> {
+  if (input.kind === "absent") {
+    return { occurrenceKind: "absent", entryMode: "absent", paidMinutes: 0, startMinutes: 0, endMinutes: 0, breakMinutes: 0 };
+  }
+  if (input.kind === "hours_override") {
+    if (input.paidMinutes == null) throw new Error("invalid_request");
+    return paidHoursOccurrence("hours_override", input.paidMinutes);
+  }
+  const paidMinutes = await scheduledVersionMinutes(database, ownerUserId, businessId, existing.scheduleVersionId);
+  return paidHoursOccurrence(input.kind === "confirm_worked" ? "worked" : "scheduled", paidMinutes);
+}
+
 export async function applyOccurrenceException(
   database: Database,
   ownerUserId: string,
@@ -538,51 +594,7 @@ export async function applyOccurrenceException(
     return applyHoursOverrideGoingForward(database, ownerUserId, businessId, existing, input.paidMinutes);
   }
 
-  let next: {
-    occurrenceKind: "absent" | "scheduled" | "hours_override";
-    entryMode: "absent" | "paid_hours";
-    paidMinutes: number;
-    startMinutes: number;
-    endMinutes: number;
-    breakMinutes: number;
-  };
-
-  if (input.kind === "absent") {
-    next = {
-      occurrenceKind: "absent",
-      entryMode: "absent",
-      paidMinutes: 0,
-      startMinutes: 0,
-      endMinutes: 0,
-      breakMinutes: 0,
-    };
-  } else if (input.kind === "hours_override") {
-    if (input.paidMinutes == null) throw new Error("invalid_request");
-    next = {
-      occurrenceKind: "hours_override",
-      entryMode: "paid_hours",
-      paidMinutes: input.paidMinutes,
-      ...paidHoursClockFields(input.paidMinutes),
-    };
-  } else {
-    if (!existing.scheduleVersionId) throw new Error("no_schedule");
-    const [version] = await database
-      .select()
-      .from(assignmentScheduleVersions)
-      .where(and(
-        eq(assignmentScheduleVersions.id, existing.scheduleVersionId),
-        eq(assignmentScheduleVersions.ownerUserId, ownerUserId), eq(assignmentScheduleVersions.businessId, businessId),
-      ))
-      .limit(1);
-    if (!version) throw new Error("not_found");
-    next = {
-      occurrenceKind: "scheduled",
-      entryMode: "paid_hours",
-      paidMinutes: version.paidMinutes,
-      ...paidHoursClockFields(version.paidMinutes),
-    };
-  }
-
+  const next = await nextThisDayOccurrence(database, ownerUserId, businessId, existing, input);
   if (thisDayWouldChange(existing, next)) {
     await assertUnlockedWeek(database, ownerUserId, existing.workDate, businessId);
     await database

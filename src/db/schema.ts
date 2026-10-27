@@ -25,7 +25,7 @@ export const session = sqliteTable("session", {
 export const account = sqliteTable("account", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
-  issuer: text("issuer").notNull(),
+  issuer: text("issuer").default("local:credential"),
   accountId: text("account_id").notNull(),
   providerId: text("provider_id").notNull(),
   accessToken: text("access_token"),
@@ -37,7 +37,7 @@ export const account = sqliteTable("account", {
   password: text("password"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
-}, (t) => [index("account_user_id_idx").on(t.userId), uniqueIndex("account_issuer_account_id_uq").on(t.issuer, t.accountId)]);
+}, (t) => [index("account_user_id_idx").on(t.userId), uniqueIndex("account_provider_id_account_id_uq").on(t.providerId, t.accountId)]);
 
 export const verification = sqliteTable("verification", {
   id: text("id").primaryKey(),
@@ -108,6 +108,14 @@ export const contractors = sqliteTable("contractor", {
   defaultRateCents: integer("default_rate_cents").notNull(),
   currency: text("currency").notNull().default("NZD"),
   active: integer("active", { mode: "boolean" }).notNull().default(true),
+  preferredName: text("preferred_name").notNull().default(""),
+  startDate: text("start_date"),
+  engagementStatus: text("engagement_status").notNull().default("active").$type<"draft" | "invited" | "active" | "suspended" | "archived">(),
+  gstRegistered: integer("gst_registered", { mode: "boolean" }).notNull().default(false),
+  gstNumber: text("gst_number").notNull().default(""),
+  internalNotes: text("internal_notes").notNull().default(""),
+  emergencyContactName: text("emergency_contact_name").notNull().default(""),
+  emergencyContactPhone: text("emergency_contact_phone").notNull().default(""),
 }, (t) => [index("contractor_owner_idx").on(t.ownerUserId), uniqueIndex("contractor_owner_name_uq").on(t.ownerUserId, t.name)]);
 
 export const assignments = sqliteTable("assignment", {
@@ -150,7 +158,7 @@ export const timeEntries = sqliteTable("time_entry", {
   rateCents: integer("rate_cents").notNull(),
   notes: text("notes").notNull().default(""),
   entryMode: text("entry_mode").notNull().default("clock").$type<"clock" | "paid_hours" | "absent">(),
-  occurrenceKind: text("occurrence_kind").notNull().default("manual").$type<"manual" | "scheduled" | "absent" | "hours_override">(),
+  occurrenceKind: text("occurrence_kind").notNull().default("manual").$type<"manual" | "scheduled" | "worked" | "absent" | "hours_override">(),
   scheduleVersionId: text("schedule_version_id"),
 }, (t) => [
   index("time_entry_owner_week_idx").on(t.ownerUserId, t.workDate),
@@ -170,6 +178,47 @@ export const opsAudit = sqliteTable("ops_audit", {
   rowCount: integer("row_count").notNull(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 }, (t) => [index("ops_audit_created_at_idx").on(t.createdAt)]);
+
+export const contractorInvitation = sqliteTable("contractor_invitation", {
+  id: text("id").primaryKey(),
+  businessId: text("business_id").notNull().references(() => business.id, { onDelete: "restrict" }),
+  ownerUserId: text("owner_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  contractorId: text("contractor_id").notNull().references(() => contractors.id, { onDelete: "restrict" }),
+  email: text("email").notNull(),
+  tokenDigest: text("token_digest").notNull(),
+  status: text("status").notNull().$type<"pending" | "accepted" | "revoked">(),
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+  sendCount: integer("send_count").notNull().default(1),
+  lastSentAt: integer("last_sent_at", { mode: "timestamp" }).notNull(),
+  lastDelivery: text("last_delivery").notNull().$type<"email" | "link_only" | "email_failed">(),
+  acceptedAt: integer("accepted_at", { mode: "timestamp" }),
+  acceptedUserId: text("accepted_user_id").references(() => user.id, { onDelete: "set null" }),
+  revokedAt: integer("revoked_at", { mode: "timestamp" }),
+  createdByUserId: text("created_by_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (t) => [
+  uniqueIndex("contractor_invitation_token_digest_uq").on(t.tokenDigest),
+  uniqueIndex("contractor_invitation_pending_uq").on(t.contractorId).where(sql`${t.status} = 'pending'`),
+  index("contractor_invitation_business_idx").on(t.businessId, t.contractorId),
+]);
+
+export const contractorAccount = sqliteTable("contractor_account", {
+  id: text("id").primaryKey(),
+  businessId: text("business_id").notNull().references(() => business.id, { onDelete: "restrict" }),
+  ownerUserId: text("owner_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  contractorId: text("contractor_id").notNull().references(() => contractors.id, { onDelete: "restrict" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  invitationId: text("invitation_id").references(() => contractorInvitation.id, { onDelete: "set null" }),
+  active: integer("active").notNull().default(1),
+  revokedAt: integer("revoked_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (t) => [
+  uniqueIndex("contractor_account_contractor_uq").on(t.contractorId),
+  uniqueIndex("contractor_account_business_user_uq").on(t.businessId, t.userId),
+  index("contractor_account_user_idx").on(t.userId),
+]);
 
 export const weekApprovals = sqliteTable("week_approval", {
   id: text("id").primaryKey(),

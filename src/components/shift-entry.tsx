@@ -17,6 +17,7 @@ import {
   isEditReclassification,
   initialShiftDraft,
   parseRateDollars,
+  paidMinutePartOptions,
   selectContractor,
   selectSite,
   shiftEntryBlocker,
@@ -250,7 +251,9 @@ export function ShiftEntrySheet({
                   <input type="number" inputMode="numeric" min={0} max={23} step={1} required value={draft.paidHours} onChange={(event) => setDraft({ ...draft, paidHours: Number(event.target.value) })} />
                 </label>
                 <label>Minutes
-                  <input type="number" inputMode="numeric" min={0} max={59} step={1} required value={draft.paidMinutePart} onChange={(event) => setDraft({ ...draft, paidMinutePart: Number(event.target.value) })} />
+                  <select inputMode="numeric" required value={draft.paidMinutePart} onChange={(event) => setDraft({ ...draft, paidMinutePart: Number(event.target.value) })}>
+                    {paidMinutePartOptions(draft.paidMinutePart).map((minutes) => <option value={minutes} key={minutes}>{minutes}</option>)}
+                  </select>
                 </label>
               </div>
             </fieldset>

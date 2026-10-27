@@ -2,12 +2,14 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { AssignmentManager } from "@/components/assignments";
+import { RoleSwitcher } from "@/components/role-switcher";
+import { LoadWhenViewerReady, useViewerGate } from "@/components/viewer-gate";
 import { authClient } from "@/lib/auth-client";
 import { ContractorsPanel } from "@/components/contractors";
 import { ShiftEntrySheet } from "@/components/shift-entry";
 import { SiteSetup } from "@/components/site-setup";
 import { AddRepeatingSchedule, WeekGrid } from "@/components/week-grid";
-import { mondayFor, shiftWeek, thisWeekSelection } from "@/components/week-picker";
+import { mondayFor, mondayFromInput, shiftWeek, thisWeekSelection } from "@/components/week-picker";
 import { assignmentMutationMessage } from "@/lib/assignment-manage";
 import { onboardingAdvancesOnError, onboardingStep, type OnboardingStep } from "@/lib/onboarding";
 import {
@@ -21,8 +23,9 @@ import {
 } from "@/lib/remittance-download";
 import { createShiftDeleteFlow, idleShiftDelete, shiftDeletePrompt, type ShiftDeleteSession, type ShiftDeleteTarget } from "@/lib/shift-delete";
 import { applyThenDashboardUrls, shouldApplySchedule } from "@/lib/week-load";
+import { displayWeekTotals, useWeekAttendance } from "@/lib/week-attendance";
 import { buildWeekGridRows, weekGridIsEmpty, type WeekGridEntry } from "@/lib/week-grid";
-import { formatMinutes, formatNzd, formatWeekBrief, summarizeWeekBySite, type SiteWeek } from "@/lib/week-rollup";
+import { formatMinutes, formatNzd, formatWeekBrief, type SiteWeek } from "@/lib/week-rollup";
 import {
   canApproveWeek,
   canReopenWeek,
@@ -57,7 +60,7 @@ type Entry = {
   rateCents: number;
   notes: string;
   entryMode: "clock" | "paid_hours" | "absent";
-  occurrenceKind: "manual" | "scheduled" | "absent" | "hours_override";
+  occurrenceKind: "manual" | "scheduled" | "worked" | "absent" | "hours_override";
   scheduleVersionId: string | null;
 };
 type ManualEntry = Entry & { entryMode: "clock" | "paid_hours"; occurrenceKind: "manual" };
@@ -90,6 +93,7 @@ function mutateErrorMessage(error: unknown) {
 
 async function send(url: string, body?: unknown, method = "POST", signal?: AbortSignal) {
   const response = await fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined, signal });
+  if (response.status === 401) { window.location.assign("/sign-in"); throw new Error("unauthorized"); }
   if (!response.ok) { const data = await response.json().catch(() => ({})) as { error?: string }; throw new Error(data.error ?? "request_failed"); }
 }
 
@@ -113,7 +117,9 @@ async function saveRemittancePdf(url: string, target: RemittanceDownloadTarget) 
 export function Dashboard() {
   const [week, setWeek] = useState(() => mondayFor()); const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true); const [message, setMessage] = useState("");
+  const [loadFailed, setLoadFailed] = useState(false);
   const [editing, setEditing] = useState<ManualEntry | null>(null);
+  const gate = useViewerGate();
   const loadGeneration = useRef(0);
   const loadAbort = useRef<AbortController | null>(null);
   const load = useCallback(async (quiet = false) => {
@@ -123,16 +129,13 @@ export function Dashboard() {
     const controller = new AbortController();
     loadAbort.current = controller;
     if (!quiet) { setLoading(true); setMessage(""); }
+    setLoadFailed(false);
     const urls = applyThenDashboardUrls(week);
     try {
       const response = await fetch(urls.dashboard, { cache: "no-store", signal: controller.signal });
       if (response.status === 401) { window.location.assign("/sign-in"); return; }
       if (generation !== loadGeneration.current) return;
-      if (!response.ok) {
-        if (!quiet) setMessage("Could not load this week. Please try again.");
-        setLoading(false);
-        return;
-      }
+      if (!response.ok) throw new Error("refresh_failed");
       let next = await response.json() as DashboardData;
       let applyNotice = "";
       if (shouldApplySchedule(next.approval.status, next.assignments)) {
@@ -145,7 +148,8 @@ export function Dashboard() {
         const refreshed = await fetch(urls.dashboard, { cache: "no-store", signal: controller.signal });
         if (refreshed.status === 401) { window.location.assign("/sign-in"); return; }
         if (generation !== loadGeneration.current) return;
-        if (refreshed.ok) next = await refreshed.json() as DashboardData;
+        if (!refreshed.ok) throw new Error("refresh_failed");
+        next = await refreshed.json() as DashboardData;
       }
       if (generation !== loadGeneration.current) return;
       setData(next);
@@ -154,11 +158,11 @@ export function Dashboard() {
     } catch (error) {
       if (controller.signal.aborted) return;
       if (generation !== loadGeneration.current) return;
-      if (!quiet) setMessage("Could not load this week. Please try again.");
+      setData(null);
+      setLoadFailed(true);
       setLoading(false);
     }
   }, [week]);
-  useEffect(() => { void load(); }, [load]);
   const onboarding = data ? onboardingStep({
     business: data.business,
     activeSiteCount: data.sites.length,
@@ -167,7 +171,7 @@ export function Dashboard() {
   }) : null;
   const totalMinutes = data?.summary.reduce((sum, row) => sum + row.paidMinutes, 0) ?? 0;
   const totalPay = data?.summary.reduce((sum, row) => sum + row.payCents, 0) ?? 0;
-  const siteSummary = data ? summarizeWeekBySite(data.entries) : [];
+  const siteSummary = data ? displayWeekTotals(data.entries).sites : [];
   async function copyWeekBrief() {
     if (!data) return;
     const text = formatWeekBrief({
@@ -233,10 +237,12 @@ export function Dashboard() {
   })).current;
 
   return <main className="app-shell">
+    <LoadWhenViewerReady ready={gate.ready} load={load} />
     <header className="app-header"><a className="brand" href="/"><span className="brand-mark">C</span> CleanTrack</a><nav><a href="#team">Team & sites</a><button className="link-button" onClick={() => void authClient.signOut().then(() => window.location.assign("/"))}>Sign out</button></nav></header>
+    <RoleSwitcher viewer={gate.viewer} current="dashboard" />
     <section className="dashboard-heading"><div><p className="eyebrow">Weekly workspace</p><h1>Hours & contractor pay</h1><p className="muted">Gross contractor payments before tax, GST, expenses, or adjustments.</p></div><div className="week-heading-tools"><WeekPicker week={week} onChange={setWeek} />{!loading && data ? <WeekApprovalBar status={data.approval.status} onApprove={() => approvalFlow.requestApprove()} onReopen={() => approvalFlow.requestReopen()} /> : null}</div></section>
     {message ? <p className="notice" role="status">{message}</p> : null}
-    {loading || !data ? <section className="loading-card">Loading your week…</section> : <LoadedWeek data={data} onboarding={onboarding} totalMinutes={totalMinutes} totalPay={totalPay} siteSummary={siteSummary} weekLocked={weekLocked} editing={editing} onReload={() => load(true)} onAnnounce={setMessage} onCopyWeekBrief={() => void copyWeekBrief()} onEdit={setEditing} onDelete={(target) => deleteFlow.request(target)} onRemittance={(target) => remittanceFlow.request(target)} />}
+    {loading ? <section className="loading-card" role="status">Loading your week…</section> : loadFailed || !data ? <section className="loading-card" role="alert"><p>Could not refresh this week. Any confirmed changes are saved.</p><button type="button" className="button" onClick={() => void load()}>Try again</button></section> : <LoadedWeek data={data} onboarding={onboarding} weekLocked={weekLocked} editing={editing} onReload={() => load(true)} onAnnounce={setMessage} onCopyWeekBrief={() => void copyWeekBrief()} onEdit={setEditing} onDelete={(target) => deleteFlow.request(target)} onRemittance={(target) => remittanceFlow.request(target)} />}
     <DeleteShiftDialog session={deleteSession} onCancel={() => deleteFlow.cancel()} onConfirm={() => void deleteFlow.confirm()} />
     <WeekApprovalDialog session={approvalSession} prompt={approvalPrompt} onCancel={() => approvalFlow.cancel()} onConfirm={() => { if (!data) return; void approvalFlow.confirm({ weekStart: data.weekStart, ...expectedWeekTotals(data.summary) }); }} />
     <RemittanceDownloadDialog session={remittanceSession} onCancel={() => remittanceFlow.cancel()} onConfirm={() => void remittanceFlow.confirm()} />
@@ -247,12 +253,9 @@ function noun(count: number, singular: string, plural: string) {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
-function LoadedWeek({ data, onboarding, totalMinutes, totalPay, siteSummary, weekLocked, editing, onReload, onAnnounce, onCopyWeekBrief, onEdit, onDelete, onRemittance }: Readonly<{
+function LoadedWeek({ data, onboarding, weekLocked, editing, onReload, onAnnounce, onCopyWeekBrief, onEdit, onDelete, onRemittance }: Readonly<{
   data: DashboardData;
   onboarding: OnboardingStep | null;
-  totalMinutes: number;
-  totalPay: number;
-  siteSummary: SiteWeek[];
   weekLocked: boolean;
   editing: ManualEntry | null;
   onReload: () => Promise<void>;
@@ -262,12 +265,23 @@ function LoadedWeek({ data, onboarding, totalMinutes, totalPay, siteSummary, wee
   onDelete: (target: ShiftDeleteTarget) => void;
   onRemittance: (target: RemittanceDownloadTarget) => void;
 }>) {
+  const attendance = useWeekAttendance({
+    serverEntries: data.entries,
+    assignments: data.assignments,
+    weekStart: data.weekStart,
+    reload: onReload,
+    announce: onAnnounce,
+    onError: (error) => onAnnounce(mutateErrorMessage(error)),
+    send,
+  });
+  const shown = displayWeekTotals(attendance.entries);
   return <>
+    {attendance.toast ? <p className="notice toast" role="status"><span>{attendance.toast.message}</span>{attendance.toast.onUndo ? <button type="button" className="button tiny secondary" onClick={attendance.toast.onUndo}>Undo</button> : null}<button type="button" className="icon-button" aria-label="Dismiss notice" onClick={attendance.dismissToast}>×</button></p> : null}
     {onboarding ? <OwnerOnboarding step={onboarding} onReload={onReload} onAnnounce={onAnnounce} /> : null}
-    <section className="stats"><article><span>Paid hours</span><strong>{duration(totalMinutes)}</strong><small>{noun(data.entries.length, "daily entry", "daily entries")}</small></article><article><span>Contractor pay</span><strong>{money(totalPay)}</strong><small>{noun(data.summary.length, "contractor", "contractors")}</small></article><article><span>Active sites</span><strong>{data.sites.length}</strong><small>{data.assignments.length} team assignments</small></article></section>
+    <section className="stats"><article><span>Paid hours</span><strong>{duration(shown.totalMinutes)}</strong><small>{noun(attendance.entries.length, "daily entry", "daily entries")}</small></article><article><span>Contractor pay</span><strong>{money(shown.totalPay)}</strong><small>{noun(shown.contractors.length, "contractor", "contractors")}</small></article><article><span>Active sites</span><strong>{data.sites.length}</strong><small>{data.assignments.length} team assignments</small></article></section>
     <section className="main-grid">
-      <WeekEntries data={data} weekLocked={weekLocked} onReload={onReload} onAnnounce={onAnnounce} onEdit={onEdit} onDelete={onDelete} />
-      <PaySummary data={data} totalPay={totalPay} siteSummary={siteSummary} onCopyWeekBrief={onCopyWeekBrief} onRemittance={onRemittance} />
+      <WeekEntries data={data} entries={attendance.entries} weekLocked={weekLocked} onReload={onReload} onAnnounce={onAnnounce} onEdit={onEdit} onDelete={onDelete} onException={attendance.applyException} onMarkWorked={(ids) => void attendance.markWorked(ids)} />
+      <PaySummary data={data} summary={shown.contractors} totalPay={shown.totalPay} siteSummary={shown.sites} onCopyWeekBrief={onCopyWeekBrief} onRemittance={onRemittance} />
     </section>
     <SetupPanel data={data} weekLocked={weekLocked} onReload={onReload} onAnnounce={onAnnounce} />
     {editing && !weekLocked ? <ShiftEntrySheet key={editing.id} data={data} entry={editing} onDismiss={() => onEdit(null)} onSave={async (body) => { await send(`/api/time-entries/${editing.id}`, body, "PATCH"); await onReload(); onAnnounce("Shift updated."); }} /> : null}
@@ -279,22 +293,26 @@ function openManualEntry(entry: WeekGridEntry, onEdit: (entry: ManualEntry | nul
   onEdit(entry as ManualEntry);
 }
 
-function WeekEntries({ data, weekLocked, onReload, onAnnounce, onEdit, onDelete }: Readonly<{
+function WeekEntries({ data, entries, weekLocked, onReload, onAnnounce, onEdit, onDelete, onException, onMarkWorked }: Readonly<{
   data: DashboardData;
+  entries: WeekGridEntry[];
   weekLocked: boolean;
   onReload: () => Promise<void>;
   onAnnounce: (message: string) => void;
   onEdit: (entry: ManualEntry | null) => void;
   onDelete: (target: ShiftDeleteTarget) => void;
+  onException: (url: string, body: unknown) => Promise<void>;
+  onMarkWorked: (ids: string[]) => void;
 }>) {
-  const rows = buildWeekGridRows({ assignments: data.assignments, contractors: data.contractors, sites: data.sites, entries: data.entries });
+  const rows = buildWeekGridRows({ assignments: data.assignments, contractors: data.contractors, sites: data.sites, entries });
   return <section className="panel"><div className="panel-title"><div><p className="eyebrow">Monday – Sunday</p><h2>{readableDate(data.weekStart)} – {readableDate(data.weekEnd)}</h2></div><div className="week-panel-tools"><AddRepeatingSchedule assignments={data.assignments} contractors={data.contractors} sites={data.sites} weekStart={data.weekStart} locked={weekLocked} onSave={async (assignmentId, body) => { await send(`/api/assignments/${assignmentId}/schedule`, body, "PUT"); await onReload(); onAnnounce("Repeating schedule added."); }} /><ShiftEntrySheet data={data} locked={weekLocked} onSave={async (body) => { await send("/api/time-entries", body); await onReload(); onAnnounce("Shift added."); }} /></div></div>
-    {weekGridIsEmpty(rows, data.entries) ? <EmptyState title="No shifts this week" body="Record the first shift after adding a contractor and assigning them to a site." /> : <WeekGrid weekStart={data.weekStart} assignments={data.assignments} contractors={data.contractors} sites={data.sites} entries={data.entries} locked={weekLocked} onEdit={(entry) => openManualEntry(entry, onEdit)} onDelete={onDelete} onException={async (url, body) => { try { await send(url, body); await onReload(); onAnnounce("Timesheet updated."); } catch (error) { onAnnounce(mutateErrorMessage(error)); throw error; } }} />}
+    {weekGridIsEmpty(rows, entries) ? <EmptyState title="No shifts this week" body="Record the first shift after adding a contractor and assigning them to a site." /> : <WeekGrid weekStart={data.weekStart} assignments={data.assignments} contractors={data.contractors} sites={data.sites} entries={entries} locked={weekLocked} onEdit={(entry) => openManualEntry(entry, onEdit)} onDelete={onDelete} onException={onException} onMarkWorked={onMarkWorked} />}
   </section>;
 }
 
-function PaySummary({ data, totalPay, siteSummary, onCopyWeekBrief, onRemittance }: Readonly<{
+function PaySummary({ data, summary, totalPay, siteSummary, onCopyWeekBrief, onRemittance }: Readonly<{
   data: DashboardData;
+  summary: Summary[];
   totalPay: number;
   siteSummary: SiteWeek[];
   onCopyWeekBrief: () => void;
@@ -302,7 +320,7 @@ function PaySummary({ data, totalPay, siteSummary, onCopyWeekBrief, onRemittance
 }>) {
   return <aside className="panel summary-panel">
     <div className="summary-heading"><div><p className="eyebrow">Payment summary</p><h2>What to pay</h2></div><button type="button" className="button small secondary summary-copy" data-feature="copy-week-brief" onClick={onCopyWeekBrief}>Copy week brief</button></div>
-    {data.summary.length ? <>{data.summary.map((row) => <div className="summary-row" key={row.contractorId}><div><strong>{row.contractorName}</strong><small>{duration(row.paidMinutes)}</small><button type="button" className="button small secondary" aria-label={`Download remittance for ${row.contractorName}`} onClick={() => onRemittance({ contractorId: row.contractorId, contractorName: row.contractorName, weekStart: data.weekStart, weekEnd: data.weekEnd })}>Remittance</button></div><b>{money(row.payCents)}</b></div>)}<div className="summary-total"><span>Total</span><strong>{money(totalPay)}</strong></div></> : <p className="muted roomy">Payment totals appear as shifts are added.</p>}
+    {summary.length ? <>{summary.map((row) => <div className="summary-row" key={row.contractorId}><div><strong>{row.contractorName}</strong><small>{duration(row.paidMinutes)}</small><button type="button" className="button small secondary" aria-label={`Download remittance for ${row.contractorName}`} onClick={() => onRemittance({ contractorId: row.contractorId, contractorName: row.contractorName, weekStart: data.weekStart, weekEnd: data.weekEnd })}>Remittance</button></div><b>{money(row.payCents)}</b></div>)}<div className="summary-total"><span>Total</span><strong>{money(totalPay)}</strong></div></> : <p className="muted roomy">Payment totals appear as shifts are added.</p>}
     <div className="site-summary" data-feature="week-site-summary"><h3 className="summary-subhead">By site</h3>{siteSummary.length ? siteSummary.map((row) => <div className="summary-row" key={row.siteId}><div><strong>{row.siteName}</strong><small>{duration(row.paidMinutes)}</small></div><b>{money(row.payCents)}</b></div>) : <p className="muted">Site totals appear as shifts are added.</p>}</div>
   </aside>;
 }
@@ -368,7 +386,7 @@ function RemittanceDownloadDialog({ session, onCancel, onConfirm }: { session: R
 }
 
 function WeekPicker({ week, onChange }: { week: string; onChange: (value: string) => void }) {
-  return <div className="week-picker"><button type="button" onClick={() => onChange(shiftWeek(week, -7))} aria-label="Previous week">←</button><button type="button" className="this-week" onClick={() => onChange(thisWeekSelection(week))}>This week</button><label>Week of<input type="date" value={week} onChange={(e) => onChange(mondayFor(new Date(`${e.target.value}T12:00:00`)))} /></label><button type="button" onClick={() => onChange(shiftWeek(week, 7))} aria-label="Next week">→</button></div>;
+  return <div className="week-picker"><button type="button" onClick={() => onChange(shiftWeek(week, -7))} aria-label="Previous week">←</button><button type="button" className="this-week" onClick={() => onChange(thisWeekSelection(week))}>This week</button><label>Week of<input type="date" value={week} onChange={(e) => { const next = mondayFromInput(e.target.value); if (next) onChange(next); }} /></label><button type="button" onClick={() => onChange(shiftWeek(week, 7))} aria-label="Next week">→</button></div>;
 }
 
 function SetupPanel({ data, weekLocked, onReload, onAnnounce }: { data: DashboardData; weekLocked: boolean; onReload: () => Promise<void>; onAnnounce: (message: string) => void }) {

@@ -7,13 +7,14 @@ import { opsBearerAuthorized, timingSafeEqual } from "../src/lib/ops-auth";
 import { planOpsSql, sqlJsRunner, type SqlValue } from "../src/lib/ops-sql";
 import { summarizeWeek, weekPayrollTotals } from "../src/lib/payroll";
 import { summarizeWeekBySite } from "../src/lib/week-rollup";
-import { seedOwnerWorkspace } from "./owner-workspace";
-import { createAssignment, createContractor, createSite, createTimeEntry } from "../src/services/timesheet";
+import { execContractorEngagementMigration, seedOwnerWorkspace } from "./owner-workspace";
+import { createAssignment, createContractor, createSite, createTimeEntry, updateContractor } from "../src/services/timesheet";
 import { approveWeek } from "../src/services/week-approval";
 import {
   LONG_DAY_MINUTES,
   opsArchiveContractor,
   opsChangeContractorRate,
+  opsRestoreContractor,
   opsCreateContractor,
   opsCreateTimeEntry,
   opsExecuteSql,
@@ -37,6 +38,7 @@ async function openMemoryDb() {
   const SQL = await initSqlJs();
   const sqlite = new SQL.Database();
   for (const file of MIGRATIONS) sqlite.exec(fs.readFileSync(path.resolve(file), "utf8"));
+  execContractorEngagementMigration(sqlite);
   const database = drizzle(sqlite) as unknown as Parameters<typeof opsCreateContractor>[0];
   return { sqlite, database, runner: sqlJsRunner(sqlite) };
 }
@@ -113,6 +115,10 @@ describe("ops sql guardrails", () => {
     "UPDATE ops_audit SET reason = 'x'",
     "INSERT INTO ops_audit (id, action, reason, row_count, created_at) VALUES ('1', 'x', 'y', 1, 1)",
     "UPDATE \"ops_audit\" SET reason = 'no'",
+    "UPDATE contractor SET active = 0 WHERE id = 'c1'",
+    "UPDATE contractor SET active=1",
+    "UPDATE \"contractor\" SET \"active\" = 0 WHERE id = 'c1'",
+    "UPDATE contractor SET name = 'A', active = 0 WHERE id = 'c1'",
     "REPLACE INTO site (id) VALUES ('x')",
     "WITH x AS (SELECT 1) SELECT * FROM x",
   ];
@@ -131,6 +137,8 @@ describe("ops sql guardrails", () => {
     expect(planOpsSql("SELECT * FROM ops_audit", []).ok).toBe(true);
     expect(planOpsSql("UPDATE site SET address = 'DROP TABLE site' WHERE id = ?", ["site-1"]).ok).toBe(true);
     expect(planOpsSql("UPDATE site SET address = ? WHERE id = ?;", ["Pier", "site-1"]).ok).toBe(true);
+    expect(planOpsSql("UPDATE contractor SET name = 'A' WHERE active = 0", []).ok).toBe(true);
+    expect(planOpsSql("UPDATE site SET active = 0 WHERE id = ?", ["site-1"]).ok).toBe(true);
   });
 
   it("caps select rows and does not write on a rejected delete", async () => {
@@ -431,5 +439,133 @@ describe("ops contractor, time entry, and wage actions", () => {
     const other = await opsWages(database, { ownerUserId: "owner-b", weekStart: "2026-08-31" });
     expect(other.totals).toEqual({ currentPaidMinutes: 0, currentPayCents: 0 });
     expect(other.contractors).toEqual([]);
+  });
+
+  it("omits notes, emergency contact, and GST number from ops contractor responses", async () => {
+    const { sqlite, database } = await openMemoryDb();
+    seedOwnerWorkspace(sqlite, "owner-a");
+    const created = await opsCreateContractor(database, {
+      ownerUserId: "owner-a",
+      name: "Aroha",
+      email: "aroha@example.test",
+      phone: "021000000",
+      defaultRateCents: 3_000,
+      reason: "Add contractor",
+      gstRegistered: true,
+      gstNumber: "123456789",
+      internalNotes: "Key holder",
+      emergencyContactName: "Sam",
+      emergencyContactPhone: "021111111",
+    });
+    expect(Object.keys(created.contractor).sort()).toEqual([
+      "active",
+      "currency",
+      "defaultRateCents",
+      "email",
+      "engagementStatus",
+      "id",
+      "name",
+      "phone",
+    ]);
+    expect(JSON.stringify(created)).not.toMatch(/Key holder|021111111|123456789/);
+    const audit = scalar(sqlite, "SELECT new_json FROM ops_audit WHERE action = 'contractor.create'");
+    expect(String(audit)).not.toMatch(/Key holder|021111111|123456789|internalNotes|emergencyContact/);
+
+    const updated = await opsUpdateContractor(database, created.contractor.id, {
+      ownerUserId: "owner-a",
+      name: "Aroha North",
+      email: "aroha@example.test",
+      phone: "021000000",
+      reason: "Correct the name",
+    });
+    const archived = await opsArchiveContractor(database, created.contractor.id, { ownerUserId: "owner-a", reason: "Pause" });
+    const restored = await opsRestoreContractor(database, created.contractor.id, { ownerUserId: "owner-a", reason: "Return" });
+    for (const body of [updated.contractor, archived.contractor, restored.contractor]) {
+      expect(body).not.toHaveProperty("internalNotes");
+      expect(body).not.toHaveProperty("emergencyContactName");
+      expect(body).not.toHaveProperty("emergencyContactPhone");
+      expect(body).not.toHaveProperty("gstNumber");
+    }
+  });
+
+  it("undoes archive and restore to the saved engagement status", async () => {
+    const { sqlite, database } = await openMemoryDb();
+    const owner = await seedWorkspace(database, sqlite, "owner-a");
+    await updateContractor(database, "owner-a", owner.contractor.id, {
+      name: owner.contractor.name,
+      email: "",
+      phone: "",
+      defaultRateCents: 3_000,
+      engagementStatus: "suspended",
+    });
+    expect(scalar(sqlite, "SELECT COUNT(*) FROM assignment WHERE contractor_id = ? AND active = 1", [owner.contractor.id])).toBe(2);
+
+    const archived = await opsArchiveContractor(database, owner.contractor.id, { ownerUserId: "owner-a", reason: "Leave" });
+    expect(archived.contractor).toMatchObject({ engagementStatus: "archived", active: false });
+    expect(scalar(sqlite, "SELECT COUNT(*) FROM assignment WHERE contractor_id = ? AND active = 1", [owner.contractor.id])).toBe(0);
+
+    await updateContractor(database, "owner-a", owner.contractor.id, {
+      name: owner.contractor.name,
+      email: "",
+      phone: "",
+      defaultRateCents: 3_000,
+      engagementStatus: "suspended",
+    });
+    await expect(opsRevert(database, {
+      ownerUserId: "owner-a",
+      auditId: archived.auditId,
+      reason: "Undo after the owner changed status",
+    })).rejects.toThrow("stale_preview");
+    expect(scalar(sqlite, "SELECT engagement_status FROM contractor WHERE id = ?", [owner.contractor.id])).toBe("suspended");
+    expect(scalar(sqlite, "SELECT active FROM contractor WHERE id = ?", [owner.contractor.id])).toBe(0);
+    expect(scalar(sqlite, "SELECT COUNT(*) FROM assignment WHERE contractor_id = ? AND active = 1", [owner.contractor.id])).toBe(0);
+
+    const archivedAgain = await opsArchiveContractor(database, owner.contractor.id, { ownerUserId: "owner-a", reason: "Leave again" });
+    const undone = await opsRevert(database, {
+      ownerUserId: "owner-a",
+      auditId: archivedAgain.auditId,
+      reason: "Undo the archive",
+    });
+    expect(undone).toMatchObject({ contractor: { engagementStatus: "suspended", active: false } });
+    expect(scalar(sqlite, "SELECT engagement_status FROM contractor WHERE id = ?", [owner.contractor.id])).toBe("suspended");
+    expect(scalar(sqlite, "SELECT active FROM contractor WHERE id = ?", [owner.contractor.id])).toBe(0);
+    expect(scalar(sqlite, "SELECT COUNT(*) FROM assignment WHERE contractor_id = ? AND active = 1", [owner.contractor.id])).toBe(0);
+
+    const restored = await opsRestoreContractor(database, owner.contractor.id, { ownerUserId: "owner-a", reason: "Bring back" });
+    expect(restored.contractor).toMatchObject({ engagementStatus: "active", active: true });
+    const undoRestore = await opsRevert(database, {
+      ownerUserId: "owner-a",
+      auditId: restored.auditId,
+      reason: "Undo the restore",
+    });
+    expect(undoRestore).toMatchObject({ contractor: { engagementStatus: "suspended", active: false } });
+  });
+
+  it("reactivates assignments when undoing an archive back to active", async () => {
+    const { sqlite, database } = await openMemoryDb();
+    const owner = await seedWorkspace(database, sqlite, "owner-a");
+    const archived = await opsArchiveContractor(database, owner.contractor.id, { ownerUserId: "owner-a", reason: "Leave" });
+    expect(scalar(sqlite, "SELECT COUNT(*) FROM assignment WHERE contractor_id = ? AND active = 1", [owner.contractor.id])).toBe(0);
+    const undone = await opsRevert(database, {
+      ownerUserId: "owner-a",
+      auditId: archived.auditId,
+      reason: "Undo the archive",
+    });
+    expect(undone).toMatchObject({ contractor: { engagementStatus: "active", active: true } });
+    expect(scalar(sqlite, "SELECT COUNT(*) FROM assignment WHERE contractor_id = ? AND active = 1", [owner.contractor.id])).toBe(2);
+  });
+
+  it("rejects a direct contractor active update before the dry run writes", async () => {
+    const { sqlite, database, runner } = await openMemoryDb();
+    const owner = await seedWorkspace(database, sqlite, "owner-a");
+    await expect(opsPreviewSql(runner, {
+      sql: "UPDATE contractor SET active = 0 WHERE id = ?",
+      params: [owner.contractor.id],
+      secret: SECRET,
+      nowMs: 1_000,
+    })).rejects.toThrow("forbidden_sql");
+    expect(scalar(sqlite, "SELECT active FROM contractor WHERE id = ?", [owner.contractor.id])).toBe(1);
+    expect(scalar(sqlite, "SELECT engagement_status FROM contractor WHERE id = ?", [owner.contractor.id])).toBe("active");
+    expect(auditActions(sqlite)).toEqual([]);
   });
 });

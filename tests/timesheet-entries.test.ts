@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import initSqlJs, { type Database as SqlJsDatabase } from "sql.js";
 import { describe, expect, it } from "vitest";
 import { assignments, contractors, timeEntries } from "../src/db/schema";
-import { seedOwnerWorkspace } from "./owner-workspace";
+import { execContractorEngagementMigration, seedOwnerWorkspace } from "./owner-workspace";
 import { createSite } from "../src/services/sites";
 import {
   createAssignment,
@@ -26,6 +26,7 @@ async function openMemoryDb() {
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0002_week_approval.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0003_recurring_schedules.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0004_business_workspace.sql"), "utf8"));
+  execContractorEngagementMigration(sqlite);
   const database = drizzle(sqlite) as unknown as TimesheetDb;
   return { sqlite, database };
 }

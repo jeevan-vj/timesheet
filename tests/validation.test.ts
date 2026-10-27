@@ -22,6 +22,51 @@ describe("API validation", () => {
     })).toEqual({ name: "Aroha", email: "", phone: "", defaultRateCents: 3200 });
   });
 
+  it("accepts engagement fields and rejects an invalid status, GST number, or start date", () => {
+    expect(contractorInput.parse({
+      name: "Aroha",
+      defaultRateCents: 3200,
+      preferredName: " Ro ",
+      startDate: "",
+      engagementStatus: "suspended",
+      gstRegistered: true,
+      gstNumber: "123-456-789",
+      internalNotes: " Office ",
+      emergencyContactName: " Sam ",
+      emergencyContactPhone: " 021 ",
+    })).toMatchObject({
+      preferredName: "Ro",
+      startDate: null,
+      engagementStatus: "suspended",
+      gstRegistered: true,
+      gstNumber: "123456789",
+      internalNotes: "Office",
+      emergencyContactName: "Sam",
+      emergencyContactPhone: "021",
+    });
+
+    const status = contractorInput.safeParse({ name: "A", defaultRateCents: 3200, engagementStatus: "fired" });
+    expect(status.success).toBe(false);
+    if (!status.success) {
+      expect(invalidRequestFromZod(status.error)).toEqual({
+        error: "invalid_request",
+        fields: { engagementStatus: "Engagement status must be draft, invited, active, suspended, or archived." },
+      });
+    }
+
+    const gst = contractorInput.safeParse({ name: "A", defaultRateCents: 3200, gstNumber: "1234" });
+    expect(gst.success).toBe(false);
+    if (!gst.success) {
+      expect(invalidRequestFromZod(gst.error).fields?.gstNumber).toMatch(/8 or 9 digits/);
+    }
+
+    const date = contractorInput.safeParse({ name: "A", defaultRateCents: 3200, startDate: "2026-02-31" });
+    expect(date.success).toBe(false);
+    if (!date.success) {
+      expect(invalidRequestFromZod(date.error).fields?.startDate).toMatch(/YYYY-MM-DD/);
+    }
+  });
+
   it("maps contractor Zod issues to the first generic message per known field", () => {
     const name = contractorInput.safeParse({ name: "", email: "", defaultRateCents: 3200 });
     expect(name.success).toBe(false);
@@ -323,6 +368,11 @@ describe("recurring schedule validation", () => {
     });
     expect(occurrenceExceptionInput.safeParse({ kind: "absent", scope: "going_forward" }).success).toBe(false);
     expect(occurrenceExceptionInput.safeParse({ kind: "worked_as_scheduled", scope: "going_forward" }).success).toBe(false);
+    expect(occurrenceExceptionInput.parse({ kind: "confirm_worked", scope: "this_day" })).toEqual({
+      kind: "confirm_worked",
+      scope: "this_day",
+    });
+    expect(occurrenceExceptionInput.safeParse({ kind: "confirm_worked", scope: "going_forward" }).success).toBe(false);
     expect(occurrenceExceptionInput.safeParse({ kind: "hours_override", scope: "this_day" }).success).toBe(false);
     expect(occurrenceExceptionInput.parse({
       kind: "hours_override",

@@ -34,6 +34,10 @@ jobs:
     needs: verify
     if: github.repository == 'jeevan-vj/timesheet' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: read
     environment:
       name: production
       url: ${{ vars.PRODUCTION_URL }}
@@ -52,23 +56,78 @@ jobs:
           node-version: 22
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm build
+      - name: Record the D1 bookmark and pre-deploy Worker version
+        run: node .github/scripts/record-recovery-point.mjs --out release-recovery.json
+      - name: Upload the pre-deploy recovery point
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: d1-recovery-${{ github.sha }}
+          path: release-recovery.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Reject unapproved destructive migrations
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node .github/scripts/destructive-migration.mjs
       - name: Apply production D1 migrations
         run: pnpm exec wrangler d1 migrations apply cleantrack-timesheet --remote --config wrangler.jsonc
       - name: Deploy production release
-        run: >-
-          pnpm exec wrangler deploy
-          --config dist/server/wrangler.json
-          --tag "$GITHUB_SHA"
-          --message "GitHub Actions release $GITHUB_SHA"
-          --var "BETTER_AUTH_URL:${PRODUCTION_URL}"
-          --var "AUTH_TRUSTED_ORIGINS:"
-          --var "RELEASE_SHA:${GITHUB_SHA}"
-      - name: Verify active release identity
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
         shell: bash
         run: |
+          set -euo pipefail
+          secrets_file=""
+          cleanup() {
+            if [ -n "${secrets_file}" ]; then
+              rm -f -- "${secrets_file}"
+            fi
+          }
+          trap cleanup EXIT
+          deploy_args=(
+            deploy
+            --config dist/server/wrangler.json
+            --tag "$GITHUB_SHA"
+            --message "GitHub Actions release $GITHUB_SHA"
+            --var "BETTER_AUTH_URL:${PRODUCTION_URL}"
+            --var "AUTH_TRUSTED_ORIGINS:"
+            --var "RELEASE_SHA:${GITHUB_SHA}"
+          )
+          if [ -z "${RESEND_API_KEY:-}" ]; then
+            echo "RESEND_API_KEY is unset; continuing without provisioning the Worker secret."
+          else
+            secrets_file="${RUNNER_TEMP}/resend-api-key.json"
+            previous_umask="$(umask)"
+            umask 077
+            rm -f -- "${secrets_file}"
+            node -e 'const fs=require("node:fs"); fs.writeFileSync(process.argv[1], JSON.stringify({RESEND_API_KEY:process.env.RESEND_API_KEY}), {mode:0o600});' "${secrets_file}"
+            chmod 600 "${secrets_file}"
+            umask "${previous_umask}"
+            deploy_args+=(--secrets-file "${secrets_file}")
+          fi
+          pnpm exec wrangler "${deploy_args[@]}"
+      - name: Verify active release identity
+        id: identity
+        shell: bash
+        run: |
+          set -euo pipefail
           pnpm exec wrangler deployments status --name cleantrack-timesheet --json > "$RUNNER_TEMP/deployment.json"
           active_version="$(node -e "const d=require(process.argv[1]); const v=d.versions?.find((item) => item.percentage === 100)?.version_id; if (!v) process.exit(1); process.stdout.write(v)" "$RUNNER_TEMP/deployment.json")"
           pnpm exec wrangler versions view "$active_version" --name cleantrack-timesheet --json > "$RUNNER_TEMP/version.json"
-          node -e "const v=require(process.argv[1]); if (v.annotations?.['workers/tag'] !== process.env.GITHUB_SHA) { console.error('Active Cloudflare version does not match the workflow SHA'); process.exit(1) }" "$RUNNER_TEMP/version.json"
+          tag="$(node -e "const v=require(process.argv[1]); const tag=v.annotations?.['workers/tag'] ?? ''; if (tag !== process.env.GITHUB_SHA) { console.error('Active Cloudflare version does not match the workflow SHA'); process.exit(1) } process.stdout.write(tag)" "$RUNNER_TEMP/version.json")"
+          echo "WORKER_VERSION_TAG=$tag" >> "$GITHUB_ENV"
       - name: Production smoke test
+        id: smoke
         run: node .github/scripts/production-smoke.mjs
+      - name: Roll back the Worker after a failed post-deploy check
+        if: always() && (steps.identity.outcome == 'failure' || steps.smoke.outcome == 'failure')
+        env:
+          IDENTITY_OUTCOME: ${{ steps.identity.outcome }}
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+        run: |
+          set -euo pipefail
+          reason="smoke"
+          if [ "$IDENTITY_OUTCOME" = "failure" ]; then
+            reason="identity"
+          fi
+          node .github/scripts/rollback-worker.mjs --recovery release-recovery.json --reason "$reason"
