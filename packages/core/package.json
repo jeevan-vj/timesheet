@@ -13,6 +13,9 @@
     "./week-rollup": "./src/week-rollup.ts"
   },
   "peerDependencies": {
-    "zod": "4.4.3"
+    "zod": "4.6.7"
+  },
+  "scripts": {
+    "test": "pnpm --dir ../.. exec vitest run tests/core-package.test.ts tests/payroll.test.ts tests/validation.test.ts tests/week-rollup.test.ts"
   }
 }

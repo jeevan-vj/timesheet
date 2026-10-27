@@ -1,0 +1,17 @@
+# Basenames of pending D1 migrations that are approved to apply even when
+# they contain DROP TABLE, DROP COLUMN, DROP INDEX, TRUNCATE, DELETE FROM
+# without WHERE, or a table rebuild.
+# One basename per line. Blank lines and # comments are ignored.
+# Prefer this file. A pull request label opts in every pending destructive
+# migration in that release, not a single file.
+#
+# A line here is the durable opt-in. The release also accepts either:
+# - the pull request label migration-destructive-ok (approves every pending
+#   destructive migration in that release), or
+# - a merge-commit trailer, repeated per file:
+#   Migration-Destructive-Ok: 0009_example.sql
+#
+# Do not list a migration until a human has reviewed the SQL. This file does
+# not restore D1 and it does not edit an applied migration.
+# 0008_account_provider_key.sql is a table rebuild. It is intentionally not
+# listed. If it is still pending, add it here or use the label before release.
