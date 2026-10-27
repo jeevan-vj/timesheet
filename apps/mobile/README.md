@@ -39,6 +39,8 @@ pnpm --filter mobile test
 
 `expo-updates` ships JavaScript and asset changes to binaries that already include it. `runtimeVersion.policy` is `fingerprint`, so a native change (new native module, permission, SDK upgrade, or other native app-config change) gets a new runtime and is **not** offered to older binaries. Those changes need a new EAS Build.
 
+`fingerprint.config.js` is what makes that hash the same on the upload machine, in the mobile release decide job, and on the EAS worker. `app.config.ts` imports `src/variant.mjs`, `src/api-config.mjs`, and `src/theme-tokens.mjs`. Those modules are `extraSources`, because fingerprint tracing can miss native ESM imports on some Node versions. Generated `ios/` and `android/` trees are ignored: prebuild creates them and `.gitignore` does not commit them. The evaluated Expo config, including `extra.apiUrl`, bundle id, plugins, and permissions, is still hashed, and so are those three source files. A new local import in `app.config.ts` has to be added to `extraSources`.
+
 Channels are set on the EAS build profiles in `eas.json` (not `updates.requestHeaders`), so the channel does not change the fingerprint between build and publish:
 
 | Build profile | Channel | Publish script |

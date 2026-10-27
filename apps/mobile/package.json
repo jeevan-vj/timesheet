@@ -10,7 +10,7 @@
     "web": "APP_VARIANT=development expo start --web",
     "typecheck": "tsc --noEmit",
     "lint": "node ../../scripts/lint-paved-path.mjs apps/mobile",
-    "test": "pnpm --dir ../.. exec vitest run tests/mobile-release-guard.test.mjs tests/mobile-release-plan.test.mjs",
+    "test": "pnpm --dir ../.. exec vitest run tests/mobile-release-guard.test.mjs tests/mobile-release-plan.test.mjs tests/mobile-fingerprint.test.mjs",
     "update:preview": "APP_VARIANT=preview eas update --channel preview --environment preview",
     "update:production": "APP_VARIANT=production eas update --channel production --environment production",
     "build:production": "node scripts/build-production.mjs",
