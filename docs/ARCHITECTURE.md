@@ -46,7 +46,9 @@ A contractor row stays in place for the owner's history. Archive sets `engagemen
 
 `GET /api/me` calls `resolveViewer`. The owner half is the active owner membership and its business. The contractor half is active `contractor_account` rows for the session user, joined to `business` for the display name. Contractor links are not `business_member` rows, so the one-active-membership index still allows a person to own one business and work at others. Until an invitation is accepted, `contractorOf` is empty. `/dashboard` sends a contractor-only user to the `/portal` placeholder. Sign-in and sign-up keep a same-origin `returnTo` of `/invite`, `/portal`, or `/dashboard`.
 
-Migration `0007_contractor_portal_access.sql` adds `contractor_invitation` and `contractor_account`. Nothing is backfilled. Tokens are stored as hex SHA-256 digests. The deliverable link puts the token in the URL fragment. Create and resend write the row before calling Resend. `last_delivery` records `email`, `link_only`, or `email_failed`. A pending invite is revoked by a trigger when `contractor.email` changes to a different address. The sender is `CleanTrack <invites@jnok.co.nz>`. How the optional Worker secret is provisioned is in `docs/DEPLOYMENT.md`. Accepting an invitation is a later write into `contractor_account`.
+Migration `0007_contractor_portal_access.sql` adds `contractor_invitation` and `contractor_account`. Nothing is backfilled. Tokens are stored as hex SHA-256 digests. The deliverable link puts the token in the URL fragment. Create and resend write the row before calling Resend. `last_delivery` records `email`, `link_only`, or `email_failed`. A pending invite is revoked by a trigger when `contractor.email` changes to a different address. The sender is `CleanTrack <invites@jnok.co.nz>`. How the optional Worker secret is provisioned is in `docs/DEPLOYMENT.md`. `MAIL_TRANSPORT=smtp-dev` is a local loopback SMTP transport and is refused when `NODE_ENV` is `production`.
+
+Accepting an invitation writes `user`, `account`, `contractor_account`, the invitation status, the contractor engagement status, and `session` from `POST /api/invitations/accept`. The statements share one D1 `batch`. D1 batch is not rollback-atomic, so each statement is conditional on the invite still being the pending row that was read, and a retry is safe. The page keeps the token in the fragment and in `sessionStorage` for the sign-in return trip. It is not placed on a server URL.
 
 Invitation routes:
 
@@ -57,6 +59,8 @@ Invitation routes:
 | POST | `/api/contractors/[id]/invitation` | yes | `201 { invitation, delivery, inviteLink }` |
 | POST | `/api/contractors/[id]/invitation/resend` | yes | `200 { invitation, delivery, inviteLink }` |
 | POST | `/api/contractors/[id]/invitation/revoke` | yes | `200 { invitation }` |
+| POST | `/api/invitations/preview` | public, trusted Origin | `200` ready or closed state |
+| POST | `/api/invitations/accept` | public, trusted Origin | `200 { ok: true }` and session cookie |
 
 The unique index `contractor_owner_name_uq` on `(owner_user_id, name)` includes archived rows. A same-owner create or rename that collides, including with an archived name, returns `409 { error: "duplicate_contractor" }`. Different owners may share names. Cross-owner get, update, archive, and restore return identical `404 { error: "not_found" }` with no writes.
 

@@ -50,7 +50,10 @@ describe("contractor portal access migration", () => {
     expect(rows(sqlite, "SELECT rate_cents, paid_minutes FROM time_entry WHERE id = 'entry-a'")).toEqual([[3200, 90]]);
     expect(migrationSql("0007_contractor_portal_access.sql")).not.toMatch(/\btoken\b/);
     for (const name of PRIOR) expect(migrationSql(name)).not.toContain("contractor_invitation");
-    expect(fs.readFileSync(path.resolve("wrangler.jsonc"), "utf8")).not.toContain("RESEND_API_KEY");
+    const wrangler = fs.readFileSync(path.resolve("wrangler.jsonc"), "utf8");
+    expect(wrangler).not.toContain("RESEND_API_KEY");
+    expect(wrangler).toContain('"MAIL_TRANSPORT": ""');
+    expect(wrangler).not.toContain("smtp-dev");
   });
 
   it("rejects a second pending invite, a bad status, and revokes when the email changes", async () => {

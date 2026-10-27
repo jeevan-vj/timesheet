@@ -1,4 +1,7 @@
-import { getEmailConfig, type EmailConfig } from "@/lib/runtime-env";
+import { env } from "cloudflare:workers";
+import { getEmailConfig } from "@/lib/runtime-env";
+import { decideTransport, type MailConfig } from "@/lib/mail-transport";
+import { deliverSmtp, openCloudflareSmtp, type SmtpByteStream } from "@/lib/smtp-dev";
 import { reportOperationalEvent, type OperationalKind } from "@/lib/report-server-error";
 
 export const RESEND_EMAILS_URL = "https://api.resend.com/emails";
@@ -21,9 +24,16 @@ export type SendEmailResult =
 
 export async function sendEmail(
   input: SendEmailInput,
-  config: EmailConfig = getEmailConfig(),
+  config: MailConfig = readMailConfig(),
   fetchImpl: typeof fetch = fetch,
+  openSmtp: () => Promise<SmtpByteStream> = () => openDevSmtp(config),
 ): Promise<SendEmailResult> {
+  const transport = decideTransport(config);
+  if (transport === "refused") {
+    reportOperationalEvent("email_dev_transport_refused", { kind: input.kind });
+    return { status: "failed", httpStatus: 0 };
+  }
+  if (transport === "smtp-dev") return sendDevSmtp(input, config, openSmtp);
   if (config.apiKey.trim() === "" || config.from.trim() === "") {
     reportOperationalEvent("email_not_configured", { kind: input.kind });
     return { status: "not_configured" };
@@ -31,7 +41,51 @@ export async function sendEmail(
   return postResend(input, config, fetchImpl);
 }
 
-async function postResend(input: SendEmailInput, config: EmailConfig, fetchImpl: typeof fetch): Promise<SendEmailResult> {
+function readMailConfig(): MailConfig {
+  return {
+    ...getEmailConfig(),
+    transport: envString("MAIL_TRANSPORT"),
+    smtpHost: envString("SMTP_HOST") || "localhost",
+    smtpPort: parsePort(envString("SMTP_PORT")),
+    production: process.env.NODE_ENV === "production",
+  };
+}
+
+function envString(name: string): string {
+  const value = (env as unknown as Record<string, unknown>)[name];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function parsePort(value: string): number {
+  if (value === "") return 1025;
+  const port = Number(value);
+  return Number.isInteger(port) ? port : 0;
+}
+
+function openDevSmtp(config: MailConfig): Promise<SmtpByteStream> {
+  return openCloudflareSmtp(config.smtpHost?.trim() || "localhost", config.smtpPort ?? 1025);
+}
+
+async function sendDevSmtp(
+  input: SendEmailInput,
+  config: MailConfig,
+  openSmtp: () => Promise<SmtpByteStream>,
+): Promise<SendEmailResult> {
+  try {
+    await deliverSmtp({
+      from: config.from,
+      to: input.to,
+      subject: input.subject,
+      text: input.text,
+      html: input.html,
+    }, openSmtp);
+    return { status: "sent", id: "smtp-dev" };
+  } catch {
+    return failed(input.kind, 0);
+  }
+}
+
+async function postResend(input: SendEmailInput, config: MailConfig, fetchImpl: typeof fetch): Promise<SendEmailResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), EMAIL_TIMEOUT_MS);
   try {
@@ -47,7 +101,7 @@ async function postResend(input: SendEmailInput, config: EmailConfig, fetchImpl:
   }
 }
 
-function resendRequest(input: SendEmailInput, config: EmailConfig, signal: AbortSignal): RequestInit {
+function resendRequest(input: SendEmailInput, config: MailConfig, signal: AbortSignal): RequestInit {
   return {
     method: "POST",
     signal,

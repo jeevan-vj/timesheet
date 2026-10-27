@@ -135,7 +135,7 @@ export async function reportServerError(error: unknown, request: Request, correl
 }
 
 export const OPERATIONAL_EVENT_KEYS = ["event", "kind", "httpStatus"] as const;
-export type OperationalEventName = "email_not_configured" | "email_send_failed";
+export type OperationalEventName = "email_not_configured" | "email_send_failed" | "email_dev_transport_refused";
 export type OperationalKind = "invitation";
 
 export function operationalEventPayload(

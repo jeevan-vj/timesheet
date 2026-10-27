@@ -3,6 +3,7 @@ import { invitationEmail } from "../src/lib/email-templates/invitation";
 import { invitationAcceptUrl, invitationTokenDigest, invitationTokenMatches } from "../src/lib/invitation-token";
 import {
   invitationActions,
+  invitationBadge,
   invitationDeliveryNotice,
   invitationErrorMessage,
   maskEmail,
@@ -60,6 +61,8 @@ describe("invitation owner copy", () => {
     expect(invitationActions({ state: "pending", eligible: true, hasLink: true })).toEqual(["resend", "copy", "revoke"]);
     expect(invitationActions({ state: "expired", eligible: false, hasLink: false })).toEqual(["revoke"]);
     expect(invitationActions({ state: "accepted", eligible: true, hasLink: false })).toEqual([]);
+    expect(invitationBadge("accepted", true)).toBe("Active (portal)");
+    expect(invitationBadge("accepted", false)).toBe("Portal access accepted");
     expect(parseInvitationView({ state: "none", expiresAt: null, sendCount: null, lastDelivery: null })?.state).toBe("none");
     expect(invitationErrorMessage("resend_too_soon")).toBe("Wait a minute before sending another link.");
     expect(invitationErrorMessage("invitation_conflict")).toBe("That link was just replaced. Refresh and try again.");

@@ -21,7 +21,7 @@ pnpm db:migrate:local
 pnpm dev
 ```
 
-Then create the first owner account at `/sign-up` and open `/dashboard`.
+Then create the first owner account at `/sign-up` and open `/dashboard`. Local invitation mail is in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Verification
 

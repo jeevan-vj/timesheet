@@ -283,3 +283,5 @@ dialog.shift-sheet { width:min(520px,100%); max-height:min(100dvh,100vh); paddin
   .onboarding-guide .form-actions { flex-direction:column; align-items:stretch; }
   .onboarding-guide .form-actions .button,.onboarding-guide .onboarding-link { width:100%; }
 }
+.password-line { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; align-items:center; }
+.password-toggle { border:1px solid #d7d9d4; background:#fff; border-radius:10px; padding:0 12px; font-weight:700; font-size:.78rem; cursor:pointer; }
