@@ -162,7 +162,7 @@ The read-only week, sites, and payments views and remittance download for contra
 
 ### CT-018 Mobile client scaffold
 
-`apps/mobile` is an Expo dev-client shell for contractors. The tabs are Home, My week, Pay, and Account. This slice does not sign in, call authenticated APIs, or show contractor or owner records. Zod inputs, API error codes, week helpers, and money and minute formatting live in `@cleantrack/core`. The web app keeps importing `@/lib/payroll`, `@/lib/validation`, and `@/lib/week-rollup`.
+`apps/mobile` is an Expo dev-client for contractors. Email and password sign-in uses Better Auth’s Expo client and stores the session in the device secure store. Launch restores that session. Requests send `X-CleanTrack-Client: mobile/<version>` and, on a device, the session cookie with credentials omitted. The API base URL is `EXPO_PUBLIC_API_URL` or app config `extra.apiUrl`, otherwise the production Worker. Signed-out people see sign-in. Signed-in people see Home, My week, Pay, and Account. Home shows the session name and the role derived from `GET /api/me`. Account can sign out. Creating an account and resetting a password stay on the web. Owner tabs and in-app sign-up are later slices. Zod inputs, API error codes, week helpers, and money and minute formatting live in `@cleantrack/core`. The web app keeps importing `@/lib/payroll`, `@/lib/validation`, and `@/lib/week-rollup`.
 
 ## Non-goals
 
