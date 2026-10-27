@@ -368,6 +368,11 @@ describe("recurring schedule validation", () => {
     });
     expect(occurrenceExceptionInput.safeParse({ kind: "absent", scope: "going_forward" }).success).toBe(false);
     expect(occurrenceExceptionInput.safeParse({ kind: "worked_as_scheduled", scope: "going_forward" }).success).toBe(false);
+    expect(occurrenceExceptionInput.parse({ kind: "confirm_worked", scope: "this_day" })).toEqual({
+      kind: "confirm_worked",
+      scope: "this_day",
+    });
+    expect(occurrenceExceptionInput.safeParse({ kind: "confirm_worked", scope: "going_forward" }).success).toBe(false);
     expect(occurrenceExceptionInput.safeParse({ kind: "hours_override", scope: "this_day" }).success).toBe(false);
     expect(occurrenceExceptionInput.parse({
       kind: "hours_override",

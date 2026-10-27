@@ -39,8 +39,8 @@ describe("weekly table note presentation", () => {
     expect(component).toContain("shift-note-label");
     expect(component).toContain(">Notes</span>");
     expect(grid).toContain("visibleShiftNote(entry.notes)");
-    expect(grid).toContain("<ShiftTableNote notes={entry.notes} noteId={noteId!} />");
-    expect(grid).toContain("aria-describedby={note ? noteId : undefined}");
+    expect(grid).toContain("<ShiftTableNote notes={entry.notes} noteId={noteId} />");
+    expect(grid).toContain("aria-describedby={entry && visibleShiftNote(entry.notes) ? noteId : undefined}");
 
     const summary = dashboard.slice(dashboard.indexOf("summary-panel"), dashboard.indexOf("SetupPanel"));
     expect(summary).not.toContain("ShiftTableNote");

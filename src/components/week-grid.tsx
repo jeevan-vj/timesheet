@@ -9,16 +9,23 @@ import { visibleShiftNote } from "@/lib/shift-note";
 import { weekApprovalErrorMessage } from "@/lib/week-approval";
 import type { ShiftDeleteTarget } from "@/lib/shift-delete";
 import {
+  WEEK_GRID_LEGEND,
   buildWeekGridRows,
+  cellAriaLabel,
   entryForCell,
   exceptionRequest,
   hoursOverrideError,
   hoursOverridePaidMinutes,
+  pendingEntryIds,
   presentWeekGridCell,
   rowScheduleCaption,
   weekGridColumns,
+  weekGridMenuLabel,
   type WeekGridAssignment,
+  type WeekGridCell,
   type WeekGridEntry,
+  type WeekGridIcon,
+  type WeekGridMenuAction,
   type WeekGridRow,
 } from "@/lib/week-grid";
 
@@ -50,6 +57,7 @@ export function WeekGrid({
   onEdit,
   onDelete,
   onException,
+  onMarkWorked,
 }: {
   weekStart: string;
   assignments: WeekGridAssignment[];
@@ -60,15 +68,20 @@ export function WeekGrid({
   onEdit: (entry: WeekGridEntry) => void;
   onDelete: (target: ShiftDeleteTarget) => void;
   onException: (url: string, body: unknown) => Promise<void>;
+  onMarkWorked: (ids: string[]) => void;
 }) {
   const rows = buildWeekGridRows({ assignments, contractors, sites, entries });
   const columns = weekGridColumns(weekStart);
   const mobileGridId = useId();
   const [changeHours, setChangeHours] = useState<ChangeHoursTarget | null>(null);
+  const onAction = (action: WeekGridMenuAction, entry: WeekGridEntry) => {
+    dispatchCellAction(action, entry, { onEdit, onDelete, onException, onChangeHours: setChangeHours });
+  };
 
   return <>
+    <WeekGridLegend />
     <div className="week-grid-wrap">
-      <table className="week-grid" role="grid" aria-label="Weekly timesheet">
+      <table className={locked ? "week-grid is-locked" : "week-grid"} role="grid" aria-label="Weekly timesheet">
         <thead>
           <tr>
             <th scope="col">Contractor / site</th>
@@ -88,10 +101,8 @@ export function WeekGrid({
               columns={columns}
               entries={entries}
               locked={locked}
-              onEdit={onEdit}
-              onDelete={onDelete}
-              onException={onException}
-              onChangeHours={setChangeHours}
+              onMarkWorked={onMarkWorked}
+              onAction={onAction}
             />
           ))}
         </tbody>
@@ -100,58 +111,27 @@ export function WeekGrid({
     <div className="week-grid-mobile" aria-label="Weekly timesheet">
       {rows.map((row) => {
         const headingId = `${mobileGridId}-${row.contractorId}-${row.siteId}`;
+        const pendingIds = pendingEntryIds(entries, row.contractorId, row.siteId, columns.map((column) => column.iso));
         return (
           <article className="week-grid-card" key={`${row.contractorId}:${row.siteId}`} aria-labelledby={headingId}>
             <header id={headingId}>
               <strong>{row.contractorName}</strong>
               <span>{row.siteName}{rowScheduleCaption(row.schedule) ? ` · ${rowScheduleCaption(row.schedule)}` : ""}</span>
+              <MarkAllWorked locked={locked} ids={pendingIds} contractorName={row.contractorName} siteName={row.siteName} onMarkWorked={onMarkWorked} />
             </header>
             <div className="week-grid-card-days">
-              {columns.map((column, index) => {
-                const entry = entryForCell(entries, row.contractorId, row.siteId, column.iso);
-                const cell = presentWeekGridCell(entry);
-                const note = entry ? visibleShiftNote(entry.notes) : null;
-                const noteId = entry ? `mobile-shift-note-${entry.id}` : undefined;
-                return <div className={`week-grid-mobile-day ${cell.className}`} key={column.iso} aria-describedby={note ? noteId : undefined}>
-                  <div className="week-grid-mobile-date">
-                    <span>{WEEKDAY_HEADERS[index]}</span>
-                    <strong>{column.iso.slice(8)}</strong>
-                  </div>
-                  <div className="week-grid-mobile-entry">
-                    <strong>{cell.kind === "empty" ? "No shift" : cell.kind === "absent" ? "Not worked" : cell.label}</strong>
-                    {entry ? <ShiftTableNote notes={entry.notes} noteId={noteId!} /> : null}
-                  </div>
-                  {entry && cell.actions.length ? <select
-                    className="week-grid-action-menu"
-                    aria-label={`Actions for ${row.contractorName} at ${row.siteName} on ${WEEKDAY_HEADERS[index]} ${mobileActionDate(column.iso)}`}
-                    value=""
-                    disabled={locked}
-                    onChange={(event) => {
-                      const action = event.target.value;
-                      if (action === "worked_as_scheduled") {
-                        const request = exceptionRequest(entry.id, { kind: "worked_as_scheduled" });
-                        void onException(request.url, request.body).catch(() => undefined);
-                      } else if (action === "absent") {
-                        const request = exceptionRequest(entry.id, { kind: "absent" });
-                        void onException(request.url, request.body).catch(() => undefined);
-                      } else if (action === "change_hours") {
-                        setChangeHours({ entry, contractorName: row.contractorName, siteName: row.siteName });
-                      } else if (action === "edit") {
-                        onEdit(entry);
-                      } else if (action === "delete") {
-                        onDelete({ id: entry.id, contractorName: entry.contractorName, siteName: entry.siteName, workDate: entry.workDate });
-                      }
-                    }}
-                  >
-                    <option value="">Actions</option>
-                    {cell.actions.includes("worked_as_scheduled") ? <option value="worked_as_scheduled">Worked as scheduled</option> : null}
-                    {cell.actions.includes("absent") ? <option value="absent">Didn&apos;t work</option> : null}
-                    {cell.actions.includes("change_hours") ? <option value="change_hours">Change hours</option> : null}
-                    {cell.actions.includes("edit") ? <option value="edit">Edit shift</option> : null}
-                    {cell.actions.includes("delete") ? <option value="delete">Delete shift</option> : null}
-                  </select> : null}
-                </div>;
-              })}
+              {columns.map((column, index) => (
+                <MobileDay
+                  key={column.iso}
+                  row={row}
+                  iso={column.iso}
+                  weekday={WEEKDAY_HEADERS[index] ?? ""}
+                  entry={entryForCell(entries, row.contractorId, row.siteId, column.iso)}
+                  locked={locked}
+                  onMarkWorked={onMarkWorked}
+                  onAction={onAction}
+                />
+              ))}
             </div>
           </article>
         );
@@ -166,95 +146,266 @@ export function WeekGrid({
   </>;
 }
 
+function legendClass(kind: (typeof WEEK_GRID_LEGEND)[number]["kind"]) {
+  if (kind === "hours_override") return "changed";
+  if (kind === "scheduled") return "pending";
+  return kind;
+}
+
+function WeekGridLegend() {
+  return <ul className="week-grid-legend" aria-label="Timesheet states">
+    {WEEK_GRID_LEGEND.map((item) => (
+      <li key={item.kind}>
+        <span className={`legend-swatch is-${legendClass(item.kind)}`} aria-hidden="true">
+          <StatusIcon icon={item.icon} />
+        </span>
+        {item.label}
+      </li>
+    ))}
+  </ul>;
+}
+
+function dispatchCellAction(
+  action: WeekGridMenuAction,
+  entry: WeekGridEntry,
+  handlers: {
+    onEdit: (entry: WeekGridEntry) => void;
+    onDelete: (target: ShiftDeleteTarget) => void;
+    onException: (url: string, body: unknown) => Promise<void>;
+    onChangeHours: (target: ChangeHoursTarget) => void;
+  },
+) {
+  if (action === "absent" || action === "reset") {
+    const request = exceptionRequest(entry.id, { kind: action === "absent" ? "absent" : "worked_as_scheduled" });
+    void handlers.onException(request.url, request.body).catch(() => undefined);
+    return;
+  }
+  if (action === "change_hours") {
+    handlers.onChangeHours({ entry, contractorName: entry.contractorName, siteName: entry.siteName });
+    return;
+  }
+  if (action === "edit") {
+    handlers.onEdit(entry);
+    return;
+  }
+  handlers.onDelete({ id: entry.id, contractorName: entry.contractorName, siteName: entry.siteName, workDate: entry.workDate });
+}
+
+function MarkAllWorked({
+  locked,
+  ids,
+  contractorName,
+  siteName,
+  onMarkWorked,
+}: {
+  locked: boolean;
+  ids: string[];
+  contractorName: string;
+  siteName: string;
+  onMarkWorked: (ids: string[]) => void;
+}) {
+  if (locked || ids.length === 0) return null;
+  return <button
+    type="button"
+    className="button tiny secondary week-grid-mark-all"
+    aria-label={`Mark all pending days worked for ${contractorName} at ${siteName}`}
+    onClick={() => onMarkWorked(ids)}
+  >Mark all worked</button>;
+}
+
 function WeekGridRowView({
   row,
   columns,
   entries,
   locked,
-  onEdit,
-  onDelete,
-  onException,
-  onChangeHours,
+  onMarkWorked,
+  onAction,
 }: {
   row: WeekGridRow;
   columns: ReturnType<typeof weekGridColumns>;
   entries: WeekGridEntry[];
   locked: boolean;
-  onEdit: (entry: WeekGridEntry) => void;
-  onDelete: (target: ShiftDeleteTarget) => void;
-  onException: (url: string, body: unknown) => Promise<void>;
-  onChangeHours: (target: ChangeHoursTarget) => void;
+  onMarkWorked: (ids: string[]) => void;
+  onAction: (action: WeekGridMenuAction, entry: WeekGridEntry) => void;
 }) {
   const caption = rowScheduleCaption(row.schedule);
+  const pendingIds = pendingEntryIds(entries, row.contractorId, row.siteId, columns.map((column) => column.iso));
   return <tr>
     <th scope="row">
       <strong>{row.contractorName}</strong>
       <small>{row.siteName}{caption ? ` · ${caption}` : ""}</small>
+      <MarkAllWorked locked={locked} ids={pendingIds} contractorName={row.contractorName} siteName={row.siteName} onMarkWorked={onMarkWorked} />
     </th>
-    {columns.map((column) => {
-      const entry = entryForCell(entries, row.contractorId, row.siteId, column.iso);
-      const cell = presentWeekGridCell(entry);
-      const note = entry ? visibleShiftNote(entry.notes) : null;
-      const noteId = entry ? `shift-note-${entry.id}` : undefined;
-      return <td
+    {columns.map((column, index) => (
+      <DesktopDay
         key={column.iso}
-        className={cell.className}
-        aria-describedby={note ? noteId : undefined}
-      >
-        {cell.kind === "empty" ? null : <span className="week-grid-cell-label">{cell.kind === "absent" ? "Not worked" : cell.label}</span>}
-        {entry ? <ShiftTableNote notes={entry.notes} noteId={noteId!} /> : null}
-        {cell.actions.length ? <div className="week-grid-cell-actions">
-          {cell.actions.includes("worked_as_scheduled") && entry ? (
-            <button type="button" className="button tiny secondary" disabled={locked} onClick={() => {
-              if (locked) return;
-              const request = exceptionRequest(entry.id, { kind: "worked_as_scheduled" });
-              void onException(request.url, request.body).catch(() => undefined);
-            }}>Worked as scheduled</button>
-          ) : null}
-          {cell.actions.includes("absent") && entry ? (
-            <button
-              type="button"
-              className="button tiny secondary"
-              disabled={locked}
-              aria-label="Didn't work, this occurrence only"
-              onClick={() => {
-                if (locked) return;
-                const request = exceptionRequest(entry.id, { kind: "absent" });
-                void onException(request.url, request.body).catch(() => undefined);
-              }}
-            >Didn't work</button>
-          ) : null}
-          {cell.actions.includes("change_hours") && entry ? (
-            <button type="button" className="button tiny" disabled={locked} onClick={() => {
-              if (locked) return;
-              onChangeHours({ entry, contractorName: row.contractorName, siteName: row.siteName });
-            }}>Change hours</button>
-          ) : null}
-          {cell.actions.includes("edit") && entry ? (
-            <button
-              type="button"
-              className="button tiny"
-              aria-label={locked ? `Edit ${entry.contractorName} shift (week locked)` : `Edit ${entry.contractorName} shift`}
-              disabled={locked}
-              onClick={() => { if (locked) return; onEdit(entry); }}
-            >Edit</button>
-          ) : null}
-          {cell.actions.includes("delete") && entry ? (
-            <button
-              type="button"
-              className="icon-button"
-              aria-label={locked ? `Delete ${entry.contractorName} shift (week locked)` : `Delete ${entry.contractorName} shift`}
-              disabled={locked}
-              onClick={() => {
-                if (locked) return;
-                onDelete({ id: entry.id, contractorName: entry.contractorName, siteName: entry.siteName, workDate: entry.workDate });
-              }}
-            >×</button>
-          ) : null}
-        </div> : null}
-      </td>;
-    })}
+        row={row}
+        iso={column.iso}
+        weekday={WEEKDAY_HEADERS[index] ?? ""}
+        entry={entryForCell(entries, row.contractorId, row.siteId, column.iso)}
+        locked={locked}
+        onMarkWorked={onMarkWorked}
+        onAction={onAction}
+      />
+    ))}
   </tr>;
+}
+
+function DesktopDay({
+  row,
+  iso,
+  weekday,
+  entry,
+  locked,
+  onMarkWorked,
+  onAction,
+}: DayProps) {
+  const cell = presentWeekGridCell(entry, row.schedule?.paidMinutes ?? null);
+  const noteId = entry ? `shift-note-${entry.id}` : undefined;
+  return <td className={cell.className} aria-describedby={entry && visibleShiftNote(entry.notes) ? noteId : undefined}>
+    {cell.kind === "empty" ? null : <div className="day-chip">
+      <DayInteractive
+        row={row}
+        iso={iso}
+        weekday={weekday}
+        entry={entry}
+        cell={cell}
+        locked={locked}
+        noteId={noteId}
+        onMarkWorked={onMarkWorked}
+        onAction={onAction}
+      />
+    </div>}
+  </td>;
+}
+
+function MobileDay({
+  row,
+  iso,
+  weekday,
+  entry,
+  locked,
+  onMarkWorked,
+  onAction,
+}: DayProps) {
+  const cell = presentWeekGridCell(entry, row.schedule?.paidMinutes ?? null);
+  const noteId = entry ? `mobile-shift-note-${entry.id}` : undefined;
+  return <div className={`week-grid-mobile-day ${cell.className}`} aria-describedby={entry && visibleShiftNote(entry.notes) ? noteId : undefined}>
+    <div className="week-grid-mobile-date">
+      <span>{weekday}</span>
+      <strong>{iso.slice(8)}</strong>
+    </div>
+    {cell.kind === "empty" ? <strong className="day-empty">No shift</strong> : <DayInteractive
+      row={row}
+      iso={iso}
+      weekday={weekday}
+      entry={entry}
+      cell={cell}
+      locked={locked}
+      noteId={noteId}
+      onMarkWorked={onMarkWorked}
+      onAction={onAction}
+    />}
+  </div>;
+}
+
+type DayProps = {
+  row: WeekGridRow;
+  iso: string;
+  weekday: string;
+  entry: WeekGridEntry | null;
+  locked: boolean;
+  onMarkWorked: (ids: string[]) => void;
+  onAction: (action: WeekGridMenuAction, entry: WeekGridEntry) => void;
+};
+
+function DayInteractive({
+  row,
+  iso,
+  weekday,
+  entry,
+  cell,
+  locked,
+  noteId,
+  onMarkWorked,
+  onAction,
+}: DayProps & { cell: WeekGridCell; noteId: string | undefined }) {
+  const dayLabel = `${weekday} ${mobileActionDate(iso)}`;
+  const label = cellAriaLabel(cell, { contractorName: row.contractorName, siteName: row.siteName, dayLabel }, locked);
+  const press = !locked && cell.tapToMarkWorked && entry ? () => onMarkWorked([entry.id]) : null;
+  return <>
+    <div className="day-main">
+      <DayFace cell={cell} label={label} onPress={press} />
+      {entry && noteId ? <ShiftTableNote notes={entry.notes} noteId={noteId} /> : null}
+    </div>
+    <DayMenu
+      locked={locked}
+      menu={cell.menu}
+      menuLabel={`Actions for ${row.contractorName} at ${row.siteName} on ${dayLabel}`}
+      onSelect={(action) => { if (entry) onAction(action, entry); }}
+    />
+  </>;
+}
+
+function DayFace({ cell, label, onPress }: { cell: WeekGridCell; label: string; onPress: (() => void) | null }) {
+  const visual = <span aria-hidden="true" className="day-visual">
+    {cell.label ? <span className={cell.strike ? "day-minutes is-strike" : "day-minutes"}>{cell.label}</span> : null}
+    <span className="day-status"><StatusIcon icon={cell.icon} />{cell.statusLabel}</span>
+  </span>;
+  if (onPress) {
+    return <button type="button" className="day-chip-main" data-state={cell.kind} aria-label={label} onClick={onPress}>{visual}</button>;
+  }
+  return <div className="day-chip-main" data-state={cell.kind} role="group" aria-label={label}>{visual}</div>;
+}
+
+function DayMenu({
+  locked,
+  menu,
+  menuLabel,
+  onSelect,
+}: {
+  locked: boolean;
+  menu: WeekGridMenuAction[];
+  menuLabel: string;
+  onSelect: (action: WeekGridMenuAction) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    function onPointer(event: PointerEvent) {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false);
+    }
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  if (locked || menu.length === 0) return null;
+  return <div className="day-menu-wrap" ref={ref}>
+    <button type="button" className="day-menu-button" aria-haspopup="menu" aria-expanded={open} aria-label={menuLabel} onClick={() => setOpen((value) => !value)}>⋯</button>
+    {open ? <div className="day-menu" role="menu">
+      {menu.map((action) => (
+        <button type="button" role="menuitem" key={action} onClick={() => { setOpen(false); onSelect(action); }}>{weekGridMenuLabel(action)}</button>
+      ))}
+    </div> : null}
+  </div>;
+}
+
+function StatusIcon({ icon }: { icon: WeekGridIcon }) {
+  if (icon === "none") return null;
+  return <svg viewBox="0 0 16 16" className="day-icon" aria-hidden="true">
+    {icon === "pending" ? <circle cx="8" cy="8" r="5.25" fill="none" stroke="currentColor" strokeWidth="1.5" /> : null}
+    {icon === "check" ? <path d="M3.5 8.2 6.4 11 12.5 4.8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /> : null}
+    {icon === "changed" ? <path d="M9.2 2.8 13.2 6.8 6.2 13.8H2.2V9.8Z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /> : null}
+    {icon === "absent" ? <path d="M4.2 4.2 11.8 11.8M11.8 4.2 4.2 11.8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /> : null}
+    {icon === "manual" ? <path d="M8 3.5v9M3.5 8h9" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /> : null}
+  </svg>;
 }
 
 function ChangeHoursDialog({

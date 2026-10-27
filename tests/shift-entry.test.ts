@@ -452,8 +452,12 @@ describe("edit sheet wiring", () => {
     const grid = fs.readFileSync(path.resolve("src/components/week-grid.tsx"), "utf8");
     const sheet = fs.readFileSync(path.resolve("src/components/shift-entry.tsx"), "utf8");
 
-    expect(grid).toContain("Edit ${entry.contractorName} shift");
-    expect(grid).toContain("Delete ${entry.contractorName} shift");
+    const presenter = fs.readFileSync(path.resolve("src/lib/week-grid.ts"), "utf8");
+    expect(grid).toContain("Actions for ${row.contractorName} at ${row.siteName}");
+    expect(grid).toContain("handlers.onEdit(entry)");
+    expect(grid).toContain("contractorName: entry.contractorName");
+    expect(presenter).toContain('return "Edit shift"');
+    expect(presenter).toContain('return "Delete shift"');
     expect(dashboard).toContain("send(\"/api/time-entries\", body)");
     expect(dashboard).toMatch(/send\(`\/api\/time-entries\/\$\{.*\}`, body, "PATCH"\)/);
     expect(dashboard).toContain("Shift updated.");

@@ -12,16 +12,20 @@ import {
 import {
   absentScopeLabel,
   buildWeekGridRows,
+  cellAriaLabel,
   entryForCell,
   exceptionRequest,
   hoursOverrideScopeLabels,
   NOT_WORKED_LABEL,
+  pendingEntryIds,
   presentWeekGridCell,
+  projectEntries,
   SCHEDULE_GOING_FORWARD_LABEL,
   THIS_DAY_ONLY_LABEL,
   THIS_OCCURRENCE_ONLY_LABEL,
   weekGridColumns,
   weekGridIsEmpty,
+  type WeekGridEntry,
 } from "../src/lib/week-grid";
 import { applyScheduleBody, applyThenDashboardUrls, shouldApplySchedule } from "../src/lib/week-load";
 
@@ -38,32 +42,49 @@ const scheduledAssignment = {
 };
 
 describe("week grid presenters", () => {
-  it("presents empty, scheduled, absent, manual, and override cells", () => {
-    expect(presentWeekGridCell(null)).toMatchObject({ kind: "empty", label: "", actions: [] });
+  it("presents empty, pending, worked, absent, manual, and changed-hour cells", () => {
+    expect(presentWeekGridCell(null)).toMatchObject({ kind: "empty", label: "", menu: [], tapToMarkWorked: false });
     expect(presentWeekGridCell({ occurrenceKind: "scheduled", paidMinutes: 90 })).toMatchObject({
       kind: "scheduled",
       label: "1h 30m",
-      actions: ["worked_as_scheduled", "absent", "change_hours"],
+      statusLabel: "Pending",
+      icon: "pending",
+      tapToMarkWorked: true,
+      menu: ["absent", "change_hours", "reset"],
     });
-    expect(presentWeekGridCell({ occurrenceKind: "absent", paidMinutes: 0 })).toMatchObject({
+    expect(presentWeekGridCell({ occurrenceKind: "worked", paidMinutes: 90 })).toMatchObject({
+      kind: "worked",
+      label: "1h 30m",
+      statusLabel: "Worked",
+      icon: "check",
+      ariaLabel: "Worked as scheduled, 1h 30m",
+      tapToMarkWorked: false,
+    });
+    expect(presentWeekGridCell({ occurrenceKind: "absent", paidMinutes: 0 }, 90)).toMatchObject({
       kind: "absent",
-      label: NOT_WORKED_LABEL,
-      actions: ["worked_as_scheduled", "change_hours"],
+      label: "1h 30m",
+      statusLabel: NOT_WORKED_LABEL,
+      icon: "absent",
+      strike: true,
+      tapToMarkWorked: false,
     });
-    expect(presentWeekGridCell({ occurrenceKind: "absent", paidMinutes: 0 }).actions).not.toContain("absent");
-    expect(presentWeekGridCell({ occurrenceKind: "hours_override", paidMinutes: 120 })).toMatchObject({
+    expect(presentWeekGridCell({ occurrenceKind: "absent", paidMinutes: 0 }, 90).menu).not.toContain("delete");
+    expect(presentWeekGridCell({ occurrenceKind: "hours_override", paidMinutes: 75 }, 60)).toMatchObject({
       kind: "hours_override",
-      label: "2h",
-      actions: ["worked_as_scheduled", "absent", "change_hours"],
+      label: "1h 15m (sched 1h)",
+      statusLabel: "Changed",
+      icon: "changed",
+      ariaLabel: "Changed hours, 1h 15m, scheduled 1h",
     });
     expect(presentWeekGridCell({ occurrenceKind: "manual", paidMinutes: 480 })).toMatchObject({
       kind: "manual",
       label: "8h",
-      actions: ["edit", "delete"],
+      statusLabel: "Added",
+      menu: ["edit", "delete"],
     });
-    expect(presentWeekGridCell({ occurrenceKind: "scheduled", paidMinutes: 90 }).actions).not.toContain("delete");
-    expect(presentWeekGridCell({ occurrenceKind: "absent", paidMinutes: 0 }).actions).not.toContain("delete");
-    expect(presentWeekGridCell({ occurrenceKind: "hours_override", paidMinutes: 60 }).actions).not.toContain("delete");
+    expect(presentWeekGridCell({ occurrenceKind: "scheduled", paidMinutes: 90 }).menu).not.toContain("delete");
+    expect(presentWeekGridCell({ occurrenceKind: "worked", paidMinutes: 90 }).menu).not.toContain("delete");
+    expect(presentWeekGridCell({ occurrenceKind: "hours_override", paidMinutes: 60 }, 60).menu).not.toContain("delete");
   });
 
   it("keeps this day only vs schedule going forward, and absent as this occurrence only", () => {
@@ -182,22 +203,116 @@ describe("schedule editor going-forward Monday", () => {
 });
 
 describe("week grid source contract", () => {
-  it("renders a Mon–Sun grid with Not worked text and locked cell actions", () => {
+  it("renders a Mon–Sun grid with a legend and omits cell actions when locked", () => {
     const grid = fs.readFileSync(path.resolve("src/components/week-grid.tsx"), "utf8");
     const dashboard = fs.readFileSync(path.resolve("src/components/dashboard.tsx"), "utf8");
+    const presenter = fs.readFileSync(path.resolve("src/lib/week-grid.ts"), "utf8");
     expect(grid).toContain("Mon");
-    expect(grid).toContain("Not worked");
+    expect(grid).toContain("WeekGridLegend");
+    expect(grid).toContain("Mark all worked");
+    expect(presenter).toContain("read-only");
+    expect(grid).toContain("if (locked || menu.length === 0) return null");
+    expect(grid).toContain("if (locked || ids.length === 0) return null");
+    expect(presenter).toContain("Didn't work");
     expect(grid).toContain("this day only");
     expect(grid).toContain("this occurrence only");
     expect(grid).toContain("schedule going forward");
-    expect(grid).toContain("disabled={locked}");
     expect(grid).not.toContain("Approve week");
     expect(grid).not.toContain("Reopen week");
     expect(grid).not.toContain("owner_user_id");
+    expect(grid).not.toContain(">Worked as scheduled<");
     expect(dashboard).toContain("<WeekGrid");
     expect(dashboard).toContain("<AddRepeatingSchedule");
+    expect(dashboard).toContain("displayWeekTotals");
     expect(grid).toContain("Add repeating schedule");
     expect(dashboard).not.toMatch(/copy previous week/i);
     expect(grid).not.toMatch(/copy previous week/i);
+  });
+});
+
+function gridEntry(partial: Partial<WeekGridEntry> & Pick<WeekGridEntry, "id" | "workDate" | "occurrenceKind" | "paidMinutes">): WeekGridEntry {
+  return {
+    contractorId: "c1",
+    contractorName: "Pasindhu",
+    siteId: "s1",
+    siteName: "Whitford",
+    rateCents: 3_200,
+    notes: "",
+    entryMode: partial.occurrenceKind === "absent" ? "absent" : "paid_hours",
+    scheduleVersionId: "sv1",
+    ...partial,
+  };
+}
+
+describe("week grid bulk pending days", () => {
+  const dates = weekGridColumns(WEEK_START).map((column) => column.iso);
+  const entries = [
+    gridEntry({ id: "mon", workDate: dates[0]!, occurrenceKind: "scheduled", paidMinutes: 60 }),
+    gridEntry({ id: "tue", workDate: dates[1]!, occurrenceKind: "worked", paidMinutes: 60 }),
+    gridEntry({ id: "wed", workDate: dates[2]!, occurrenceKind: "hours_override", paidMinutes: 75 }),
+    gridEntry({ id: "thu", workDate: dates[3]!, occurrenceKind: "absent", paidMinutes: 0 }),
+    gridEntry({ id: "other", workDate: dates[0]!, contractorId: "c2", siteId: "s2", occurrenceKind: "scheduled", paidMinutes: 60 }),
+  ];
+
+  it("marks only the remaining pending days in that contractor and site row", () => {
+    const ids = pendingEntryIds(entries, "c1", "s1", dates);
+    expect(ids).toEqual(["mon"]);
+    const next = projectEntries(entries, ids, { kind: "confirm_worked" });
+    expect(next.find((row) => row.id === "mon")).toMatchObject({ occurrenceKind: "worked", paidMinutes: 60, rateCents: 3_200 });
+    expect(next.find((row) => row.id === "tue")?.occurrenceKind).toBe("worked");
+    expect(next.find((row) => row.id === "wed")).toMatchObject({ occurrenceKind: "hours_override", paidMinutes: 75 });
+    expect(next.find((row) => row.id === "thu")).toMatchObject({ occurrenceKind: "absent", paidMinutes: 0 });
+    expect(next.find((row) => row.id === "other")?.occurrenceKind).toBe("scheduled");
+    expect(pendingEntryIds(next, "c1", "s1", dates)).toEqual([]);
+  });
+});
+
+describe("week grid accessible names", () => {
+  it("names the state in text and appends read-only when the week is locked", () => {
+    const pending = presentWeekGridCell({ occurrenceKind: "scheduled", paidMinutes: 60 });
+    const changed = presentWeekGridCell({ occurrenceKind: "hours_override", paidMinutes: 75 }, 60);
+    const absent = presentWeekGridCell({ occurrenceKind: "absent", paidMinutes: 0 }, 60);
+    const place = { contractorName: "Pasindhu", siteName: "Whitford", dayLabel: "Mon 31 Aug" };
+    expect(cellAriaLabel(pending, place, false)).toBe("Pending, 1h scheduled, Pasindhu at Whitford, Mon 31 Aug. Mark worked");
+    expect(cellAriaLabel(changed, place, false)).toBe("Changed hours, 1h 15m, scheduled 1h, Pasindhu at Whitford, Mon 31 Aug");
+    expect(cellAriaLabel(absent, place, true)).toBe("Didn't work, 1h scheduled, Pasindhu at Whitford, Mon 31 Aug, read-only");
+    expect(pending.tapToMarkWorked).toBe(true);
+    expect(changed.tapToMarkWorked).toBe(false);
+    expect(absent.tapToMarkWorked).toBe(false);
+  });
+});
+
+function contrast(foreground: string, background: string) {
+  const luminance = (hex: string) => {
+    const value = Number.parseInt(hex.slice(1), 16);
+    const channel = (part: number) => {
+      const scaled = part / 255;
+      return scaled <= 0.04045 ? scaled / 12.92 : ((scaled + 0.055) / 1.055) ** 2.4;
+    };
+    const red = channel((value >> 16) & 255);
+    const green = channel((value >> 8) & 255);
+    const blue = channel(value & 255);
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+  };
+  const left = luminance(foreground);
+  const right = luminance(background);
+  const [hi, lo] = left > right ? [left, right] : [right, left];
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+describe("week grid state contrast", () => {
+  it("keeps text and state boundaries at WCAG AA", () => {
+    const css = fs.readFileSync(path.resolve("src/app/styles.css"), "utf8");
+    expect(css).toContain("--green:#164b36");
+    expect(css).toContain("border-color:#5c675f");
+    expect(css).toContain("background:#fae0d7");
+    expect(css).toContain("background:#f9e4dd");
+    expect(css).toContain("color:#7e3523");
+    expect(contrast("#17211c", "#ffffff")).toBeGreaterThanOrEqual(4.5);
+    expect(contrast("#ffffff", "#164b36")).toBeGreaterThanOrEqual(4.5);
+    expect(contrast("#17211c", "#fae0d7")).toBeGreaterThanOrEqual(4.5);
+    expect(contrast("#7e3523", "#fae0d7")).toBeGreaterThanOrEqual(4.5);
+    expect(contrast("#7e3523", "#f9e4dd")).toBeGreaterThanOrEqual(4.5);
+    expect(contrast("#5c675f", "#ffffff")).toBeGreaterThanOrEqual(3);
   });
 });

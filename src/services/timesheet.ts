@@ -560,6 +560,7 @@ export async function updateTimeEntry(
     assignmentEffectiveRate,
   });
   const scheduledKind = existing.occurrenceKind === "scheduled"
+    || existing.occurrenceKind === "worked"
     || existing.occurrenceKind === "absent"
     || existing.occurrenceKind === "hours_override";
   const occurrenceKind = resnapshot
