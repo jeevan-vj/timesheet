@@ -89,7 +89,7 @@ Use `--channel preview` for preview. `expo-updates` also falls back if a new upd
 
 ## Production build
 
-Production builds are refused unless tracked files match `HEAD` and `HEAD` is contained in `origin/main`. Untracked files do not fail the check. The check is `scripts/check-release.mjs`. EAS runs it as the `eas-build-pre-install` hook. On an EAS build (`EAS_BUILD=true`), an empty or unknown profile fails closed. `development` and `preview` skip the git check. A local run with no profile also skips it.
+Production builds are refused unless the bytes of every tracked file match `HEAD` and `HEAD` is contained in `origin/main`. Untracked files do not fail the check. File mode bits do not fail the check. The check is `scripts/check-release.mjs`. EAS runs it as the `eas-build-pre-install` hook. On an EAS build (`EAS_BUILD=true`), an empty or unknown profile fails closed. `development` and `preview` skip the git check. A local run with no profile also skips it.
 
 Run it locally before a production build:
 
@@ -100,7 +100,7 @@ git pull --ff-only
 EAS_BUILD_PROFILE=production node apps/mobile/scripts/check-release.mjs
 ```
 
-The script fetches `origin/main`. A shallow clone is deepened with `git fetch --unshallow origin main` before `git merge-base --is-ancestor HEAD origin/main`. If `origin/main` cannot be fetched, or the shallow history cannot be deepened, the production profile fails. Tracked changes are `git diff --quiet HEAD`. A feature-branch commit or a dirty tracked tree fails the production profile. A local upload that strips `.git` fails closed.
+The script fetches `origin/main`. A shallow clone is deepened with `git fetch --unshallow origin main` before `git merge-base --is-ancestor HEAD origin/main`. If `origin/main` cannot be fetched, or the shallow history cannot be deepened, the production profile fails. Tracked content is the blob hash of each path in `HEAD`, not `git diff`. The hook may run in `apps/mobile`; the comparison still covers the whole checkout. An empty index or an executable-bit change does not fail the check. A changed or missing tracked file fails, and the error names each path and whether the difference is `content`, `missing`, `unreadable`, or `unsupported`. A feature-branch commit fails the production profile. A local upload that strips `.git` fails closed.
 
 From `apps/mobile`, after the check passes:
 

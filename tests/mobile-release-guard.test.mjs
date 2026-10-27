@@ -1,9 +1,31 @@
+import { execFile } from "node:child_process";
+import { chmod, copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
-import { assertProductionCheckout, checkRelease, resolveProfile } from "../apps/mobile/scripts/check-release.mjs";
+import {
+  assertProductionCheckout,
+  assertTrackedContentMatchesHead,
+  checkRelease,
+  collectTrackedContentDiffs,
+  execGit,
+  formatTrackedDiffError,
+  parseLsTreeZ,
+  resolveProfile,
+} from "../apps/mobile/scripts/check-release.mjs";
 
-function git(results) {
+const README_OID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const NOTES_OID = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+function git(results, hashObject) {
   const run = vi.fn(async (args) => {
+    if (args[0] === "hash-object") {
+      if (hashObject) return hashObject(args);
+      const result = results["hash-object"];
+      if (!result) throw new Error(`unexpected git ${args.join(" ")}`);
+      return result;
+    }
     const key = args.join(" ");
     const result = results[key];
     if (!result) throw new Error(`unexpected git ${key}`);
@@ -14,7 +36,12 @@ function git(results) {
 
 const clean = {
   "rev-parse --is-inside-work-tree": { code: 0, stdout: "true\n" },
-  "diff --quiet HEAD": { code: 0, stdout: "" },
+  "rev-parse --show-toplevel": { code: 0, stdout: "/repo\n" },
+  "ls-tree -r -z --full-tree HEAD": {
+    code: 0,
+    stdout: `100644 blob ${README_OID}\tREADME.md\0`,
+  },
+  "hash-object": { code: 0, stdout: `${README_OID}\n` },
   "fetch origin main": { code: 0, stdout: "" },
   "rev-parse --is-shallow-repository": { code: 0, stdout: "false\n" },
   "merge-base --is-ancestor HEAD origin/main": { code: 0, stdout: "" },
@@ -56,22 +83,67 @@ describe("mobile production release guard", () => {
     await expect(assertProductionCheckout(run)).resolves.toBeUndefined();
     expect(run.mock.calls.map((call) => call[0].join(" "))).toEqual([
       "rev-parse --is-inside-work-tree",
-      "diff --quiet HEAD",
+      "rev-parse --show-toplevel",
+      "ls-tree -r -z --full-tree HEAD",
+      `hash-object -- /repo/README.md`,
       "fetch origin main",
       "rev-parse --is-shallow-repository",
       "merge-base --is-ancestor HEAD origin/main",
     ]);
   });
 
-  it("ignores untracked files and fails when tracked files differ from HEAD", async () => {
+  it("ignores untracked files and file mode, and names content and missing paths", async () => {
     const untracked = git(clean);
     await expect(checkRelease({ env: { EAS_BUILD_PROFILE: "production" }, argv: [], run: untracked, stdout: vi.fn() }))
       .resolves.toEqual({ ok: true, skipped: false });
-    expect(untracked.mock.calls.some((call) => call[0][0] === "status")).toBe(false);
+    expect(untracked.mock.calls.some((call) => call[0][0] === "status" || call[0][0] === "diff")).toBe(false);
 
-    const dirty = git({ ...clean, "diff --quiet HEAD": { code: 1, stdout: "" } });
+    const tree = {
+      ...clean,
+      "ls-tree -r -z --full-tree HEAD": {
+        code: 0,
+        stdout: `100644 blob ${README_OID}\tREADME.md\0` + `100644 blob ${NOTES_OID}\tmy notes.txt\0`,
+      },
+    };
+    const dirty = git(tree, (args) => {
+      const files = args.slice(args.indexOf("--") + 1);
+      if (files.length > 1) {
+        return { code: 128, stdout: "", stderr: "fatal: could not open 'my notes.txt' for reading: No such file or directory\n" };
+      }
+      if (files[0].endsWith("README.md")) return { code: 0, stdout: `${NOTES_OID}\n`, stderr: "" };
+      return { code: 128, stdout: "", stderr: "fatal: could not open 'my notes.txt' for reading: No such file or directory\n" };
+    });
     await expect(checkRelease({ env: { EAS_BUILD_PROFILE: "production" }, argv: [], run: dirty, stdout: vi.fn() }))
-      .rejects.toThrow("tracked files differ from HEAD");
+      .rejects.toThrow("tracked files differ from HEAD\nREADME.md: content\nmy notes.txt: missing");
+    expect(dirty.mock.calls.some((call) => call[0][0] === "fetch")).toBe(false);
+  });
+
+  it("ignores an executable-bit difference when the blob matches", () => {
+    const entries = [{ path: "script.sh", oid: README_OID, mode: "100644", regular: true }];
+    const worktree = new Map([["script.sh", { oid: README_OID, mode: "100755" }]]);
+    expect(collectTrackedContentDiffs(entries, worktree)).toEqual([]);
+  });
+
+  it("names unsupported tracked types and unreadable files", async () => {
+    expect(formatTrackedDiffError([{ path: "link", kind: "unsupported" }])).toBe(
+      "production release check failed: tracked files differ from HEAD\nlink: unsupported",
+    );
+    const symlink = git({
+      ...clean,
+      "ls-tree -r -z --full-tree HEAD": { code: 0, stdout: `120000 blob ${README_OID}\tlink\0` },
+    });
+    await expect(assertTrackedContentMatchesHead(symlink)).rejects.toThrow("link: unsupported");
+    expect(symlink.mock.calls.some((call) => call[0][0] === "hash-object")).toBe(false);
+
+    const unreadable = git(clean, () => ({ code: 128, stdout: "", stderr: "fatal: could not open 'README.md' for reading: Permission denied\n" }));
+    await expect(assertTrackedContentMatchesHead(unreadable)).rejects.toThrow("README.md: unreadable");
+  });
+
+  it("parses a NUL-separated tree and rejects a malformed record", () => {
+    expect(parseLsTreeZ(`100644 blob ${README_OID}\tmy notes.txt\0`)).toEqual([
+      { path: "my notes.txt", oid: README_OID, mode: "100644", regular: true },
+    ]);
+    expect(() => parseLsTreeZ("not a record\0")).toThrow("tracked changes could not be read");
   });
 
   it("deepens a shallow EAS clone before checking that HEAD is on origin/main", async () => {
@@ -103,5 +175,92 @@ describe("mobile production release guard", () => {
 
     const missing = git({ "rev-parse --is-inside-work-tree": { code: 1, stdout: "" } });
     await expect(assertProductionCheckout(missing)).rejects.toThrow("git checkout is required");
+
+    const broken = git({ ...clean, "ls-tree -r -z --full-tree HEAD": { code: 1, stdout: "" } });
+    await expect(assertProductionCheckout(broken)).rejects.toThrow("tracked changes could not be read");
+    expect(broken.mock.calls.some((call) => call[0][0] === "fetch")).toBe(false);
+  });
+});
+
+function gitOk(cwd, args) {
+  return new Promise((resolve, reject) => {
+    execFile("git", args, { cwd, encoding: "utf8" }, (error, stdout, stderr) => {
+      if (error) reject(new Error(stderr || stdout || error.message));
+      else resolve(stdout);
+    });
+  });
+}
+
+function runIn(cwd) {
+  return (args, options = {}) => execGit(args, { ...options, cwd });
+}
+
+async function withRepo(fn) {
+  const dir = await mkdtemp(path.join(tmpdir(), "ct-release-"));
+  try {
+    await gitOk(dir, ["init", "-b", "main"]);
+    await gitOk(dir, ["config", "core.filemode", "true"]);
+    await mkdir(path.join(dir, "dir"));
+    await writeFile(path.join(dir, "a.txt"), "hello\n");
+    await writeFile(path.join(dir, "dir", "b.txt"), "nested\n");
+    await gitOk(dir, ["add", "a.txt", "dir/b.txt"]);
+    await gitOk(dir, ["-c", "user.email=dev@example.com", "-c", "user.name=Dev", "commit", "-m", "init"]);
+    await fn(dir);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+describe("mobile production release guard against a real checkout", () => {
+  it("passes an EAS-style clone whose index is empty while git diff reports deletions", async () => {
+    await withRepo(async (repo) => {
+      const packed = await mkdtemp(path.join(tmpdir(), "ct-eas-"));
+      try {
+        await gitOk(repo, ["clone", "--no-checkout", "--no-hardlinks", "--depth", "1", repo, packed]);
+        await copyFile(path.join(repo, "a.txt"), path.join(packed, "a.txt"));
+        await mkdir(path.join(packed, "dir"));
+        await copyFile(path.join(repo, "dir", "b.txt"), path.join(packed, "dir", "b.txt"));
+        const diff = await execGit(["diff", "--quiet", "HEAD"], { cwd: packed });
+        expect(diff.code).toBe(1);
+        const raw = await execGit(["diff", "--raw", "HEAD"], { cwd: packed });
+        expect(raw.stdout).toMatch(/:100644 000000 .* D\ta\.txt/);
+        await expect(assertTrackedContentMatchesHead(runIn(packed))).resolves.toBeUndefined();
+      } finally {
+        await rm(packed, { recursive: true, force: true });
+      }
+    });
+  });
+
+  it("passes mode-only changes and fails on content, missing files, and line endings", async () => {
+    await withRepo(async (repo) => {
+      const run = runIn(repo);
+      await chmod(path.join(repo, "a.txt"), 0o755);
+      const modeDiff = await execGit(["diff", "--summary", "HEAD"], { cwd: repo });
+      expect(modeDiff.stdout).toMatch(/mode change 100644 => 100755 a\.txt/);
+      await expect(assertTrackedContentMatchesHead(run)).resolves.toBeUndefined();
+
+      await chmod(path.join(repo, "a.txt"), 0o644);
+      await execGit(["checkout", "--", "a.txt"], { cwd: repo });
+      await writeFile(path.join(repo, "extra.txt"), "untracked\n");
+      await expect(assertTrackedContentMatchesHead(run)).resolves.toBeUndefined();
+
+      await writeFile(path.join(repo, "dir", "b.txt"), "nested\r\n");
+      await expect(assertTrackedContentMatchesHead(run)).rejects.toThrow("dir/b.txt: content");
+
+      await writeFile(path.join(repo, "dir", "b.txt"), "changed\n");
+      await expect(assertTrackedContentMatchesHead(run)).rejects.toThrow("dir/b.txt: content");
+
+      await rm(path.join(repo, "a.txt"));
+      await expect(assertTrackedContentMatchesHead(run)).rejects.toThrow("a.txt: missing");
+    });
+  });
+
+  it("checks blob bytes from a subdirectory of the checkout", async () => {
+    await withRepo(async (repo) => {
+      const nested = path.join(repo, "dir");
+      await expect(assertTrackedContentMatchesHead(runIn(nested))).resolves.toBeUndefined();
+      await writeFile(path.join(repo, "a.txt"), "edited outside the hook directory\n");
+      await expect(assertTrackedContentMatchesHead(runIn(nested))).rejects.toThrow("a.txt: content");
+    });
   });
 });

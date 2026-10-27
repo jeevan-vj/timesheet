@@ -1,7 +1,10 @@
 import { execFile } from "node:child_process";
+import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const KNOWN_PROFILES = new Set(["development", "preview", "production"]);
+const REGULAR_FILE_MODES = new Set(["100644", "100755"]);
+const HASH_CHUNK = 100;
 
 export function resolveProfile(env, argv) {
   const inline = argv.find((arg) => arg.startsWith("--profile="));
@@ -11,53 +14,140 @@ export function resolveProfile(env, argv) {
   return env.EAS_BUILD_PROFILE ?? "";
 }
 
-function execGit(args) {
+export function execGit(args, options = {}) {
   return new Promise((resolve) => {
-    execFile("git", args, { encoding: "utf8" }, (error, stdout) => {
+    const execOptions = { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 };
+    if (options.cwd) execOptions.cwd = options.cwd;
+    execFile("git", args, execOptions, (error, stdout, stderr) => {
       const code = error ? (typeof error.code === "number" ? error.code : 1) : 0;
-      resolve({ code, stdout: stdout ?? "" });
+      resolve({ code, stdout: stdout ?? "", stderr: stderr ?? "" });
     });
   });
+}
+
+function gitFailure(message) {
+  return new Error(`production release check failed: ${message}`);
 }
 
 function isEasBuild(env) {
   return env.EAS_BUILD === "true" || env.EAS_BUILD === "1";
 }
 
+export function parseLsTreeZ(stdout) {
+  const entries = [];
+  for (const record of stdout.split("\0")) {
+    if (record === "") continue;
+    const match = /^([0-7]{6}) (\S+) ([0-9a-f]+)\t([\s\S]*)$/.exec(record);
+    if (!match) throw gitFailure("tracked changes could not be read");
+    const [, mode, type, oid, filePath] = match;
+    entries.push({
+      path: filePath,
+      oid,
+      mode,
+      regular: type === "blob" && REGULAR_FILE_MODES.has(mode),
+    });
+  }
+  return entries;
+}
+
+export function collectTrackedContentDiffs(entries, worktree) {
+  const diffs = [];
+  for (const entry of entries) {
+    if (!entry.regular) {
+      diffs.push({ path: entry.path, kind: "unsupported" });
+      continue;
+    }
+    const found = worktree.get(entry.path);
+    if (!found || found.missing) diffs.push({ path: entry.path, kind: "missing" });
+    else if (found.unreadable) diffs.push({ path: entry.path, kind: "unreadable" });
+    else if (found.oid !== entry.oid) diffs.push({ path: entry.path, kind: "content" });
+  }
+  return diffs;
+}
+
+export function formatTrackedDiffError(diffs) {
+  const lines = diffs.map((diff) => `${diff.path}: ${diff.kind}`);
+  return `production release check failed: tracked files differ from HEAD\n${lines.join("\n")}`;
+}
+
+function isMissingFile(result) {
+  return /No such file or directory/i.test(result.stderr ?? "");
+}
+
+function oidsFromHashOutput(stdout, expected) {
+  const oids = (stdout ?? "").split("\n").filter((line) => line.length > 0);
+  if (oids.length !== expected) throw gitFailure("tracked changes could not be read");
+  return oids;
+}
+
+function recordHashResult(worktree, entry, result) {
+  if (result.code === 0) worktree.set(entry.path, { oid: result.stdout.trim() });
+  else if (isMissingFile(result)) worktree.set(entry.path, { missing: true });
+  else worktree.set(entry.path, { unreadable: true });
+}
+
+async function hashRegularFiles(run, root, entries) {
+  const regular = entries.filter((entry) => entry.regular);
+  const worktree = new Map();
+  for (let offset = 0; offset < regular.length; offset += HASH_CHUNK) {
+    const chunk = regular.slice(offset, offset + HASH_CHUNK);
+    const absolute = chunk.map((entry) => path.join(root, entry.path));
+    const hashed = await run(["hash-object", "--", ...absolute]);
+    if (hashed.code === 0) {
+      const oids = oidsFromHashOutput(hashed.stdout, chunk.length);
+      chunk.forEach((entry, index) => worktree.set(entry.path, { oid: oids[index] }));
+      continue;
+    }
+    for (const entry of chunk) {
+      const one = chunk.length === 1 ? hashed : await run(["hash-object", "--", path.join(root, entry.path)]);
+      recordHashResult(worktree, entry, one);
+    }
+  }
+  return worktree;
+}
+
+// Index state and file mode are not content. Compare blob bytes to HEAD.
+export async function assertTrackedContentMatchesHead(run) {
+  const rootResult = await run(["rev-parse", "--show-toplevel"]);
+  if (rootResult.code !== 0 || rootResult.stdout.trim() === "") {
+    throw gitFailure("tracked changes could not be read");
+  }
+  const tree = await run(["ls-tree", "-r", "-z", "--full-tree", "HEAD"]);
+  if (tree.code !== 0) throw gitFailure("tracked changes could not be read");
+  const entries = parseLsTreeZ(tree.stdout);
+  const worktree = await hashRegularFiles(run, rootResult.stdout.trim(), entries);
+  const diffs = collectTrackedContentDiffs(entries, worktree);
+  if (diffs.length > 0) throw new Error(formatTrackedDiffError(diffs));
+}
+
 export async function assertProductionCheckout(run) {
   const inside = await run(["rev-parse", "--is-inside-work-tree"]);
   if (inside.code !== 0 || inside.stdout.trim() !== "true") {
-    throw new Error("production release check failed: git checkout is required");
+    throw gitFailure("git checkout is required");
   }
-  const tracked = await run(["diff", "--quiet", "HEAD"]);
-  if (tracked.code !== 0 && tracked.code !== 1) {
-    throw new Error("production release check failed: tracked changes could not be read");
-  }
-  if (tracked.code !== 0) {
-    throw new Error("production release check failed: tracked files differ from HEAD");
-  }
+  await assertTrackedContentMatchesHead(run);
   const fetched = await run(["fetch", "origin", "main"]);
   if (fetched.code !== 0) {
-    throw new Error("production release check failed: could not fetch origin/main");
+    throw gitFailure("could not fetch origin/main");
   }
   const shallow = await run(["rev-parse", "--is-shallow-repository"]);
   if (shallow.code !== 0) {
-    throw new Error("production release check failed: could not read clone depth");
+    throw gitFailure("could not read clone depth");
   }
   if (shallow.stdout.trim() === "true") {
     const deepened = await run(["fetch", "--unshallow", "origin", "main"]);
     if (deepened.code !== 0) {
-      throw new Error("production release check failed: shallow clone could not be deepened to reach origin/main");
+      throw gitFailure("shallow clone could not be deepened to reach origin/main");
     }
   }
   const ancestor = await run(["merge-base", "--is-ancestor", "HEAD", "origin/main"]);
-  if (ancestor.code !== 0) throw new Error("production release check failed: HEAD is not on origin/main");
+  if (ancestor.code !== 0) throw gitFailure("HEAD is not on origin/main");
 }
 
 export async function checkRelease({ env, argv, run = execGit, stdout = (line) => process.stdout.write(`${line}\n`) }) {
   const profile = resolveProfile(env, argv);
   if (isEasBuild(env) && !KNOWN_PROFILES.has(profile)) {
-    throw new Error("production release check failed: EAS build profile is missing or unknown");
+    throw gitFailure("EAS build profile is missing or unknown");
   }
   if (profile !== "production") {
     stdout(`production release check skipped for profile ${profile || "unset"}`);
