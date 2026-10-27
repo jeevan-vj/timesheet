@@ -82,5 +82,24 @@ Create the preview database with `pnpm exec wrangler d1 create cleantrack-timesh
 
 ## Mobile OTA (EAS Update)
 
-CleanTrack iOS/Android JavaScript updates use EAS Update from `apps/mobile`. See [`apps/mobile/README.md`](../apps/mobile/README.md) for channels, publish scripts, OTA-safe vs native changes, and rollback. Do not publish an update or start a build without explicit approval. Builds that predate `expo-updates` cannot receive OTA; ship a new production build after the Update setup merges.
+CleanTrack iOS/Android JavaScript updates use EAS Update from `apps/mobile`. See [`apps/mobile/README.md`](../apps/mobile/README.md) for channels, publish scripts, OTA-safe vs native changes, rollback, and the GitHub Actions production workflow. Do not publish an update or start a build without explicit approval. Builds that predate `expo-updates` cannot receive OTA; ship a new production build after the Update setup merges.
+
+## Mobile production (GitHub Actions)
+
+`.github/workflows/mobile-release.yml` releases iOS from `main`. It does not deploy the web Worker. A push that changes `apps/mobile/**`, `packages/core/**`, `pnpm-lock.yaml`, `package.json`, `pnpm-workspace.yaml`, or that workflow runs it. `workflow_dispatch` on `main` takes `auto`, `force-build`, or `force-update`.
+
+The decide job does not use a protected environment. It computes the iOS fingerprint with `APP_VARIANT=production`, computes it again with the production EAS environment (the same environment `update:production` loads), and lists production store builds with `eas build:list --fingerprint-hash`. If those two fingerprints differ, it stops and neither publishes nor builds. `auto` publishes `pnpm -F mobile update:production` when a finished, in-progress, in-queue, or new build already has the fingerprint, including when the EAS artifact has expired. Otherwise it runs `eas build --platform ios --profile production --auto-submit --freeze-credentials`. The decision is written to the decide job summary before approval.
+
+The publish and build jobs run in the GitHub environment `mobile-production`. They check out the commit the decide job recorded. GitHub waits for a person only after required reviewers are saved on that environment.
+
+One-time setup:
+
+1. Settings → Environments → create `mobile-production`. Add Jeevan as a required reviewer and save the protection rule. Until that rule exists, a job that names the environment does not wait.
+2. Create an Expo access token for the account that owns `@jnok/cleantrack`. Add it as the repository secret `EXPO_TOKEN`. The decide job reads it before the environment gate, so an environment-only secret is not visible there. Do not also create an empty environment secret of the same name. The workflow does not print the token and does not put it on a command line.
+3. The EAS `production` environment must exist. `update:production` already passes `--environment production`.
+4. iOS production credentials and App Store Connect app `6827417051` must already be on EAS. `--freeze-credentials` makes a missing certificate fail the job instead of creating a new one.
+
+`eas.json` keeps `cli.appVersionSource` of `remote` and `build.production.autoIncrement` of `true`. The workflow does not set a build number. Production builds still run `apps/mobile/scripts/check-release.mjs` on the EAS builder. The checkout uses `persist-credentials: false`, so the uploaded archive does not contain a GitHub token. This repository is public, and that script fetches `origin/main`.
+
+Roll back an OTA with `eas update:republish --group <previous-update-group-id>` or `eas update:roll-back-to-embedded --channel production`. See `apps/mobile/README.md` for the full commands. An OTA rollback does not remove a TestFlight build. Android is not built by this workflow. The build job waits up to 180 minutes; if Actions stops the job, check the Expo dashboard before starting another build, because the remote build may still be running.
 

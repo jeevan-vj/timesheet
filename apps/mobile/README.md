@@ -85,6 +85,8 @@ npx eas-cli@latest update:roll-back-to-embedded --channel production --message "
 
 Use `--channel preview` for preview. `expo-updates` also falls back if a new update crashes on launch; that is not a substitute for publishing a rollback while the bad update remains current.
 
+The GitHub Actions production workflow publishes with `update:production` and rolls an OTA back with these same commands. Rolling back an update does not remove a TestFlight build.
+
 `eas update` does not run `eas-build-pre-install`. `update:preview` and `update:production` are publishes, not builds, and they are not required to be on `origin/main`.
 
 ## Production build
@@ -110,3 +112,53 @@ npx eas-cli submit --platform ios --profile production
 ```
 
 Use `--platform android` for the Play build. `eas.json` `build.production` is the store profile (`distribution: store`, `channel: production`, `autoIncrement: true`). Submit uses the pins in Store submit above.
+
+## GitHub Actions production release
+
+`.github/workflows/mobile-release.yml` releases iOS from `main`. The web Worker stays on `.github/workflows/release.yml`. Android is not built here.
+
+### When it runs
+
+- A push to `main` that changes `apps/mobile/**`, `packages/core/**`, `pnpm-lock.yaml`, `package.json`, `pnpm-workspace.yaml`, or `.github/workflows/mobile-release.yml`.
+- Actions → Mobile release → Run workflow, from `main`, with mode `auto`, `force-build`, or `force-update`.
+
+The concurrency group is `cleantrack-mobile-production` with `cancel-in-progress: false`, so two mobile releases do not overlap. A newer push waits. It does not cancel a release that is already waiting for approval.
+
+### Decision
+
+The decide job is read-only. It does not use the `mobile-production` environment, and its summary is the record the reviewer sees.
+
+1. Install dependencies and pin `eas-cli@25.3.0` (the same CLI the TestFlight skill uses). `build:list --fingerprint-hash` is the filter that matches this runtime policy.
+2. Generate the iOS fingerprint with `APP_VARIANT=production` and this project's `expo-updates fingerprint:generate`. That is the hash an EAS Build of profile `production` embeds. `eas fingerprint:generate` is not used here: it uploads a fingerprint record.
+3. Generate the fingerprint again through `eas env:exec production`, which is the environment `update:production` loads. If the two hashes differ, the job stops. No OTA is published and no build starts. `extra.apiUrl` is part of the fingerprint, so an `EXPO_PUBLIC_API_URL` that is not the build-profile value would publish an update the binary cannot receive.
+4. List iOS production store builds on the `production` channel for statuses `finished`, `in-progress`, `in-queue`, and `new`:
+
+   ```sh
+   eas build:list --platform ios --build-profile production --channel production --distribution store --fingerprint-hash <hash> --status finished --limit 5 --json --non-interactive
+   ```
+
+   A finished build whose EAS artifact has expired still counts. The installed TestFlight binary can receive an OTA after the artifact is gone. Errored and canceled builds do not count. An in-progress build counts, so the workflow publishes an OTA instead of starting a second store build.
+5. `auto` with a matching build runs `pnpm -F mobile update:production`. `auto` with no match runs `eas build --platform ios --profile production --auto-submit --freeze-credentials --non-interactive` and waits for the build and the TestFlight submission.
+6. `force-build` always builds and submits, and the remote build number still increments once. `force-update` always publishes the OTA. If no binary has the fingerprint, the summary says the update will not reach devices until one exists.
+
+Publish and build jobs check out that same commit. They refuse a dirty tracked tree. Production builds still run `eas-build-pre-install` → `scripts/check-release.mjs` on the EAS builder.
+
+`expo/expo-github-action/continuous-deploy-fingerprint` is not used. Its own README marks it as not ready. The copy on `main` still queries `eas build:list` with `--runtime-version`, which does not select fingerprint-policy builds. It also publishes an update and can start a build in the same step, so the decision cannot be shown before approval. On pull requests it drops builds that expire within a day, so an installed binary whose artifact has expired can be treated as missing.
+
+### Approval and secrets
+
+Publish and build run in the GitHub environment `mobile-production`. Create that environment, add Jeevan as a required reviewer, and save the rule. Until the reviewer rule is saved, GitHub does not wait.
+
+Create an Expo access token for the account that owns `@jnok/cleantrack` and store it as the repository secret `EXPO_TOKEN`. The decide job needs it before the environment gate. An environment-only secret is not visible to that job. Do not add an empty environment secret with the same name. The workflow passes the token only as the `EXPO_TOKEN` environment variable. It does not print it and does not put it on a command line.
+
+The EAS `production` environment must exist. iOS production credentials and App Store Connect app `6827417051` must already be on EAS. `--freeze-credentials` fails the job when a certificate is missing instead of creating a new one.
+
+The checkout sets `persist-credentials: false`. The archive uploaded to EAS does not contain a GitHub token. This repository is public, so `check-release.mjs` can `git fetch origin main` on the builder.
+
+### Build numbers
+
+`eas.json` sets `cli.appVersionSource` to `remote` and `build.production.autoIncrement` to `true`. EAS increments the iOS build number on its counter once per production build. This workflow does not pass a build number and does not call `eas build:version:set`. The concurrency group keeps two Actions releases from incrementing at the same time.
+
+### Rollback
+
+Use the OTA commands in the Rollback section above (`eas update:republish` or `eas update:roll-back-to-embedded --channel production`). That points the production channel at an older update group, or back at the binary's embedded bundle. It does not remove a build from TestFlight. The build job waits up to 180 minutes. If Actions ends the job first, check the Expo dashboard before starting another one; the remote build may still be running.
