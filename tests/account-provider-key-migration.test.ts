@@ -82,7 +82,10 @@ describe("account provider key migration", () => {
     ]);
     expect(migrationSql("0008_account_provider_key.sql")).not.toMatch(/DROP COLUMN/i);
     expect(migrationSql("0000_initial.sql")).toContain("issuer");
-    expect(getTableConfig(account).columns.map((column) => column.name)).not.toContain("issuer");
+    const mappedIssuer = getTableConfig(account).columns.find((column) => column.name === "issuer");
+    expect(mappedIssuer?.notNull).toBe(false);
+    expect(mappedIssuer?.hasDefault).toBe(true);
+    expect(String(mappedIssuer?.default)).toContain("local:credential");
     expect(getTableConfig(account).indexes.map((index) => index.config.name)).toEqual([
       "account_user_id_idx",
       "account_provider_id_account_id_uq",
