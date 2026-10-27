@@ -29,8 +29,9 @@
   },
   "dependencies": {
     "@cleantrack/core": "workspace:*",
-    "@better-auth/drizzle-adapter": "1.7.2",
-    "better-auth": "1.7.2",
+    "@better-auth/drizzle-adapter": "1.7.13",
+    "@better-auth/expo": "1.7.13",
+    "better-auth": "1.7.13",
     "drizzle-orm": "0.45.2",
     "pdf-lib": "1.17.1",
     "react": "19.2.8",

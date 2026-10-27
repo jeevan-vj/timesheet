@@ -1,8 +1,8 @@
 import { env } from "cloudflare:workers";
-import { parseTrustedOrigins, usesSecureCookies } from "@/lib/accounts-config";
+import { trustedOriginsFor, usesSecureCookies } from "@/lib/accounts-config";
 
 export function getTrustedOrigins(): string[] {
-  return parseTrustedOrigins(env.BETTER_AUTH_URL, env.AUTH_TRUSTED_ORIGINS);
+  return trustedOriginsFor(env.BETTER_AUTH_URL, env.AUTH_TRUSTED_ORIGINS);
 }
 
 export function getSecureCookies(): boolean {

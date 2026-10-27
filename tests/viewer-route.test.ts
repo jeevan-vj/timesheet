@@ -68,6 +68,17 @@ describe("GET /api/me", () => {
     sqlite.run("UPDATE business SET name = 'Harbour' WHERE id = 'biz_owner-b'");
   });
 
+  it("returns the viewer for a mobile session cookie without an Origin", async () => {
+    const response = await readMe(new Request("https://app.example.test/api/me", {
+      headers: { cookie: "better-auth.session_token=test", "x-cleantrack-client": "mobile/1.0.0" },
+    }));
+    expect(response.status).toBe(200);
+    const body = await response.json() as { owner: { id: string } | null; contractorOf: unknown[] };
+    expect(body.owner).toMatchObject({ id: "biz_owner-a" });
+    expect(body.contractorOf).toEqual([]);
+    expect(response.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
   it("returns 401 when signed out", async () => {
     session.user = null;
     const response = await readMe(cookieRequest());

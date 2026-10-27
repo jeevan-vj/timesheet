@@ -1,4 +1,5 @@
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
+import { expo } from "@better-auth/expo";
 import { betterAuth } from "better-auth";
 import { authSchema } from "@/db/schema";
 import { AUTH_MIN_PASSWORD_LENGTH } from "@/lib/accounts-config";
@@ -16,6 +17,7 @@ export function createAuth(input: {
     secret: input.secret,
     baseURL: input.baseURL,
     database: drizzleAdapter(input.db, { provider: "sqlite", schema: authSchema }),
+    plugins: [expo()],
     trustedOrigins: input.trustedOrigins,
     telemetry: { enabled: false },
     logger: { disabled: true },
@@ -41,6 +43,7 @@ export function createAuth(input: {
     advanced: {
       useSecureCookies: input.secureCookies,
       disableCSRFCheck: false,
+      disableOriginCheck: false,
       ipAddress: { ipAddressHeaders: ["cf-connecting-ip"] },
       defaultCookieAttributes: { httpOnly: true, sameSite: "lax", secure: input.secureCookies, path: "/" },
     },

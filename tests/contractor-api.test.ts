@@ -288,6 +288,29 @@ describe("contractor API", () => {
     expect(timesheet.restoreContractor).toHaveBeenCalledWith(db, "owner-1", "c1");
   });
 
+  it("returns not_found for a mobile session that names another owner's contractor", async () => {
+    timesheet.updateContractor.mockRejectedValue(new Error("not_found"));
+    const encoded = JSON.stringify({ name: "Aroha", defaultRateCents: 3200 });
+    const response = await patchContractor(new Request("https://app.example.test/api/contractors/c9", {
+      method: "PATCH",
+      body: encoded,
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(Buffer.byteLength(encoded)),
+        cookie: "better-auth.session_token=test",
+        "x-cleantrack-client": "mobile/1.0.0",
+      },
+    }), idParams("c9"));
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "not_found" });
+    expect(timesheet.updateContractor).toHaveBeenCalledWith(db, "owner-1", "c9", {
+      name: "Aroha",
+      email: "",
+      phone: "",
+      defaultRateCents: 3200,
+    });
+  });
+
   it("returns not_found for cross-owner archive and restore without writing", async () => {
     timesheet.archiveContractor.mockRejectedValue(new Error("not_found"));
     timesheet.restoreContractor.mockRejectedValue(new Error("not_found"));
