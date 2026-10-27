@@ -4,7 +4,7 @@ import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
 import { useEffect } from "react";
 import { StyleSheet, View } from "react-native";
-import { RouteErrorBoundary } from "@/components/route-error-boundary";
+import { RouteErrorBoundary, ScreenErrorBoundary } from "@/components/route-error-boundary";
 import { reportScreenError } from "@/report-screen-error";
 import { authClient } from "@/auth-client";
 import { PortalQueryProvider } from "@/query-client";
@@ -30,12 +30,14 @@ export default function RootLayout() {
     void SystemUI.setBackgroundColorAsync(theme.background);
   }, []);
   return (
-    <PortalQueryProvider>
-      <ThemeProvider value={navigationTheme}>
-        <StatusBar style="light" />
-        <RootNavigator />
-      </ThemeProvider>
-    </PortalQueryProvider>
+    <ScreenErrorBoundary>
+      <PortalQueryProvider>
+        <ThemeProvider value={navigationTheme}>
+          <StatusBar style="light" />
+          <RootNavigator />
+        </ThemeProvider>
+      </PortalQueryProvider>
+    </ScreenErrorBoundary>
   );
 }
 

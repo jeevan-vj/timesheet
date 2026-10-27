@@ -13,13 +13,24 @@ export function networkIsOnline(state: NetworkSnapshot): boolean {
   return true;
 }
 
+function browserOnLine(): boolean | null {
+  if (typeof navigator === "undefined" || typeof navigator.onLine !== "boolean") return null;
+  return navigator.onLine;
+}
+
+// React Native sets window to globalThis and does not implement DOM events.
+function browserCanListen(): boolean {
+  return typeof window?.addEventListener === "function" && typeof window?.removeEventListener === "function";
+}
+
 export function bindOnlineManager(): () => void {
   onlineManager.setEventListener((setOnline) => {
     let subscription: { remove: () => void } | null = null;
     void Network.getNetworkStateAsync()
       .then((state) => setOnline(networkIsOnline(state)))
       .catch(() => {
-        setOnline(typeof navigator === "undefined" ? true : navigator.onLine);
+        const online = browserOnLine();
+        setOnline(online === null ? true : online);
       });
     try {
       subscription = Network.addNetworkStateListener((state) => {
@@ -29,15 +40,16 @@ export function bindOnlineManager(): () => void {
       subscription = null;
     }
     const onBrowser = () => {
-      if (typeof navigator !== "undefined") setOnline(navigator.onLine);
+      const online = browserOnLine();
+      if (online !== null) setOnline(online);
     };
-    if (typeof window !== "undefined") {
+    if (browserCanListen()) {
       window.addEventListener("online", onBrowser);
       window.addEventListener("offline", onBrowser);
     }
     return () => {
       subscription?.remove();
-      if (typeof window !== "undefined") {
+      if (browserCanListen()) {
         window.removeEventListener("online", onBrowser);
         window.removeEventListener("offline", onBrowser);
       }
