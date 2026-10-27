@@ -44,8 +44,26 @@ export function formatMinutes(minutes: number): string {
   return `${sign}${Math.floor(abs / 60)}h ${String(abs % 60).padStart(2, "0")}m`;
 }
 
+function formatNzdPlain(cents: number): string {
+  if (!Number.isFinite(cents)) return "$0.00";
+  const negative = cents < 0;
+  const abs = Math.abs(Math.round(cents));
+  const dollars = Math.floor(abs / 100);
+  const remainder = abs % 100;
+  const grouped = String(dollars).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const body = `$${grouped}.${String(remainder).padStart(2, "0")}`;
+  return negative ? `-${body}` : body;
+}
+
 export function formatNzd(cents: number): string {
-  return new Intl.NumberFormat("en-NZ", { style: "currency", currency: "NZD" }).format(cents / 100);
+  try {
+    const formatted = new Intl.NumberFormat("en-NZ", { style: "currency", currency: "NZD" }).format(cents / 100);
+    // Hermes ICU stubs NumberFormat.format as a raw decimal and does not throw.
+    if (typeof formatted === "string" && formatted.includes("$")) return formatted;
+  } catch {
+    // Display only. Pay cents stay on the entry snapshot.
+  }
+  return formatNzdPlain(cents);
 }
 
 function formatIsoDate(isoDate: string): string {

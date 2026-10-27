@@ -1,6 +1,5 @@
 import {
   formatDayHeading,
-  formatWeekRange,
   type PortalShift,
 } from "@cleantrack/core";
 import { router } from "expo-router";
@@ -11,6 +10,8 @@ import { ShiftList } from "@/components/shift-list";
 import { ShiftSheet } from "@/components/shift-sheet";
 import { usePortalUpcoming } from "@/portal-client";
 import { theme } from "@/theme";
+
+export { ErrorBoundary } from "@/components/route-error-boundary";
 
 export default function UpcomingScreen() {
   const upcoming = usePortalUpcoming();

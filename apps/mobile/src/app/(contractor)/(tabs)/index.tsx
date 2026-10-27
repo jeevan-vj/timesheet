@@ -1,14 +1,13 @@
 import {
-  aucklandDateIso,
   directionsUrl,
   formatDayHeading,
   formatMinutes,
   formatNzd,
   formatShiftTime,
+  portalCalendar,
   selectNextJob,
   spokenNzd,
   sumPaidMinutes,
-  weekStartFromDate,
   type DirectionsPlatform,
   type PortalShift,
 } from "@cleantrack/core";
@@ -32,9 +31,10 @@ function latestUpdate(...times: number[]): number | null {
   return valid.length === 0 ? null : Math.max(...valid);
 }
 
+export { ErrorBoundary } from "@/components/route-error-boundary";
+
 export default function HomeScreen() {
-  const today = aucklandDateIso(new Date());
-  const weekStart = weekStartFromDate(today);
+  const { today, weekStart } = portalCalendar();
   const week = usePortalWeek(weekStart);
   const upcoming = usePortalUpcoming();
   const pay = usePortalPayments(weekStart);

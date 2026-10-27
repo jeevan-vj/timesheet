@@ -6,6 +6,8 @@ import { PlaceholderScreen } from "@/components/placeholder-screen";
 import { SignedInIdentity } from "@/components/signed-in-identity";
 import { theme } from "@/theme";
 
+export { ErrorBoundary } from "@/components/route-error-boundary";
+
 export default function AccountScreen() {
   const { data } = authClient.useSession();
   const [busy, setBusy] = useState(false);

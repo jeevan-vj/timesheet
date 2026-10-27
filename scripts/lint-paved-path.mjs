@@ -48,7 +48,8 @@ function normalized(file) {
 }
 
 function allowsConsole(file) {
-  return normalized(file).endsWith("src/lib/report-server-error.ts");
+  const name = normalized(file);
+  return name.endsWith("src/lib/report-server-error.ts") || name.endsWith("apps/mobile/src/report-screen-error.ts");
 }
 
 function allowsColor(file) {

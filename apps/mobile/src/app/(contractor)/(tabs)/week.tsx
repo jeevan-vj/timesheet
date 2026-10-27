@@ -1,12 +1,11 @@
 import {
-  aucklandDateIso,
   formatDayHeading,
   formatMinutes,
   formatWeekRange,
+  portalCalendar,
   shiftWeek,
   sumPaidMinutes,
   weekEnd,
-  weekStartFromDate,
   type PortalShift,
 } from "@cleantrack/core";
 import { useRef, useState } from "react";
@@ -17,8 +16,10 @@ import { ShiftSheet } from "@/components/shift-sheet";
 import { usePortalWeek } from "@/portal-client";
 import { theme } from "@/theme";
 
+export { ErrorBoundary } from "@/components/route-error-boundary";
+
 export default function WeekScreen() {
-  const [weekStart, setWeekStart] = useState(() => weekStartFromDate(aucklandDateIso(new Date())));
+  const [weekStart, setWeekStart] = useState(() => portalCalendar().weekStart);
   const [shift, setShift] = useState<PortalShift | null>(null);
   const week = usePortalWeek(weekStart);
   const pan = useRef(

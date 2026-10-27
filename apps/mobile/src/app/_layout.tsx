@@ -4,7 +4,8 @@ import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
 import { useEffect } from "react";
 import { StyleSheet, View } from "react-native";
-import { ScreenError } from "@/components/screen-error";
+import { RouteErrorBoundary } from "@/components/route-error-boundary";
+import { reportScreenError } from "@/report-screen-error";
 import { authClient } from "@/auth-client";
 import { PortalQueryProvider } from "@/query-client";
 import { theme } from "@/theme";
@@ -57,12 +58,9 @@ function RootNavigator() {
   );
 }
 
-export function ErrorBoundary({ retry }: ErrorBoundaryProps) {
-  return (
-    <View style={styles.fill}>
-      <ScreenError retry={retry} />
-    </View>
-  );
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  reportScreenError(error);
+  return <RouteErrorBoundary error={error} retry={retry} />;
 }
 
 const styles = StyleSheet.create({
