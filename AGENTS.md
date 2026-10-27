@@ -8,6 +8,21 @@ CleanTrack is a private contractor-hours and weekly-pay application for multi-si
 
 Before changing code, read `SPEC.md`, `SECURITY.md`, `docs/ARCHITECTURE.md`, `docs/THREAT_MODEL.md`, relevant tests, and any issue spec under `docs/specs/`.
 
+## Agent skills
+
+Reusable skills live under `.cursor/skills/<name>/SKILL.md`. Read the matching skill before the work it covers; do not invent a parallel checklist.
+
+- `read-before-write` — cite an existing helper or pattern before adding code.
+- `no-guess` — if a route, env, schema, or binding is not in the repo, stop and ask.
+- `evidence-based-verification` — run `pnpm verify` (and `pnpm verify:mobile` when mobile/core change); paste output; UI needs screenshots or a feature-map walk.
+- `schema-migration-safety` — forward-only `drizzle/` migrations; never rewrite historical `rate_cents`.
+- `auth-permissions` — session ownership, owner scoping, invite/portal/ops boundaries.
+- `test-integrity` — never skip or weaken tests or validation to green CI.
+- `spec-to-pr-traceability` — map each acceptance criterion to code and a test.
+- `scope-discipline` — one scoped change, one branch, one PR; no drive-by refactors.
+- `dependency-lockfile` — regenerate `pnpm-lock.yaml` and prove `pnpm install --frozen-lockfile`.
+- `nz-timesheet-domain` — integer cents/minutes, rate snapshots, Monday/`Pacific/Auckland`, GST metadata-only.
+
 ## Engineering workflow
 
 For non-trivial work:
