@@ -67,3 +67,8 @@ Cloudflare, not GitHub:
 | `SENTRY_DSN` | Optional Worker secret on `cleantrack-timesheet-preview` | Error capture. Set with `wrangler secret put SENTRY_DSN`. Unset means capture is off. Do not copy it into GitHub |
 
 Create the preview database with `pnpm exec wrangler d1 create cleantrack-timesheet-preview`, put its id in `PREVIEW_D1_DATABASE_ID`, and set `PREVIEW_URL` to the workers.dev (or custom) origin before the first deploy. The workflow rewrites the built `dist/server/wrangler.json` to the preview name and database, applies migrations there, and deploys. It does not read or write the production D1 database.
+
+## Mobile OTA (EAS Update)
+
+CleanTrack iOS/Android JavaScript updates use EAS Update from `apps/mobile`. See [`apps/mobile/README.md`](../apps/mobile/README.md) for channels, publish scripts, OTA-safe vs native changes, and rollback. Do not publish an update or start a build without explicit approval. Builds that predate `expo-updates` cannot receive OTA; ship a new production build after the Update setup merges.
+

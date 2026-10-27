@@ -18,6 +18,11 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     icon: "./assets/images/icon.png",
     backgroundColor: theme.background,
     runtimeVersion: { policy: "fingerprint" },
+    updates: {
+      url: "https://u.expo.dev/2ac1a147-bf37-4ee6-9274-d896f7bd87a9",
+      checkAutomatically: "ON_LOAD",
+      fallbackToCacheTimeout: 0,
+    },
     ios: {
       ...config.ios,
       bundleIdentifier: id,

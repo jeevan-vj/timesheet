@@ -9,7 +9,9 @@
     "ios": "expo start --dev-client --ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "lint": "node ../../scripts/lint-paved-path.mjs apps/mobile"
+    "lint": "node ../../scripts/lint-paved-path.mjs apps/mobile",
+    "update:preview": "APP_VARIANT=preview eas update --channel preview --environment preview",
+    "update:production": "APP_VARIANT=production eas update --channel production --environment production"
   },
   "dependencies": {
     "@better-auth/expo": "1.7.13",
@@ -27,6 +29,7 @@
     "expo-status-bar": "~58.0.4",
     "expo-symbols": "~58.0.4",
     "expo-system-ui": "~58.0.6",
+    "expo-updates": "~58.0.18",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-native": "0.88.0",
