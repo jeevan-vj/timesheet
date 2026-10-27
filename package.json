@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.26.0",
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "dev": "vinext dev",
     "build": "vinext build",
@@ -14,12 +17,17 @@
     "test:watch": "vitest",
     "lint": "node scripts/lint-paved-path.mjs",
     "typecheck": "tsc --noEmit",
-    "verify": "pnpm lint && pnpm test && pnpm typecheck && pnpm build",
+    "typecheck:core": "tsc --noEmit -p packages/core",
+    "mobile:start": "pnpm -F mobile start",
+    "mobile:typecheck": "pnpm -F mobile typecheck",
+    "mobile:lint": "pnpm -F mobile lint",
+    "verify": "pnpm lint && pnpm test && pnpm typecheck && pnpm typecheck:core && pnpm build && pnpm mobile:typecheck && pnpm mobile:lint",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply cleantrack-timesheet --local",
     "cf:types": "wrangler types worker-configuration.d.ts --include-runtime false"
   },
   "dependencies": {
+    "@cleantrack/core": "workspace:*",
     "@better-auth/drizzle-adapter": "1.7.2",
     "better-auth": "1.7.2",
     "drizzle-orm": "0.45.2",

@@ -21,7 +21,7 @@ describe("week approval route contracts", () => {
   const dashboardRoute = readSrc("src/app/api/dashboard/route.ts");
   const collectionRoute = readSrc("src/app/api/time-entries/route.ts");
   const idRoute = readSrc("src/app/api/time-entries/[id]/route.ts");
-  const validation = readSrc("src/lib/validation.ts");
+  const validation = readSrc("packages/core/src/validation.ts");
   const weekApproval = readSrc("src/services/week-approval.ts");
   const timesheet = readSrc("src/services/timesheet.ts");
 
