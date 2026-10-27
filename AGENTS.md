@@ -10,11 +10,12 @@ Before changing code, read `SPEC.md`, `SECURITY.md`, `docs/ARCHITECTURE.md`, `do
 
 ## Agent skills
 
-Reusable skills live under `.cursor/skills/<name>/SKILL.md`. Read the matching skill before the work it covers; do not invent a parallel checklist.
+Reusable skills live under `.cursor/skills/<name>/SKILL.md` (and `.agents/skills/` for Codex-oriented skills such as iOS TestFlight). Read the matching skill before the work it covers; do not invent a parallel checklist.
 
 - `read-before-write` — cite an existing helper or pattern before adding code.
 - `no-guess` — if a route, env, schema, or binding is not in the repo, stop and ask.
 - `evidence-based-verification` — run `pnpm verify` (and `pnpm verify:mobile` when mobile/core change); paste output; UI needs screenshots or a feature-map walk.
+- `verify-cleantrack` — local Worker launch/doctor/drive/evidence for owner UI proof (not a substitute for `pnpm verify`; never against production).
 - `schema-migration-safety` — forward-only `drizzle/` migrations; never rewrite historical `rate_cents`.
 - `auth-permissions` — session ownership, owner scoping, invite/portal/ops boundaries.
 - `test-integrity` — never skip or weaken tests or validation to green CI.
