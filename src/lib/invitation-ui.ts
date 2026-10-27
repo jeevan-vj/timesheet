@@ -32,7 +32,7 @@ export function invitationBadge(state: InvitationStateName, eligible: boolean): 
   if (state === "none") return "No invitation";
   if (state === "pending") return "Invitation pending";
   if (state === "expired") return "Invitation expired";
-  if (state === "accepted") return "Portal access accepted";
+  if (state === "accepted") return eligible ? "Active (portal)" : "Portal access accepted";
   return "Invitation revoked";
 }
 

@@ -4,8 +4,10 @@ vi.mock("cloudflare:workers", () => ({
   env: { RELEASE_SHA: "test", BETTER_AUTH_URL: "https://app.example.test", EMAIL_FROM: "CleanTrack <invites@jnok.co.nz>" },
 }));
 
+import { decideTransport } from "../src/lib/mail-transport";
 import { EMAIL_TIMEOUT_MS, RESEND_EMAILS_URL, sendEmail, type SendEmailInput } from "../src/lib/mailer";
 import { OPERATIONAL_EVENT_KEYS, operationalEventPayload, reportOperationalEvent } from "../src/lib/report-server-error";
+import type { SmtpByteStream } from "../src/lib/smtp-dev";
 
 const message: SendEmailInput = {
   to: "cleaner@example.test",
@@ -76,6 +78,62 @@ describe("sendEmail", () => {
     expect(logged).not.toContain("token-secret");
     expect(logged).not.toContain("cleaner@example.test");
     expect(logged).not.toContain("resend-test-key");
+    spy.mockRestore();
+  });
+
+  it("delivers smtp-dev to a loopback inbox and refuses it in production", async () => {
+    const writes: string[] = [];
+    const replies = ["220 mailpit\r\n", "250-mailpit\r\n250 ok\r\n", "250 ok\r\n", "250 ok\r\n", "354 go\r\n", "250 queued\r\n", "221 bye\r\n"];
+    const openSmtp = vi.fn(async (): Promise<SmtpByteStream> => ({
+      read: async () => {
+        const next = replies.shift();
+        return next ? new TextEncoder().encode(next) : null;
+      },
+      write: async (chunk) => { writes.push(new TextDecoder().decode(chunk)); },
+      close: async () => undefined,
+    }));
+    const fetchImpl = vi.fn();
+    const dev = { ...configured, transport: "smtp-dev", smtpHost: "127.0.0.1", smtpPort: 1025, production: false };
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(sendEmail(message, dev, fetchImpl, openSmtp)).resolves.toEqual({ status: "sent", id: "smtp-dev" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(writes.join("")).toContain("MAIL FROM:<invites@jnok.co.nz>");
+    expect(writes.join("")).toContain("RCPT TO:<cleaner@example.test>");
+    expect(writes.join("")).toContain("invite#token-secret");
+    expect(loggedText(spy)).toBe("");
+
+    const refused = { ...dev, production: true };
+    await expect(sendEmail(message, refused, fetchImpl, openSmtp)).resolves.toEqual({ status: "failed", httpStatus: 0 });
+    await expect(sendEmail(message, { ...dev, smtpHost: "smtp.example.test" }, fetchImpl, openSmtp)).resolves.toEqual({ status: "failed", httpStatus: 0 });
+    expect(openSmtp).toHaveBeenCalledOnce();
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(JSON.parse(String(spy.mock.calls[0]?.[0]))).toEqual({ event: "email_dev_transport_refused", kind: "invitation" });
+    const logged = loggedText(spy);
+    expect(logged).not.toContain("token-secret");
+    expect(logged).not.toContain("cleaner@example.test");
+    expect(logged).not.toContain("resend-test-key");
+    expect(decideTransport({ ...dev, production: false })).toBe("smtp-dev");
+    expect(decideTransport({ ...dev, production: true })).toBe("refused");
+    expect(decideTransport(configured)).toBe("resend");
+    spy.mockRestore();
+  });
+
+  it("uses the Mailpit HTTP API when the dev SMTP socket cannot connect", async () => {
+    const fetchImpl = vi.fn(async () => Response.json({ ID: "mailpit-1" }));
+    const openSmtp = vi.fn(async () => { throw new Error("smtp_failed"); });
+    const dev = { ...configured, transport: "smtp-dev", smtpHost: "127.0.0.1", smtpPort: 1025, smtpHttpPort: 8025, production: false };
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(sendEmail(message, dev, fetchImpl, openSmtp)).resolves.toEqual({ status: "sent", id: "smtp-dev" });
+    expect(openSmtp).toHaveBeenCalledOnce();
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("http://127.0.0.1:8025/api/v1/send");
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      From: { Email: "invites@jnok.co.nz", Name: "CleanTrack" },
+      To: [{ Email: "cleaner@example.test" }],
+      Subject: message.subject,
+      Text: message.text,
+    });
+    expect(loggedText(spy)).toBe("");
     spy.mockRestore();
   });
 

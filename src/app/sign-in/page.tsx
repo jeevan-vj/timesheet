@@ -17,7 +17,11 @@ export default function SignInPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [returnTo, setReturnTo] = useState("/dashboard");
-  useEffect(() => { setReturnTo(returnToFromLocation()); }, []);
+  useEffect(() => {
+    setReturnTo(returnToFromLocation());
+    const email = new URLSearchParams(window.location.search).get("email") ?? "";
+    if (/^[^\s@]+@[^\s@]+$/.test(email) && email.length <= 254) setEmail(email);
+  }, []);
   async function submit(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError("");
     const next = returnToFromLocation();

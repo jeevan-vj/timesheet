@@ -61,11 +61,14 @@ Contractor identity/contact data, site locations, rates, work notes, time record
 | Ops rate change or revert rewrites historical pay | Contractor rate edits and rate reverts update `contractor.default_rate_cents` only. Time-entry revert restores the snapshotted `rate_cents` from the audit row |
 | Ops edit bypasses an approved week by accident | Time-entry create, update, delete, and revert call the week lock. `confirmLockedWeek: true` is required to proceed. A day over 14 paid hours is flagged on the response |
 | Raw SQL cannot be expressed as a named revert | `POST /api/ops/revert` restores named contractor and time-entry actions only. D1 Time Travel is the operator backstop for other writes |
-| Invitation token is logged or stored | The token is 32 random bytes. The database stores hex SHA-256 only. The link carries it in the URL fragment, and mutations send it in a POST body in a later slice. GET responses, operational logs, and Resend tags omit it |
+| Invitation token is logged or stored | The token is 32 random bytes. The database stores hex SHA-256 only. The link carries it in the URL fragment. Preview and accept send it in a POST body. GET responses, operational logs, rate-limit keys, and Resend tags omit it |
 | Owner invites another owner's contractor | Invitation reads and writes use the session owner and that owner's business. A foreign id is `404 not_found` |
 | CSRF sends or revokes an invitation | Cookie-authenticated invitation create, resend, and revoke require a configured trusted Origin |
 | Invite email leaks rates or the API key | The message names the business and a first name and links to the fragment URL. The optional Worker secret is not in `secrets.required`. Provisioning is in `docs/DEPLOYMENT.md`. Logs allow only `event`, `kind`, and `httpStatus` |
-| Copy-link invite is forwarded | When email is not configured or the send fails, the owner is given the link once and must send it privately. The account-email check on accept is a later slice |
+| Copy-link invite is forwarded | When email is not configured or the send fails, the owner is given the link once and must send it privately. Accept rejects an email that does not match the invited address |
+| Invitation token is stuffed | Preview allows 30 requests per minute per client address and accept allows 5. A missing trusted Origin is rejected before the counter moves. Closed states do not reveal whether an email has an account |
+| Signed-in user accepts someone else's invite | A session email that differs from the invited email returns `account_mismatch` and writes nothing. An existing credential password is not replaced |
+| Dev mail transport runs in production | `MAIL_TRANSPORT=smtp-dev` talks only to a loopback SMTP port. `NODE_ENV=production`, a non-loopback host, or a bad port refuses the send and does not fall back to Resend. The committed Worker var is empty |
 | Open redirect after sign-in | `returnTo` is limited to `/invite`, `/portal`, and `/dashboard`. Absolute and protocol-relative values are ignored |
 
 ## Residual risks
