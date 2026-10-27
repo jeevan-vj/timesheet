@@ -1,10 +1,14 @@
 import { DarkTheme, Stack, ThemeProvider, type ErrorBoundaryProps } from "expo-router";
+import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
 import { useEffect } from "react";
 import { StyleSheet, View } from "react-native";
 import { ScreenError } from "@/components/screen-error";
+import { authClient } from "@/auth-client";
 import { theme } from "@/theme";
+
+void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
 const navigationTheme = {
   ...DarkTheme,
@@ -26,8 +30,27 @@ export default function RootLayout() {
   return (
     <ThemeProvider value={navigationTheme}>
       <StatusBar style="light" />
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.background } }} />
+      <RootNavigator />
     </ThemeProvider>
+  );
+}
+
+function RootNavigator() {
+  const { data, isPending } = authClient.useSession();
+  useEffect(() => {
+    if (!isPending) void SplashScreen.hideAsync().catch(() => undefined);
+  }, [isPending]);
+  if (isPending) return <View style={styles.fill} />;
+  const signedIn = Boolean(data?.user);
+  return (
+    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.background } }}>
+      <Stack.Protected guard={signedIn} redirectTo="/sign-in">
+        <Stack.Screen name="(contractor)" />
+      </Stack.Protected>
+      <Stack.Protected guard={!signedIn} redirectTo="/">
+        <Stack.Screen name="(auth)" />
+      </Stack.Protected>
+    </Stack>
   );
 }
 

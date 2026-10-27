@@ -12,13 +12,17 @@
     "lint": "node ../../scripts/lint-paved-path.mjs apps/mobile"
   },
   "dependencies": {
+    "@better-auth/expo": "1.7.13",
     "@cleantrack/core": "workspace:*",
+    "better-auth": "1.7.13",
     "expo": "~58.0.19",
     "expo-constants": "~58.0.13",
     "expo-dev-client": "~58.0.15",
     "expo-font": "~58.0.10",
     "expo-linking": "~58.0.14",
+    "expo-network": "~58.0.4",
     "expo-router": "~58.0.26",
+    "expo-secure-store": "~58.0.2",
     "expo-splash-screen": "~58.0.11",
     "expo-status-bar": "~58.0.4",
     "expo-symbols": "~58.0.4",

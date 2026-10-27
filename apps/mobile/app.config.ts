@@ -1,4 +1,5 @@
 import type { ConfigContext, ExpoConfig } from "expo/config";
+import { PRODUCTION_API_URL } from "./src/api-config.mjs";
 import { theme } from "./src/theme-tokens.mjs";
 import { applicationId, applicationName, appVariant } from "./src/variant.mjs";
 
@@ -30,6 +31,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       ...config.android,
       package: id,
       predictiveBackGestureEnabled: true,
+      softwareKeyboardLayoutMode: "resize",
       adaptiveIcon: {
         backgroundColor: theme.background,
         foregroundImage: "./assets/images/android-icon-foreground.png",
@@ -43,6 +45,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     },
     plugins: [
       "expo-router",
+      "expo-secure-store",
       "expo-dev-client",
       [
         "expo-splash-screen",
@@ -53,6 +56,9 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         },
       ],
     ],
+    extra: {
+      apiUrl: process.env.EXPO_PUBLIC_API_URL?.trim() || PRODUCTION_API_URL,
+    },
     experiments: {
       typedRoutes: true,
     },
