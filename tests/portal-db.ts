@@ -12,6 +12,7 @@ const MIGRATIONS = [
   "0005_ops_audit.sql",
   "0006_contractor_engagement.sql",
   "0007_contractor_portal_access.sql",
+  "0008_account_provider_key.sql",
 ] as const;
 
 export async function openPortalSqlite(): Promise<SqlJsDatabase> {
