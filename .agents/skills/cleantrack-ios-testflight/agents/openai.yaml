@@ -1,0 +1,4 @@
+interface:
+  display_name: "CleanTrack iOS TestFlight"
+  short_description: "Build and verify CleanTrack TestFlight releases"
+  default_prompt: "Use $cleantrack-ios-testflight to build and submit the current CleanTrack iOS app to TestFlight with end-to-end status verification."
