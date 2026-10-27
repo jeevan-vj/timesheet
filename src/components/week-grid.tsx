@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useEffect, useId, useRef, useState } from "react";
+import { FormEvent, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ShiftTableNote } from "@/components/shift-note";
 import { ScheduleEditor, type ScheduleEditorTarget } from "@/components/schedule-editor";
 import { assignmentMutationMessage } from "@/lib/assignment-manage";
@@ -16,7 +17,10 @@ import {
   exceptionRequest,
   hoursOverrideError,
   hoursOverridePaidMinutes,
+  menuKeyAction,
+  menuPointerIsInside,
   pendingEntryIds,
+  placeWeekGridMenu,
   presentWeekGridCell,
   rowScheduleCaption,
   weekGridColumns,
@@ -370,31 +374,96 @@ function DayMenu({
   onSelect: (action: WeekGridMenuAction) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    function onPointer(event: PointerEvent) {
-      if (!ref.current?.contains(event.target as Node)) setOpen(false);
-    }
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("pointerdown", onPointer);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("pointerdown", onPointer);
-      document.removeEventListener("keydown", onKey);
-    };
+  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const focusOnOpen = useRef(false);
+  const menuId = useId();
+  useLayoutEffect(() => {
+    const trigger = triggerRef.current;
+    const popup = menuRef.current;
+    if (!open || !trigger || !popup) return;
+    focusOnOpen.current = true;
+    return bindWeekGridMenu({
+      trigger,
+      menu: popup,
+      setPosition,
+      close: (restoreFocus) => {
+        setOpen(false);
+        if (restoreFocus) trigger.focus();
+      },
+    });
   }, [open]);
+  useEffect(() => {
+    if (!open || !position || !focusOnOpen.current) return;
+    focusOnOpen.current = false;
+    menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+  }, [open, position]);
   if (locked || menu.length === 0) return null;
-  return <div className="day-menu-wrap" ref={ref}>
-    <button type="button" className="day-menu-button" aria-haspopup="menu" aria-expanded={open} aria-label={menuLabel} onClick={() => setOpen((value) => !value)}>⋯</button>
-    {open ? <div className="day-menu" role="menu">
-      {menu.map((action) => (
-        <button type="button" role="menuitem" key={action} onClick={() => { setOpen(false); onSelect(action); }}>{weekGridMenuLabel(action)}</button>
-      ))}
-    </div> : null}
-  </div>;
+  return <>
+    <button ref={triggerRef} type="button" className="day-menu-button" aria-haspopup="menu" aria-expanded={open} aria-controls={menuId} aria-label={menuLabel} onClick={() => setOpen((value) => !value)}>⋯</button>
+    {open ? createPortal(
+      <div
+        ref={menuRef}
+        id={menuId}
+        className="day-menu"
+        role="menu"
+        aria-label={menuLabel}
+        style={{ top: position?.top ?? 0, left: position?.left ?? 0, visibility: position ? "visible" : "hidden" }}
+      >
+        {menu.map((action) => (
+          <button type="button" role="menuitem" tabIndex={-1} key={action} onClick={() => { setOpen(false); triggerRef.current?.focus(); onSelect(action); }}>{weekGridMenuLabel(action)}</button>
+        ))}
+      </div>,
+      document.body,
+    ) : null}
+  </>;
+}
+
+function bindWeekGridMenu(input: {
+  trigger: HTMLButtonElement;
+  menu: HTMLElement;
+  close: (restoreFocus: boolean) => void;
+  setPosition: (point: { top: number; left: number }) => void;
+}) {
+  const place = () => {
+    const anchor = input.trigger.getBoundingClientRect();
+    const size = input.menu.getBoundingClientRect();
+    input.setPosition(placeWeekGridMenu(
+      { top: anchor.top, left: anchor.left, width: anchor.width, height: anchor.height },
+      { width: size.width, height: size.height },
+      { width: window.innerWidth, height: window.innerHeight },
+    ));
+  };
+  const onPointer = (event: PointerEvent) => {
+    if (menuPointerIsInside(event.target as Node | null, input.trigger, input.menu)) return;
+    input.close(false);
+  };
+  const onKey = (event: KeyboardEvent) => {
+    const buttons = [...input.menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
+    const active = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    const action = menuKeyAction({
+      key: event.key,
+      activeIndex: active,
+      length: buttons.length,
+      focusInMenu: active >= 0 || document.activeElement === input.trigger,
+    });
+    if (action == null) return;
+    event.preventDefault();
+    if (action === "close") input.close(true);
+    else buttons[action]?.focus();
+  };
+  place();
+  document.addEventListener("pointerdown", onPointer);
+  document.addEventListener("keydown", onKey);
+  window.addEventListener("resize", place);
+  window.addEventListener("scroll", place, true);
+  return () => {
+    document.removeEventListener("pointerdown", onPointer);
+    document.removeEventListener("keydown", onKey);
+    window.removeEventListener("resize", place);
+    window.removeEventListener("scroll", place, true);
+  };
 }
 
 function StatusIcon({ icon }: { icon: WeekGridIcon }) {

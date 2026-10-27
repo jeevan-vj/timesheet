@@ -408,3 +408,51 @@ export function rowScheduleCaption(schedule: WeekGridSchedule | null): string | 
   if (!schedule) return null;
   return `${formatWeekdaysLabel(schedule.weekdays)} · ${formatPaidDuration(schedule.paidMinutes)}/day`;
 }
+
+const MENU_GAP = 4;
+
+export type MenuAnchor = { top: number; left: number; width: number; height: number };
+export type MenuPlacement = { top: number; left: number; placement: "above" | "below" };
+
+export function placeWeekGridMenu(
+  anchor: MenuAnchor,
+  menu: { width: number; height: number },
+  viewport: { width: number; height: number },
+): MenuPlacement {
+  const roomBelow = viewport.height - (anchor.top + anchor.height) - MENU_GAP;
+  const roomAbove = anchor.top - MENU_GAP;
+  const placement = roomBelow >= menu.height || roomBelow >= roomAbove ? "below" : "above";
+  let top = placement === "above" ? anchor.top - MENU_GAP - menu.height : anchor.top + anchor.height + MENU_GAP;
+  let left = anchor.left + anchor.width - menu.width;
+  if (left < MENU_GAP) left = anchor.left;
+  if (left + menu.width > viewport.width - MENU_GAP) left = viewport.width - MENU_GAP - menu.width;
+  if (left < MENU_GAP) left = MENU_GAP;
+  if (top < MENU_GAP) top = MENU_GAP;
+  const maxTop = viewport.height - menu.height - MENU_GAP;
+  if (top > maxTop) top = Math.max(MENU_GAP, maxTop);
+  return { top, left, placement };
+}
+
+export function nextMenuIndex(current: number, length: number, key: string): number | null {
+  if (key !== "ArrowDown" && key !== "ArrowUp") return null;
+  if (length <= 0) return null;
+  if (current < 0) return key === "ArrowDown" ? 0 : length - 1;
+  if (key === "ArrowDown") return (current + 1) % length;
+  return (current - 1 + length) % length;
+}
+
+export function menuKeyAction(input: {
+  key: string;
+  activeIndex: number;
+  length: number;
+  focusInMenu: boolean;
+}): "close" | number | null {
+  if (input.key === "Escape") return "close";
+  if (!input.focusInMenu) return null;
+  return nextMenuIndex(input.activeIndex, input.length, input.key);
+}
+
+export function menuPointerIsInside(target: Node | null, trigger: Node, menu: Node): boolean {
+  if (!target) return false;
+  return trigger.contains(target) || menu.contains(target);
+}

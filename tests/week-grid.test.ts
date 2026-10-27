@@ -17,7 +17,10 @@ import {
   exceptionRequest,
   hoursOverrideScopeLabels,
   NOT_WORKED_LABEL,
+  menuKeyAction,
+  nextMenuIndex,
   pendingEntryIds,
+  placeWeekGridMenu,
   presentWeekGridCell,
   projectEntries,
   SCHEDULE_GOING_FORWARD_LABEL,
@@ -207,11 +210,15 @@ describe("week grid source contract", () => {
     const grid = fs.readFileSync(path.resolve("src/components/week-grid.tsx"), "utf8");
     const dashboard = fs.readFileSync(path.resolve("src/components/dashboard.tsx"), "utf8");
     const presenter = fs.readFileSync(path.resolve("src/lib/week-grid.ts"), "utf8");
+    const css = fs.readFileSync(path.resolve("src/app/styles.css"), "utf8");
     expect(grid).toContain("Mon");
     expect(grid).toContain("WeekGridLegend");
     expect(grid).toContain("Mark all worked");
     expect(presenter).toContain("read-only");
     expect(grid).toContain("if (locked || menu.length === 0) return null");
+    expect(grid).toContain("createPortal");
+    expect(grid).toContain("placeWeekGridMenu");
+    expect(css).toContain(".day-menu { position:fixed;");
     expect(grid).toContain("if (locked || ids.length === 0) return null");
     expect(presenter).toContain("Didn't work");
     expect(grid).toContain("this day only");
@@ -300,19 +307,67 @@ function contrast(foreground: string, background: string) {
   return (hi + 0.05) / (lo + 0.05);
 }
 
+describe("week grid menu placement", () => {
+  const menu = { width: 184, height: 148 };
+  const viewport = { width: 1440, height: 900 };
+
+  it("opens below the trigger and aligns to its right edge", () => {
+    expect(placeWeekGridMenu({ top: 100, left: 400, width: 48, height: 44 }, menu, viewport)).toEqual({
+      top: 148,
+      left: 264,
+      placement: "below",
+    });
+  });
+
+  it("flips above the trigger when the row is near the bottom", () => {
+    expect(placeWeekGridMenu({ top: 780, left: 400, width: 48, height: 44 }, menu, { width: 1440, height: 860 })).toEqual({
+      top: 628,
+      left: 264,
+      placement: "above",
+    });
+  });
+
+  it("flips sideways when aligning to the right edge would leave the viewport", () => {
+    expect(placeWeekGridMenu({ top: 100, left: 12, width: 44, height: 44 }, menu, viewport)).toMatchObject({
+      left: 12,
+      placement: "below",
+    });
+  });
+
+  it("shifts a wide menu sideways so it stays inside the viewport", () => {
+    expect(placeWeekGridMenu({ top: 40, left: 100, width: 40, height: 44 }, { width: 250, height: 80 }, { width: 300, height: 400 })).toMatchObject({
+      top: 88,
+      left: 46,
+      placement: "below",
+    });
+  });
+
+  it("moves between items with arrow keys and closes on escape", () => {
+    expect(nextMenuIndex(-1, 3, "ArrowDown")).toBe(0);
+    expect(nextMenuIndex(-1, 3, "ArrowUp")).toBe(2);
+    expect(nextMenuIndex(2, 3, "ArrowDown")).toBe(0);
+    expect(nextMenuIndex(0, 3, "ArrowUp")).toBe(2);
+    expect(nextMenuIndex(1, 3, "Home")).toBeNull();
+    expect(menuKeyAction({ key: "Escape", activeIndex: 1, length: 3, focusInMenu: true })).toBe("close");
+    expect(menuKeyAction({ key: "ArrowDown", activeIndex: 0, length: 3, focusInMenu: false })).toBeNull();
+    expect(menuKeyAction({ key: "ArrowDown", activeIndex: -1, length: 3, focusInMenu: true })).toBe(0);
+  });
+});
+
 describe("week grid state contrast", () => {
   it("keeps text and state boundaries at WCAG AA", () => {
     const css = fs.readFileSync(path.resolve("src/app/styles.css"), "utf8");
     expect(css).toContain("--green:#164b36");
     expect(css).toContain("border-color:#5c675f");
-    expect(css).toContain("background:#fae0d7");
-    expect(css).toContain("background:#f9e4dd");
-    expect(css).toContain("color:#7e3523");
+    expect(css).toContain(".week-grid-cell.is-changed .day-chip-main { background:#f6d98a; border-color:#8a5610; color:#17211c; }");
+    expect(css).toContain(".week-grid-cell.is-absent .day-chip-main { background:#efe2e0; border-color:#8c3d36; color:#7a2e28; }");
     expect(contrast("#17211c", "#ffffff")).toBeGreaterThanOrEqual(4.5);
     expect(contrast("#ffffff", "#164b36")).toBeGreaterThanOrEqual(4.5);
-    expect(contrast("#17211c", "#fae0d7")).toBeGreaterThanOrEqual(4.5);
-    expect(contrast("#7e3523", "#fae0d7")).toBeGreaterThanOrEqual(4.5);
-    expect(contrast("#7e3523", "#f9e4dd")).toBeGreaterThanOrEqual(4.5);
+    expect(contrast("#17211c", "#f6d98a")).toBeGreaterThanOrEqual(4.5);
+    expect(contrast("#6b420c", "#f6d98a")).toBeGreaterThanOrEqual(4.5);
+    expect(contrast("#7a2e28", "#efe2e0")).toBeGreaterThanOrEqual(4.5);
+    expect(contrast("#8a5610", "#ffffff")).toBeGreaterThanOrEqual(3);
+    expect(contrast("#8c3d36", "#ffffff")).toBeGreaterThanOrEqual(3);
     expect(contrast("#5c675f", "#ffffff")).toBeGreaterThanOrEqual(3);
   });
 });
