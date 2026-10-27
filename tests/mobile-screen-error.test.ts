@@ -34,6 +34,11 @@ describe("mobile screen error", () => {
     expect(screenErrorCause({ name: "RangeError", message: "invalid_request" })).toBe("RangeError: invalid_request");
     expect(screenErrorCause({ name: "Error", message: "   " })).toBe("Error");
     expect(screenErrorCause(undefined)).toBe("Error");
+    const leaked = '{"token":"abc"} jane@x.com';
+    const cause = screenErrorCause({ message: leaked });
+    expect(cause).toBe('Error: {"token":"[redacted]"} [redacted]');
+    expect(cause).not.toContain("abc");
+    expect(cause).not.toContain("jane@x.com");
     const stack = [
       "TypeError: undefined is not a function",
       "    at bindOnlineManager (apps/mobile/src/online.ts:35:27)",
