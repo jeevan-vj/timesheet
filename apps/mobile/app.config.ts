@@ -58,14 +58,12 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     ],
     extra: {
       apiUrl: process.env.EXPO_PUBLIC_API_URL?.trim() || PRODUCTION_API_URL,
-    },
-    experiments: {
-      typedRoutes: true,
-    },
-    extra: {
       eas: {
         projectId: "2ac1a147-bf37-4ee6-9274-d896f7bd87a9",
       },
+    },
+    experiments: {
+      typedRoutes: true,
     },
   };
 };
