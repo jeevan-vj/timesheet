@@ -11,7 +11,7 @@ import {
 } from "@cleantrack/core";
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
-import { Figure, FinishSetup, OwnerGate, ScheduleNote, latestDataUpdatedAt } from "@/components/owner-feedback";
+import { FinishSetup, OwnerGate, ScheduleNote, latestDataUpdatedAt } from "@/components/owner-feedback";
 import { OwnerShiftRow } from "@/components/owner-shift-row";
 import { OwnerWeekPicker } from "@/components/owner-week-picker";
 import { useOwnerDashboard } from "@/owner-client";
@@ -47,7 +47,6 @@ function WeekBody({ data }: { data: OwnerDashboard }) {
   return (
     <>
       <ScheduleNote dashboard={data} />
-      <Figure label="Paid hours" value={formatMinutes(totals.paidMinutes)} />
       <StatusPill label={ownerApprovalLabel(data.approval.status)} />
       <View style={styles.stats}>
         <StatTile label="Paid hours" value={formatMinutes(totals.paidMinutes)} />

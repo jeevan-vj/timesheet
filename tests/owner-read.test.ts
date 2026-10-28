@@ -114,14 +114,27 @@ function contractor() {
 }
 
 describe("owner read models", () => {
-  it("accepts a dashboard payload and rejects writes, leaks, and bad weeks", () => {
+  it("accepts a dashboard payload, strips unknown fields, and rejects bad money and weeks", () => {
     const parsed = ownerDashboardSchema.safeParse(dashboard());
     expect(parsed.success).toBe(true);
     expect(ownerDashboardSchema.safeParse(dashboard({ business: null })).success).toBe(true);
-    expect(ownerDashboardSchema.safeParse(dashboard({ ownerUserId: "owner-a" })).success).toBe(false);
-    expect(ownerDashboardSchema.safeParse(dashboard({ applySchedule: true })).success).toBe(false);
+    const withExtra = ownerDashboardSchema.safeParse(dashboard({
+      ownerUserId: "owner-a",
+      applySchedule: true,
+      entries: [{ ...entry(WEEK), ownerUserId: "owner-a" }],
+    }));
+    expect(withExtra.success).toBe(true);
+    if (withExtra.success) {
+      expect(withExtra.data).not.toHaveProperty("ownerUserId");
+      expect(withExtra.data).not.toHaveProperty("applySchedule");
+      expect(withExtra.data.entries[0]).not.toHaveProperty("ownerUserId");
+      expect(withExtra.data.entries[0]?.rateCents).toBe(2_500);
+    }
     expect(ownerDashboardSchema.safeParse(dashboard({
       summary: [{ contractorId: "contractor-1", contractorName: "Aroha", paidMinutes: 90, payCents: 10.5 }],
+    })).success).toBe(false);
+    expect(ownerDashboardSchema.safeParse(dashboard({
+      entries: [{ ...entry(WEEK), rateCents: 25.5 }],
     })).success).toBe(false);
     expect(ownerDashboardSchema.safeParse(dashboard({ weekStart: "2026-10-27" })).success).toBe(false);
     expect(ownerDashboardSchema.safeParse(dashboard({ weekEnd: "2026-11-02" })).success).toBe(false);
@@ -132,7 +145,10 @@ describe("owner read models", () => {
 
   it("rejects malformed contractor, invitation, site, and profile payloads", () => {
     expect(ownerContractorSchema.safeParse(contractor()).success).toBe(true);
-    expect(ownerContractorSchema.safeParse({ ...contractor(), ownerUserId: "owner-a" }).success).toBe(false);
+    const contractorExtra = ownerContractorSchema.safeParse({ ...contractor(), ownerUserId: "owner-a", defaultRateCents: 2_500 });
+    expect(contractorExtra.success).toBe(true);
+    if (contractorExtra.success) expect(contractorExtra.data).not.toHaveProperty("ownerUserId");
+    expect(ownerContractorSchema.safeParse({ ...contractor(), defaultRateCents: 25.5 }).success).toBe(false);
     expect(ownerContractorSchema.safeParse({ ...contractor(), engagementStatus: "fired" }).success).toBe(false);
     expect(ownerContractorSchema.safeParse({ ...contractor(), createdAt: 1 }).success).toBe(false);
     expect(ownerContractorsSchema.safeParse({ contractors: [contractor()] }).success).toBe(true);
@@ -148,6 +164,13 @@ describe("owner read models", () => {
       expiresAt: null,
       sendCount: null,
       lastDelivery: null,
+    }).success).toBe(false);
+    expect(ownerInvitationSchema.safeParse({
+      state: "none",
+      expiresAt: null,
+      sendCount: null,
+      lastDelivery: null,
+      inviteLink: "https://example.test/invite",
     }).success).toBe(false);
     expect(ownerSitesSchema.safeParse([{
       id: "site-1",
@@ -200,11 +223,26 @@ describe("owner read models", () => {
     expect(ownerEntriesOnDate([later, monday, { ...monday, id: "other-week", workDate: "2026-10-28" }], "2026-10-27").map((row) => row.id)).toEqual(["tue"]);
     expect(ownerEntriesByContractor([later, monday]).map((group) => group.contractorName)).toEqual(["Aroha", "Bea"]);
     expect(ownerTasks({ entries: [monday, later], approvalStatus: "open" }).map((task) => task.title)).toEqual(["2 shifts still pending"]);
+    expect(ownerTasks({
+      entries: [monday],
+      weekEntries: [monday, later],
+      approvalStatus: "open",
+    }).map((task) => task.title)).toEqual(["1 shift still pending"]);
     expect(ownerTasks({ entries: [{ ...monday, occurrenceKind: "worked" }], approvalStatus: "open" })).toEqual([{
       id: "week-ready",
       title: "Week ready to approve",
       detail: "Approval stays on the web for now.",
     }]);
+    expect(ownerTasks({
+      entries: [{ ...monday, occurrenceKind: "worked" }],
+      weekEntries: [later],
+      approvalStatus: "open",
+    })).toEqual([]);
+    expect(ownerTasks({
+      entries: [{ ...monday, occurrenceKind: "worked" }],
+      approvalStatus: "open",
+      scheduleNote: OWNER_SCHEDULE_NOTE,
+    })).toEqual([]);
     expect(ownerTasks({ entries: [{ ...monday, occurrenceKind: "worked" }], approvalStatus: "approved" })).toEqual([]);
     expect(ownerTasks({ entries: [], approvalStatus: "open" })).toEqual([]);
     expect(ownerWeekTotals([

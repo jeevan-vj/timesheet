@@ -11,6 +11,7 @@ import {
   ownerContractorPath,
   ownerDashboardPath,
   ownerInvitationPath,
+  ownerQueryRetry,
   ownerReadMessage,
   ownerReadRequest,
   readOwner,
@@ -77,6 +78,20 @@ describe("owner read client", () => {
     expect(OWNER_WEB_DASHBOARD_PATH).toBe("/dashboard");
   });
 
+  it("retries only the first network or offline failure", () => {
+    const offline = new OwnerReadError("offline");
+    const network = new TypeError("network");
+    expect(ownerQueryRetry(0, offline)).toBe(true);
+    expect(ownerQueryRetry(0, network)).toBe(true);
+    expect(ownerQueryRetry(1, offline)).toBe(false);
+    expect(ownerQueryRetry(1, network)).toBe(false);
+    expect(ownerQueryRetry(0, new OwnerReadError("unauthorized"))).toBe(false);
+    expect(ownerQueryRetry(0, new OwnerReadError("not_found"))).toBe(false);
+    expect(ownerQueryRetry(0, new OwnerReadError("invalid_week"))).toBe(false);
+    expect(ownerQueryRetry(0, new OwnerReadError("business_required"))).toBe(false);
+    expect(ownerQueryRetry(0, new OwnerReadError("unavailable"))).toBe(false);
+  });
+
   it("describes invalid week, signed-out, offline, and finish-setup states", () => {
     expect(ownerReadMessage(new OwnerReadError("business_required"))).toMatchObject({
       title: "Finish setup on web",
@@ -111,6 +126,7 @@ describe("owner read client", () => {
       expect(client).toContain(root);
     }
     expect(client).toContain("method");
+    expect(client).toContain("retry: ownerQueryRetry");
     expect(client).not.toMatch(/queryKey:\s*\[\s*["']/);
     expect(client).not.toMatch(/\bfetch\s*\(/);
   });
@@ -133,5 +149,11 @@ describe("owner read client", () => {
     expect(model).not.toContain("calculateEntryPayCents");
     expect(model).not.toContain("apply-schedule");
     expect(model).toContain("Scheduled shifts appear after the week is opened on the web");
+    const week = readFileSync("apps/mobile/src/app/(owner)/(tabs)/week.tsx", "utf8");
+    expect(week.match(/Paid hours/g)).toEqual(["Paid hours"]);
+    const today = readFileSync("apps/mobile/src/app/(owner)/(tabs)/index.tsx", "utf8");
+    expect(today).toContain("entries: shifts");
+    expect(today).toContain("weekEntries: data.entries");
+    expect(today).toContain("scheduleNote: ownerScheduleNote");
   });
 });

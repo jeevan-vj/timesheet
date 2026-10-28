@@ -42,6 +42,12 @@ export class OwnerReadError extends Error {
   }
 }
 
+export function ownerQueryRetry(failureCount: number, error: unknown): boolean {
+  if (failureCount >= 1) return false;
+  if (error instanceof OwnerReadError) return error.code === "offline";
+  return error instanceof TypeError;
+}
+
 export function ownerReadMessage(error: unknown): { title: string; detail: string; finishOnWeb: boolean } {
   const code = error instanceof OwnerReadError ? error.code : "unavailable";
   if (code === "business_required") {

@@ -24,20 +24,20 @@ export const ownerBusinessSchema = z.object({
   currency: z.literal("NZD"),
   weekStart: z.literal("monday"),
   onboardingCompletedAt: z.string().nullable(),
-}).strict();
+});
 
 export const ownerScheduleSchema = z.object({
   id: z.string().min(1),
   weekdays: z.array(z.number().int().min(1).max(7)).min(1).refine((days) => new Set(days).size === days.length),
   paidMinutes: z.number().int().min(1).max(1_439),
   effectiveFrom: z.string().refine(isIsoDate),
-}).strict();
+});
 
 export const ownerDashboardSiteSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
   address: z.string(),
-}).strict();
+});
 
 export const ownerDashboardContractorSchema = z.object({
   id: z.string().min(1),
@@ -46,7 +46,7 @@ export const ownerDashboardContractorSchema = z.object({
   phone: z.string(),
   defaultRateCents: z.number().int().min(0),
   currency: z.literal("NZD"),
-}).strict();
+});
 
 export const ownerAssignmentSchema = z.object({
   id: z.string().min(1),
@@ -54,7 +54,7 @@ export const ownerAssignmentSchema = z.object({
   siteId: z.string().min(1),
   rateCents: z.number().int().min(0).nullable(),
   schedule: ownerScheduleSchema.nullable(),
-}).strict();
+});
 
 export const ownerEntrySchema = z.object({
   id: z.string().min(1),
@@ -72,20 +72,20 @@ export const ownerEntrySchema = z.object({
   entryMode,
   occurrenceKind,
   scheduleVersionId: z.string().nullable(),
-}).strict();
+});
 
 export const ownerSummarySchema = z.object({
   contractorId: z.string().min(1),
   contractorName: z.string(),
   paidMinutes: z.number().int().min(0),
   payCents: z.number().int().min(0),
-}).strict();
+});
 
 export const ownerApprovalSchema = z.object({
   status: approvalStatus,
   approvedAt: z.string().nullable(),
   reopenedAt: z.string().nullable(),
-}).strict();
+});
 
 export const ownerDashboardSchema = z.object({
   weekStart: z.string().refine(isMonday),
@@ -97,7 +97,7 @@ export const ownerDashboardSchema = z.object({
   summary: z.array(ownerSummarySchema),
   approval: ownerApprovalSchema,
   business: ownerBusinessSchema.nullable(),
-}).strict().refine((value) => {
+}).refine((value) => {
   if (!isMonday(value.weekStart)) return false;
   return value.weekEnd === weekEnd(value.weekStart);
 });
@@ -120,11 +120,11 @@ export const ownerContractorSchema = z.object({
   emergencyContactPhone: z.string(),
   createdAt: z.string().min(1),
   updatedAt: z.string().min(1),
-}).strict();
+});
 
 export const ownerContractorsSchema = z.object({
   contractors: z.array(ownerContractorSchema),
-}).strict();
+});
 
 export const ownerInvitationSchema = z.object({
   state: invitationState,
@@ -139,7 +139,7 @@ export const ownerSiteSchema = z.object({
   address: z.string(),
   active: z.boolean(),
   updatedAt: z.string().min(1),
-}).strict();
+});
 
 export const ownerSitesSchema = z.array(ownerSiteSchema);
 
@@ -148,8 +148,8 @@ export const ownerMeSchema = z.object({
   contractorOf: z.array(z.object({
     businessId: z.string().min(1),
     businessName: z.string(),
-  }).strict()),
-}).strict();
+  })),
+});
 
 export type OwnerBusiness = z.infer<typeof ownerBusinessSchema>;
 export type OwnerDashboard = z.infer<typeof ownerDashboardSchema>;
@@ -238,14 +238,17 @@ export function ownerEntriesByContractor<T extends { contractorId: string; contr
 export function ownerTasks(input: {
   entries: readonly { occurrenceKind: string }[];
   approvalStatus: OwnerApprovalStatus;
+  scheduleNote?: string | null;
+  weekEntries?: readonly { occurrenceKind: string }[];
 }): OwnerTask[] {
   const tasks: OwnerTask[] = tasksForShifts(input.entries).map((task) => ({
     id: task.id,
     title: task.title,
     detail: "Scheduled and not marked worked yet.",
   }));
-  const pending = input.entries.some((entry) => entry.occurrenceKind === "scheduled");
-  if (!pending && input.entries.length > 0 && input.approvalStatus !== "approved") {
+  const week = input.weekEntries ?? input.entries;
+  const weekPending = week.some((entry) => entry.occurrenceKind === "scheduled");
+  if (input.scheduleNote == null && !weekPending && week.length > 0 && input.approvalStatus !== "approved") {
     tasks.push({
       id: "week-ready",
       title: "Week ready to approve",

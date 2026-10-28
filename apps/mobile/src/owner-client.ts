@@ -28,6 +28,7 @@ import {
   ownerContractorPath,
   ownerDashboardPath,
   ownerInvitationPath,
+  ownerQueryRetry,
   readOwner,
   type OwnerLoadResult,
 } from "@/owner-api";
@@ -44,6 +45,7 @@ async function loadOwner(path: string, method: typeof OWNER_HTTP_METHOD): Promis
 function useOwnerRead<T>(queryKey: readonly unknown[], path: () => string, schema: ZodType<T>) {
   return useQuery({
     queryKey,
+    retry: ownerQueryRetry,
     queryFn: () => readOwner(path(), schema, loadOwner),
   });
 }

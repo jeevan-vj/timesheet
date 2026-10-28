@@ -2,6 +2,7 @@ import {
   formatDayHeading,
   formatMinutes,
   ownerEntriesOnDate,
+  ownerScheduleNote,
   ownerSetupIncomplete,
   ownerTasks,
   portalCalendar,
@@ -39,7 +40,18 @@ export default function OwnerTodayScreen() {
 
 function TodayBody({ data, today }: { data: OwnerDashboard; today: string }) {
   const shifts = ownerEntriesOnDate(data.entries, today);
-  const tasks = ownerTasks({ entries: data.entries, approvalStatus: data.approval.status });
+  const tasks = ownerTasks({
+    entries: shifts,
+    weekEntries: data.entries,
+    approvalStatus: data.approval.status,
+    scheduleNote: ownerScheduleNote({
+      weekStart: data.weekStart,
+      weekEnd: data.weekEnd,
+      approvalStatus: data.approval.status,
+      assignments: data.assignments,
+      entries: data.entries,
+    }),
+  });
   return (
     <>
       <ScheduleNote dashboard={data} />
