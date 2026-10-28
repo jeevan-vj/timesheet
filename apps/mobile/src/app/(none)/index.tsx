@@ -21,7 +21,7 @@ export default function NoWorkspaceScreen() {
           </>
         }
         detail="Ask the business owner for an invitation, or finish setting up your business in the web dashboard."
-        icon={{ ios: "person.crop.circle.badge.questionmark", android: "person_help", web: "person_help" }}
+        icon={{ ios: "person.crop.circle.badge.questionmark", android: "person_search", web: "person_search" }}
         title="No workspace yet"
       />
     </Screen>

@@ -1,7 +1,10 @@
 import { offlineBannerText } from "@cleantrack/core/portal";
-import type { ReactNode } from "react";
+import { HeaderShownContext } from "expo-router/react-navigation";
+import { useContext, type ReactNode } from "react";
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useOnline } from "@/online";
+import { screenSafeAreaEdges } from "@/ui/screen-edges";
 import { spacing, theme, typeScale } from "@/ui/tokens";
 
 type ScreenProps = {
@@ -15,6 +18,7 @@ type ScreenProps = {
 
 export function Screen({ children, onRefresh, refreshing = false, testID, title, updatedAt = null }: ScreenProps) {
   const online = useOnline();
+  const headerShown = useContext(HeaderShownContext);
   const refreshControl = onRefresh ? (
     <RefreshControl
       accessibilityLabel="Refresh"
@@ -26,25 +30,26 @@ export function Screen({ children, onRefresh, refreshing = false, testID, title,
   ) : undefined;
 
   return (
-    <ScrollView
-      contentContainerStyle={styles.content}
-      contentInsetAdjustmentBehavior="automatic"
-      refreshControl={refreshControl}
-      style={styles.screen}
-      testID={testID}
-    >
-      {online ? null : (
-        <Text accessibilityRole="alert" style={styles.offline}>
-          {offlineBannerText(updatedAt)}
-        </Text>
-      )}
-      <View style={styles.heading}>
-        <Text accessibilityRole="header" style={styles.title}>
-          {title}
-        </Text>
-      </View>
-      {children}
-    </ScrollView>
+    <SafeAreaView edges={screenSafeAreaEdges(headerShown)} style={styles.screen} testID={testID}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        contentInsetAdjustmentBehavior="never"
+        refreshControl={refreshControl}
+        style={styles.scroll}
+      >
+        {online ? null : (
+          <Text accessibilityRole="alert" style={styles.offline}>
+            {offlineBannerText(updatedAt)}
+          </Text>
+        )}
+        <View style={styles.heading}>
+          <Text accessibilityRole="header" style={styles.title}>
+            {title}
+          </Text>
+        </View>
+        {children}
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -52,6 +57,9 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: theme.background,
+  },
+  scroll: {
+    flex: 1,
   },
   content: {
     paddingHorizontal: spacing.md,

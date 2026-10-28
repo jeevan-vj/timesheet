@@ -248,7 +248,9 @@ export function selectNextJob<T extends {
   return candidates[0] ?? null;
 }
 
-export function shiftStatusLabel(kind: PortalShift["occurrenceKind"]): string {
+export type ShiftStatusLabel = "Pending" | "Worked" | "Didn't work" | "Changed hours" | "Recorded";
+
+export function shiftStatusLabel(kind: PortalShift["occurrenceKind"]): ShiftStatusLabel {
   if (kind === "scheduled") return "Pending";
   if (kind === "worked") return "Worked";
   if (kind === "absent") return "Didn't work";

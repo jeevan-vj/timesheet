@@ -1,4 +1,4 @@
-import type { ViewerRole } from "@/api-config";
+import type { ViewerRole } from "./api-config";
 
 export type MobileWorkspace = "contractor" | "owner" | "none";
 

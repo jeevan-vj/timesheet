@@ -1,6 +1,10 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { shiftStatusLabel } from "@cleantrack/core/portal";
 import { workspaceForRole } from "../apps/mobile/src/role-route";
 import { statusColors, theme } from "../apps/mobile/src/theme";
+import { screenSafeAreaEdges } from "../apps/mobile/src/ui/screen-edges";
 import { statusPillTone } from "../apps/mobile/src/ui/status-tone";
 
 function channel(hex: string, shift: number): number {
@@ -19,6 +23,8 @@ function contrast(foreground: string, background: string): number {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
+const mobileApp = join(process.cwd(), "apps/mobile/src/app");
+
 describe("mobile workspace routing", () => {
   it("routes every viewer role without showing the wrong workspace", () => {
     expect(workspaceForRole("contractor")).toBe("contractor");
@@ -26,10 +32,30 @@ describe("mobile workspace routing", () => {
     expect(workspaceForRole("owner")).toBe("owner");
     expect(workspaceForRole("none")).toBe("none");
   });
+
+  it("serves owner and no-workspace homes from index routes so / is not unmatched", () => {
+    expect(existsSync(join(mobileApp, "(owner)", "index.tsx"))).toBe(true);
+    expect(existsSync(join(mobileApp, "(none)", "index.tsx"))).toBe(true);
+    expect(existsSync(join(mobileApp, "(contractor)", "(tabs)", "index.tsx"))).toBe(true);
+    expect(existsSync(join(mobileApp, "(owner)", "owner.tsx"))).toBe(false);
+    expect(existsSync(join(mobileApp, "(none)", "no-workspace.tsx"))).toBe(false);
+  });
+});
+
+describe("mobile screen safe area", () => {
+  it("pads the top inset only when no navigation header is showing", () => {
+    expect(screenSafeAreaEdges(false)).toEqual(["top", "right", "bottom", "left"]);
+    expect(screenSafeAreaEdges(true)).toEqual(["right", "bottom", "left"]);
+  });
 });
 
 describe("mobile status pill tones", () => {
   it("maps shift and pay states to a labelled semantic tone", () => {
+    expect(statusPillTone(shiftStatusLabel("scheduled"))).toBe("warning");
+    expect(statusPillTone(shiftStatusLabel("worked"))).toBe("success");
+    expect(statusPillTone(shiftStatusLabel("absent"))).toBe("neutral");
+    expect(statusPillTone(shiftStatusLabel("hours_override"))).toBe("info");
+    expect(statusPillTone(shiftStatusLabel("manual"))).toBe("info");
     expect(statusPillTone("Pending")).toBe("warning");
     expect(statusPillTone("Worked")).toBe("success");
     expect(statusPillTone("Didn't work")).toBe("neutral");

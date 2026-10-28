@@ -1,4 +1,6 @@
-export type StatusPillLabel = "Pending" | "Worked" | "Didn't work" | "Changed hours" | "Recorded" | "Approved" | "Estimated";
+import type { ShiftStatusLabel } from "@cleantrack/core/portal";
+
+export type StatusPillLabel = ShiftStatusLabel | "Approved" | "Estimated";
 export type StatusTone = "success" | "warning" | "danger" | "info" | "neutral";
 
 export function statusPillTone(label: StatusPillLabel): StatusTone {

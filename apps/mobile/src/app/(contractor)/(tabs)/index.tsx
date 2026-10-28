@@ -10,11 +10,10 @@ import {
   spokenNzd,
   sumPaidMinutes,
   type DirectionsPlatform,
-  type PortalTask,
   type PortalShift,
 } from "@cleantrack/core";
 import * as Linking from "expo-linking";
-import { router, type Href } from "expo-router";
+import { router } from "expo-router";
 import { useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { ShiftSheet } from "@/components/shift-sheet";
@@ -34,7 +33,6 @@ import {
   theme,
   typeScale,
 } from "@/ui";
-import type { StatusPillLabel } from "@/ui/status-tone";
 
 function mapsPlatform(): DirectionsPlatform {
   if (Platform.OS === "ios") return "ios";
@@ -55,9 +53,9 @@ export default function HomeScreen() {
   const upcoming = usePortalUpcoming();
   const pay = usePortalPayments(weekStart);
   const [shift, setShift] = useState<PortalShift | null>(null);
-  const shifts: PortalShift[] = upcoming.data?.days.flatMap((day: { shifts: PortalShift[] }) => day.shifts) ?? [];
+  const shifts = upcoming.data?.days.flatMap((day) => day.shifts) ?? [];
   const next = upcoming.data ? selectNextJob(shifts, today) : null;
-  const weekShifts: PortalShift[] = week.data?.days.flatMap((day: { shifts: PortalShift[] }) => day.shifts) ?? [];
+  const weekShifts = week.data?.days.flatMap((day) => day.shifts) ?? [];
   const refreshing = week.isRefetching || upcoming.isRefetching || pay.isRefetching;
   const loading = (!week.data && week.isPending) || (!upcoming.data && upcoming.isPending) || (!pay.data && pay.isPending);
   const initialError = (!week.data && week.isError) || (!upcoming.data && upcoming.isError) || (!pay.data && pay.isError);
@@ -113,7 +111,7 @@ export default function HomeScreen() {
             {week.data && week.data.tasks.length > 0 ? (
               <View style={styles.sectionGroup}>
                 <SectionHeader>Tasks</SectionHeader>
-                {week.data.tasks.map((task: PortalTask) => (
+                {week.data.tasks.map((task) => (
                   <ListRow
                     icon={{ ios: "checklist", android: "checklist", web: "checklist" }}
                     key={task.id}
@@ -129,7 +127,7 @@ export default function HomeScreen() {
               <ListRow
                 accessibilityLabel="Open shifts for the next 14 days"
                 icon={{ ios: "calendar", android: "calendar_month", web: "calendar_month" }}
-                onPress={() => router.push("/upcoming" as Href)}
+                onPress={() => router.push("/upcoming")}
                 subtitle="See every scheduled shift"
                 title="Next 14 days"
               />
@@ -144,7 +142,7 @@ export default function HomeScreen() {
 
 function NextJobCard({ shift, onOpen }: { shift: PortalShift; onOpen: () => void }) {
   const directions = directionsUrl(shift.address, mapsPlatform());
-  const status = shiftStatusLabel(shift.occurrenceKind) as StatusPillLabel;
+  const status = shiftStatusLabel(shift.occurrenceKind);
   return (
     <Card style={styles.hero}>
       <Pressable
