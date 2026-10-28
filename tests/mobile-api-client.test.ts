@@ -11,7 +11,7 @@ import {
   signInErrorMessage,
   viewerRole,
 } from "../apps/mobile/src/api-config";
-import { readViewerRole } from "../apps/mobile/src/me-response";
+import { readViewerProfile, readViewerRole } from "../apps/mobile/src/me-response";
 
 const COOKIE = "better-auth.session_token=session-value";
 
@@ -109,6 +109,10 @@ describe("viewer role from /api/me", () => {
   });
 
   it("reads a role only from a well-formed /api/me body", () => {
+    expect(readViewerProfile({ owner: null, contractorOf: [link], extra: true })).toEqual({
+      role: "contractor",
+      contractorOf: [link],
+    });
     expect(readViewerRole({ owner: null, contractorOf: [link], extra: true })).toBe("contractor");
     expect(readViewerRole({ owner: { name: "Northwind" }, contractorOf: [] })).toBe("owner");
     expect(readViewerRole({ owner: null })).toBeNull();

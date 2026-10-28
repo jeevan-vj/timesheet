@@ -1,62 +1,56 @@
-import { Pressable, StyleSheet, Text } from "react-native";
-import { authClient } from "@/auth-client";
-import { theme } from "@/theme";
-import { useViewer } from "@/use-viewer";
+import { StyleSheet, Text } from "react-native";
+import { Card, Skeleton, theme, typeScale } from "@/ui";
 
-export function SignedInIdentity() {
-  const { data } = authClient.useSession();
-  const viewer = useViewer();
-  const name = data?.user.name?.trim() || "Signed in";
+export function SignedInIdentity({
+  email,
+  name,
+  role,
+  roleState,
+}: {
+  email: string;
+  name: string;
+  role: string;
+  roleState: "loading" | "ready" | "error";
+}) {
   return (
-    <>
+    <Card>
       <Text style={styles.name}>{name}</Text>
-      {viewer.status === "loading" ? <Text style={styles.role}>Loading your role</Text> : null}
-      {viewer.status === "ready" ? (
-        <Text accessibilityLabel={`Role, ${viewer.label}`} style={styles.role}>
-          {viewer.label}
+      {email ? (
+        <Text selectable style={styles.email}>
+          {email}
         </Text>
       ) : null}
-      {viewer.status === "error" ? (
-        <>
-          <Text accessibilityRole="alert" style={styles.role}>
-            Could not load your role.
-          </Text>
-          <Pressable
-            accessibilityLabel="Try again"
-            accessibilityRole="button"
-            onPress={() => {
-              void viewer.reload();
-            }}
-            style={styles.retry}
-          >
-            <Text style={styles.retryText}>Try again</Text>
-          </Pressable>
-        </>
+      {roleState === "ready" ? (
+        <Text accessibilityLabel={`Role, ${role}`} style={styles.role}>
+          {role}
+        </Text>
       ) : null}
-    </>
+      {roleState === "loading" ? <Skeleton height={22} /> : null}
+      {roleState === "error" ? (
+        <Text accessibilityRole="alert" style={styles.role}>
+          Could not load your role.
+        </Text>
+      ) : null}
+    </Card>
   );
 }
 
 const styles = StyleSheet.create({
   name: {
     color: theme.text,
-    fontSize: 20,
+    fontSize: typeScale.title,
+    lineHeight: 28,
     fontWeight: "700",
+  },
+  email: {
+    color: theme.mutedHighContrast,
+    fontSize: typeScale.body,
+    lineHeight: 25,
   },
   role: {
-    color: theme.muted,
-    fontSize: 16,
-    lineHeight: 24,
-  },
-  retry: {
-    alignSelf: "flex-start",
-    minHeight: theme.touchTarget,
-    minWidth: theme.touchTarget,
-    justifyContent: "center",
-  },
-  retryText: {
-    color: theme.accent,
-    fontSize: 16,
-    fontWeight: "700",
+    color: theme.text,
+    fontSize: typeScale.subhead,
+    lineHeight: 22,
+    fontWeight: "600",
   },
 });

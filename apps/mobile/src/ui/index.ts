@@ -1,10 +1,11 @@
-export { PrimaryButton, SecondaryButton } from "./buttons";
+export { DestructiveButton, PrimaryButton, SecondaryButton } from "./buttons";
 export { Card } from "./card";
 export { EmptyState } from "./empty-state";
 export { ErrorState } from "./error-state";
 export { ListRow } from "./list-row";
 export { ProgressBar } from "./progress-bar";
 export { Screen } from "./screen";
+export { Sheet } from "./sheet";
 export { SectionHeader } from "./section-header";
 export { Skeleton } from "./skeleton";
 export { StatTile } from "./stat-tile";

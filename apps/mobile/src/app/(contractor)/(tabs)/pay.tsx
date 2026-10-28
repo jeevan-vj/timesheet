@@ -1,168 +1,204 @@
 import {
+  PORTAL_REMITTANCE_AVAILABLE,
   formatMinutes,
   formatNzd,
   formatWeekRange,
   portalCalendar,
   spokenNzd,
 } from "@cleantrack/core";
+import * as Linking from "expo-linking";
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import { ScreenScroll } from "@/components/screen-scroll";
+import { StyleSheet, Text, View } from "react-native";
+import { payWeekRows } from "@/contractor-view";
 import { usePortalPaymentDetail, usePortalPayments } from "@/portal-client";
-import { theme } from "@/theme";
+import { apiBaseUrl } from "@/runtime-config";
+import {
+  EmptyState,
+  ErrorState,
+  ListRow,
+  Screen,
+  SectionHeader,
+  Sheet,
+  Skeleton,
+  StatTile,
+  StatusPill,
+  spacing,
+  theme,
+  typeScale,
+} from "@/ui";
 
 export { ErrorBoundary } from "@/components/route-error-boundary";
+
+function PaySkeleton() {
+  return (
+    <View accessibilityLabel="Loading pay" style={styles.skeletons}>
+      <Skeleton height={112} />
+      <Skeleton height={72} />
+      <Skeleton height={72} />
+    </View>
+  );
+}
 
 export default function PayScreen() {
   const { weekStart } = portalCalendar();
   const payments = usePortalPayments(weekStart);
   const [selected, setSelected] = useState<string | null>(null);
   const detail = usePortalPaymentDetail(selected);
-  const weeks = payments.data?.weeks ?? [];
-  const totalCents = weeks.reduce((sum, week) => sum + week.payCents, 0);
-  const totalMinutes = weeks.reduce((sum, week) => sum + week.paidMinutes, 0);
+  const summary = payments.data ? payWeekRows(payments.data) : null;
+  const openWeek = summary?.rows.find((week) => week.weekStart === selected && week.status === "Approved") ?? null;
+  const loading = !payments.data && payments.isPending;
+  const initialError = !payments.data && payments.isError;
+  const refreshError = Boolean(payments.data && payments.isError);
+  const refetch = () => {
+    void payments.refetch();
+    if (selected) void detail.refetch();
+  };
 
   return (
-    <ScreenScroll
-      onRefresh={() => {
-        void payments.refetch();
-        if (selected) void detail.refetch();
-      }}
-      refreshing={payments.isRefetching || detail.isRefetching}
-      testID="contractor-pay"
-      title="Pay"
-      updatedAt={null}
-    >
-      <Text style={styles.label}>Approved</Text>
-      {payments.data ? (
-        <Text accessibilityLabel={spokenNzd(totalCents)} maxFontSizeMultiplier={1.6} style={styles.headline}>
-          {formatNzd(totalCents)}
-        </Text>
-      ) : (
-        <Text style={styles.body}>{payments.isPending ? "Loading pay" : "Pay loads when you're back online."}</Text>
-      )}
-      {payments.data ? <Text style={styles.body}>{formatMinutes(totalMinutes)} approved</Text> : null}
-      {payments.isError ? (
-        <Text accessibilityRole="alert" style={styles.body}>
-          Could not load approved weeks.
-        </Text>
-      ) : null}
-      {payments.data && weeks.length === 0 ? <Text style={styles.body}>No approved weeks yet.</Text> : null}
-      {weeks.map((week) => (
-        <Pressable
-          accessibilityLabel={`${formatWeekRange(week.weekStart, week.weekEnd)}, ${formatMinutes(week.paidMinutes)}, ${spokenNzd(week.payCents)}`}
-          accessibilityRole="button"
-          key={week.weekStart}
-          onPress={() => setSelected(week.weekStart)}
-          style={styles.row}
-        >
-          <Text style={styles.rowTitle}>{formatWeekRange(week.weekStart, week.weekEnd)}</Text>
-          <Text style={styles.body}>{formatMinutes(week.paidMinutes)}</Text>
-          <Text accessibilityLabel={spokenNzd(week.payCents)} style={styles.amount}>
-            {formatNzd(week.payCents)}
-          </Text>
-        </Pressable>
-      ))}
-      {selected ? (
-        <View accessibilityViewIsModal style={styles.detail}>
-          <Text accessibilityRole="header" style={styles.rowTitle}>
-            Week detail
-          </Text>
-          {detail.isPending ? <Text accessibilityLabel="Loading">Loading this week.</Text> : null}
-          {detail.isError ? (
-            <Text accessibilityRole="alert" style={styles.body}>
-              Could not load this week.
-            </Text>
-          ) : null}
-          {detail.data ? (
-            <>
-              <Text accessibilityLabel={spokenNzd(detail.data.payCents)} maxFontSizeMultiplier={1.6} style={styles.headline}>
-                {formatNzd(detail.data.payCents)}
+    <>
+      <Screen
+        onRefresh={refetch}
+        refreshing={payments.isRefetching || (selected != null && detail.isRefetching)}
+        testID="contractor-pay"
+        title="Pay"
+        updatedAt={null}
+      >
+        {loading && !initialError ? <PaySkeleton /> : null}
+        {initialError ? <ErrorState message="Approved pay is unavailable." onRetry={refetch} /> : null}
+        {summary ? (
+          <>
+            {refreshError ? (
+              <Text accessibilityRole="alert" style={styles.refreshError}>
+                Could not refresh. Showing the last pay totals from this session.
               </Text>
-              <Text style={styles.body}>{formatMinutes(detail.data.paidMinutes)}</Text>
-              {detail.data.lines.map((line) => (
-                <View key={line.id} style={styles.line}>
-                  <Text style={styles.body}>{line.siteName}</Text>
-                  <Text style={styles.muted}>{line.businessName}</Text>
-                  <Text style={styles.body}>{formatMinutes(line.paidMinutes)}</Text>
-                  <Text accessibilityLabel={spokenNzd(line.payCents)} style={styles.amount}>
-                    {formatNzd(line.payCents)}
-                  </Text>
-                </View>
-              ))}
-            </>
-          ) : null}
-          <Pressable accessibilityLabel="Close week detail" accessibilityRole="button" onPress={() => setSelected(null)} style={styles.close}>
-            <Text style={styles.closeText}>Close</Text>
-          </Pressable>
-        </View>
-      ) : null}
-    </ScreenScroll>
+            ) : null}
+            <View style={styles.hero}>
+              <StatTile label="Approved" value={formatNzd(summary.approvedCents)}>
+                <Text accessibilityLabel={spokenNzd(summary.approvedCents)} style={styles.note}>
+                  {formatMinutes(summary.approvedMinutes)} approved
+                </Text>
+              </StatTile>
+            </View>
+            {summary.rows.length === 0 ? (
+              <EmptyState
+                detail="Approved pay will show up here after the business approves a week."
+                icon={{ ios: "banknote", android: "payments", web: "payments" }}
+                title="No approved weeks yet"
+              />
+            ) : (
+              <View style={styles.list}>
+                <SectionHeader>Weeks</SectionHeader>
+                {summary.rows.map((week) => {
+                  const range = formatWeekRange(week.weekStart, week.weekEnd);
+                  const minutes = formatMinutes(week.paidMinutes);
+                  const open = week.status === "Approved" ? () => setSelected(week.weekStart) : undefined;
+                  return (
+                    <ListRow
+                      accessibilityLabel={`${range}, ${minutes}, ${spokenNzd(week.payCents)}, ${week.status}`}
+                      icon={{ ios: "calendar", android: "calendar_month", web: "calendar_month" }}
+                      key={`${week.status}:${week.weekStart}`}
+                      onPress={open}
+                      subtitle={`${minutes} · ${formatNzd(week.payCents)}`}
+                      title={range}
+                      trailing={<StatusPill label={week.status} />}
+                    />
+                  );
+                })}
+              </View>
+            )}
+            <View style={styles.list}>
+              <SectionHeader>Remittance</SectionHeader>
+              {PORTAL_REMITTANCE_AVAILABLE ? (
+                <ListRow
+                  accessibilityLabel="View remittance on the web"
+                  icon={{ ios: "doc.text", android: "description", web: "description" }}
+                  onPress={() => {
+                    void Linking.openURL(`${apiBaseUrl()}/portal`);
+                  }}
+                  subtitle="Remittance PDFs stay on the website"
+                  title="View on web"
+                />
+              ) : (
+                <Text style={styles.note}>Remittance PDFs stay on the website.</Text>
+              )}
+            </View>
+          </>
+        ) : null}
+      </Screen>
+      <Sheet
+        closeLabel="Close week detail"
+        onClose={() => setSelected(null)}
+        title={openWeek ? formatWeekRange(openWeek.weekStart, openWeek.weekEnd) : "Week"}
+        visible={openWeek != null}
+      >
+        {detail.isPending && !detail.data ? (
+          <View accessibilityLabel="Loading week detail" style={styles.skeletons}>
+            <Skeleton height={112} />
+            <Skeleton height={72} />
+          </View>
+        ) : null}
+        {detail.isError ? <ErrorState message="This week's pay is unavailable." onRetry={() => void detail.refetch()} /> : null}
+        {detail.data ? (
+          <>
+            <StatTile label="Approved" value={formatNzd(detail.data.payCents)}>
+              <Text accessibilityLabel={spokenNzd(detail.data.payCents)} style={styles.note}>
+                {formatMinutes(detail.data.paidMinutes)}
+              </Text>
+            </StatTile>
+            {detail.data.lines.length === 0 ? (
+              <EmptyState
+                detail="This approved week has no paid lines."
+                icon={{ ios: "banknote", android: "payments", web: "payments" }}
+                title="No paid shifts"
+              />
+            ) : (
+              detail.data.lines.map((line) => (
+                <ListRow
+                  accessibilityLabel={`${line.siteName}, ${line.businessName}, ${formatMinutes(line.paidMinutes)}, ${spokenNzd(line.payCents)}`}
+                  icon={{ ios: "mappin.and.ellipse", android: "location_on", web: "location_on" }}
+                  key={line.id}
+                  subtitle={`${line.businessName} · ${formatMinutes(line.paidMinutes)}`}
+                  title={line.siteName}
+                  trailing={<Text style={styles.amount}>{formatNzd(line.payCents)}</Text>}
+                />
+              ))
+            )}
+          </>
+        ) : null}
+      </Sheet>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  label: {
-    color: theme.muted,
-    fontSize: 14,
-    fontWeight: "700",
-    lineHeight: 20,
+  hero: {
+    flexDirection: "row",
   },
-  headline: {
-    color: theme.text,
-    fontSize: 40,
-    fontWeight: "700",
-    flexShrink: 1,
+  list: {
+    gap: spacing.xs,
   },
-  body: {
-    color: theme.text,
-    fontSize: 16,
-    lineHeight: 24,
-    flexShrink: 1,
-  },
-  muted: {
-    color: theme.muted,
-    fontSize: 16,
-    lineHeight: 24,
-    flexShrink: 1,
-  },
-  row: {
-    minHeight: theme.touchTarget,
-    backgroundColor: theme.surface,
-    borderRadius: theme.radius,
-    padding: 16,
-    gap: 4,
-  },
-  rowTitle: {
-    color: theme.text,
-    fontSize: 18,
-    fontWeight: "700",
-    flexShrink: 1,
+  note: {
+    color: theme.mutedHighContrast,
+    fontSize: typeScale.subhead,
+    lineHeight: 22,
   },
   amount: {
     color: theme.text,
-    fontSize: 20,
+    fontSize: typeScale.body,
+    lineHeight: 22,
     fontWeight: "700",
-    flexShrink: 1,
+    fontVariant: ["tabular-nums"],
   },
-  detail: {
+  refreshError: {
+    color: theme.mutedHighContrast,
     backgroundColor: theme.surfaceRaised,
     borderRadius: theme.radius,
-    padding: 16,
-    gap: 8,
+    borderCurve: "continuous",
+    padding: spacing.sm,
+    fontSize: typeScale.subhead,
+    lineHeight: 22,
   },
-  line: {
-    gap: 2,
-    paddingVertical: 8,
-  },
-  close: {
-    minHeight: theme.touchTarget,
-    minWidth: theme.touchTarget,
-    justifyContent: "center",
-  },
-  closeText: {
-    color: theme.accent,
-    fontSize: 16,
-    fontWeight: "700",
+  skeletons: {
+    gap: spacing.sm,
   },
 });

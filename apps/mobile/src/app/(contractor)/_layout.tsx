@@ -13,7 +13,18 @@ export default function ContractorLayout() {
     <ScreenErrorBoundary>
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.background } }}>
         <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="upcoming" />
+        <Stack.Screen
+          name="upcoming"
+          options={{
+            headerShown: true,
+            title: "Upcoming",
+            headerBackTitle: "Back",
+            headerTintColor: theme.accent,
+            headerStyle: { backgroundColor: theme.background },
+            headerTitleStyle: { color: theme.text },
+            headerShadowVisible: false,
+          }}
+        />
       </Stack>
     </ScreenErrorBoundary>
   );

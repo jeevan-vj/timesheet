@@ -1,85 +1,100 @@
-import {
-  formatDayHeading,
-  type PortalShift,
-} from "@cleantrack/core";
-import { router } from "expo-router";
+import { formatDayHeading, type PortalShift } from "@cleantrack/core";
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import { ScreenScroll } from "@/components/screen-scroll";
+import { StyleSheet, Text, View } from "react-native";
 import { ShiftList } from "@/components/shift-list";
 import { ShiftSheet } from "@/components/shift-sheet";
 import { usePortalUpcoming } from "@/portal-client";
-import { theme } from "@/theme";
+import {
+  EmptyState,
+  ErrorState,
+  Screen,
+  SectionHeader,
+  Skeleton,
+  spacing,
+  theme,
+  typeScale,
+} from "@/ui";
 
 export { ErrorBoundary } from "@/components/route-error-boundary";
+
+function UpcomingSkeleton() {
+  return (
+    <View accessibilityLabel="Loading upcoming" style={styles.skeletons}>
+      <Skeleton height={28} />
+      <Skeleton height={72} />
+      <Skeleton height={28} />
+      <Skeleton height={72} />
+    </View>
+  );
+}
 
 export default function UpcomingScreen() {
   const upcoming = usePortalUpcoming();
   const [shift, setShift] = useState<PortalShift | null>(null);
-  const range = upcoming.data ? `${formatDayHeading(upcoming.data.from)} – ${formatDayHeading(upcoming.data.to)}` : "The next 14 days";
+  const loading = !upcoming.data && upcoming.isPending;
+  const initialError = !upcoming.data && upcoming.isError;
+  const refreshError = Boolean(upcoming.data && upcoming.isError);
+  const range = upcoming.data
+    ? `${formatDayHeading(upcoming.data.from)} – ${formatDayHeading(upcoming.data.to)}`
+    : "Next 14 days";
+  const refetch = () => {
+    void upcoming.refetch();
+  };
 
   return (
     <>
-      <ScreenScroll
-        onRefresh={() => {
-          void upcoming.refetch();
-        }}
+      <Screen
+        onRefresh={refetch}
         refreshing={upcoming.isRefetching}
         testID="contractor-upcoming"
-        title="Upcoming"
+        title={range}
         updatedAt={upcoming.dataUpdatedAt > 0 ? upcoming.dataUpdatedAt : null}
       >
-        <Pressable accessibilityLabel="Back" accessibilityRole="button" onPress={() => router.back()} style={styles.back}>
-          <Text style={styles.backText}>Back</Text>
-        </Pressable>
-        <Text style={styles.range}>{range}</Text>
-        {upcoming.isPending && !upcoming.data ? <Text accessibilityLabel="Loading">Loading the next 14 days.</Text> : null}
-        {upcoming.isError ? (
-          <Text accessibilityRole="alert" style={styles.body}>
-            Could not load upcoming work.
-          </Text>
+        {loading && !initialError ? <UpcomingSkeleton /> : null}
+        {initialError ? <ErrorState message="The next 14 days are unavailable." onRetry={refetch} /> : null}
+        {upcoming.data ? (
+          <>
+            {refreshError ? (
+              <Text accessibilityRole="alert" style={styles.refreshError}>
+                Could not refresh. Showing the latest saved shifts.
+              </Text>
+            ) : null}
+            {upcoming.data.days.length === 0 ? (
+              <EmptyState
+                detail="When a shift is scheduled in the next 14 days, it will show up here."
+                icon={{ ios: "calendar.badge.clock", android: "calendar_clock", web: "calendar_clock" }}
+                title="Nothing scheduled"
+              />
+            ) : (
+              upcoming.data.days.map((day) => (
+                <View key={day.date} style={styles.day}>
+                  <SectionHeader>{formatDayHeading(day.date)}</SectionHeader>
+                  <ShiftList onPress={setShift} shifts={day.shifts} />
+                </View>
+              ))
+            )}
+          </>
         ) : null}
-        {upcoming.data && upcoming.data.days.length === 0 ? <Text style={styles.body}>Nothing scheduled in the next 14 days.</Text> : null}
-        {upcoming.data?.days.map((day) => (
-          <View key={day.date}>
-            <Text style={styles.day}>{formatDayHeading(day.date)}</Text>
-            <ShiftList onPress={setShift} shifts={day.shifts} />
-          </View>
-        ))}
-      </ScreenScroll>
+      </Screen>
       <ShiftSheet onClose={() => setShift(null)} shift={shift} />
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  back: {
-    minHeight: theme.touchTarget,
-    minWidth: theme.touchTarget,
-    justifyContent: "center",
-    alignSelf: "flex-start",
-  },
-  backText: {
-    color: theme.accent,
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  range: {
-    color: theme.muted,
-    fontSize: 16,
-    lineHeight: 24,
-    flexShrink: 1,
-  },
   day: {
-    color: theme.text,
-    fontSize: 16,
-    fontWeight: "700",
-    lineHeight: 24,
+    gap: spacing.xs,
   },
-  body: {
-    color: theme.text,
-    fontSize: 16,
-    lineHeight: 24,
-    flexShrink: 1,
+  refreshError: {
+    color: theme.mutedHighContrast,
+    backgroundColor: theme.surfaceRaised,
+    borderRadius: theme.radius,
+    borderCurve: "continuous",
+    padding: spacing.sm,
+    fontSize: typeScale.subhead,
+    lineHeight: 22,
+  },
+  skeletons: {
+    gap: spacing.sm,
   },
 });

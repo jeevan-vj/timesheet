@@ -11,8 +11,22 @@ export const meResponseSchema = z.object({
   contractorOf: z.array(contractorLink),
 });
 
-export function readViewerRole(body: unknown): ViewerRole | null {
+export type ContractorLink = z.infer<typeof contractorLink>;
+
+export type ViewerProfile = {
+  role: ViewerRole;
+  contractorOf: ContractorLink[];
+};
+
+export function readViewerProfile(body: unknown): ViewerProfile | null {
   const parsed = meResponseSchema.safeParse(body);
   if (!parsed.success) return null;
-  return viewerRole(parsed.data);
+  return {
+    role: viewerRole(parsed.data),
+    contractorOf: parsed.data.contractorOf,
+  };
+}
+
+export function readViewerRole(body: unknown): ViewerRole | null {
+  return readViewerProfile(body)?.role ?? null;
 }
