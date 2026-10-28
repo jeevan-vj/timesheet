@@ -1,0 +1,274 @@
+import {
+  calculateEntryPayCents,
+  formatDayHeading,
+  formatMinutes,
+  formatNzd,
+  formatShiftTime,
+  shiftStatusLabel,
+  spokenNzd,
+  type OwnerApprovalStatus,
+  type OwnerEntry,
+} from "@cleantrack/core";
+import { useEffect, useState } from "react";
+import { StyleSheet, Text, View } from "react-native";
+import { OwnerShiftMutationFailure, useOwnerShiftException } from "@/owner-mutations-client";
+import {
+  ownerShiftActionsState,
+  ownerShiftPaidMinutesError,
+  type OwnerShiftAction,
+} from "@/owner-mutations";
+import {
+  DestructiveButton,
+  ListRow,
+  PrimaryButton,
+  SecondaryButton,
+  Sheet,
+  StatusPill,
+  spacing,
+  statusColors,
+  theme,
+  typeScale,
+} from "@/ui";
+
+const MINUTE_STEP = 15;
+
+function stepMinutes(value: number, direction: 1 | -1): number {
+  if (direction === 1) return Math.min(45, Math.floor(value / MINUTE_STEP) * MINUTE_STEP + MINUTE_STEP);
+  return Math.max(0, Math.ceil(value / MINUTE_STEP) * MINUTE_STEP - MINUTE_STEP);
+}
+
+function initialPaidParts(entry: OwnerEntry | null): { hours: number; minutes: number } {
+  const paidMinutes = entry && entry.paidMinutes > 0 ? entry.paidMinutes : 60;
+  return { hours: Math.floor(paidMinutes / 60), minutes: paidMinutes % 60 };
+}
+
+export function OwnerShiftSheet({
+  approvalStatus,
+  entry,
+  onClose,
+}: {
+  approvalStatus: OwnerApprovalStatus;
+  entry: OwnerEntry | null;
+  onClose: () => void;
+}) {
+  const mutation = useOwnerShiftException();
+  const initial = initialPaidParts(entry);
+  const [hours, setHours] = useState(initial.hours);
+  const [minutes, setMinutes] = useState(initial.minutes);
+  const [editingHours, setEditingHours] = useState(false);
+  const [pendingAction, setPendingAction] = useState<OwnerShiftAction | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const next = initialPaidParts(entry);
+    setHours(next.hours);
+    setMinutes(next.minutes);
+    setEditingHours(false);
+    setPendingAction(null);
+    setLocalError(null);
+    mutation.reset();
+  }, [entry?.id]);
+
+  if (!entry) {
+    return <Sheet onClose={onClose} title="Shift actions" visible={false}>{null}</Sheet>;
+  }
+
+  const state = ownerShiftActionsState(entry, approvalStatus);
+  const paidMinutes = hours * 60 + minutes;
+  const paidMinutesError = ownerShiftPaidMinutesError(paidMinutes);
+  const payCents = entry.paidMinutes > 0 && entry.rateCents > 0
+    ? calculateEntryPayCents(entry.paidMinutes, entry.rateCents)
+    : 0;
+  const mutationMessage = mutation.error instanceof OwnerShiftMutationFailure
+    ? mutation.error.detail.message
+    : mutation.error instanceof Error
+      ? mutation.error.message
+      : null;
+  const errorMessage = localError ?? mutationMessage;
+
+  const runAction = (action: OwnerShiftAction) => {
+    if (action === "change_hours") {
+      setLocalError(null);
+      mutation.reset();
+      setEditingHours(true);
+      return;
+    }
+    setPendingAction(action);
+    setLocalError(null);
+    mutation.reset();
+    mutation.mutate(
+      { entryId: entry.id, action },
+      { onSuccess: onClose },
+    );
+  };
+
+  const saveHours = () => {
+    if (paidMinutesError) {
+      setLocalError(paidMinutesError);
+      return;
+    }
+    setPendingAction("change_hours");
+    setLocalError(null);
+    mutation.reset();
+    mutation.mutate(
+      { entryId: entry.id, action: "change_hours", paidMinutes },
+      { onSuccess: onClose },
+    );
+  };
+
+  return (
+    <Sheet closeLabel="Close shift actions" onClose={onClose} title={entry.siteName} visible>
+      <View style={styles.heading}>
+        <StatusPill label={shiftStatusLabel(entry.occurrenceKind)} />
+      </View>
+      <ListRow
+        accessibilityLabel={`Contractor, ${entry.contractorName}`}
+        icon={{ ios: "person", android: "person", web: "person" }}
+        title={entry.contractorName}
+      />
+      <ListRow
+        accessibilityLabel={`${formatDayHeading(entry.workDate)}, ${formatShiftTime(entry)}`}
+        icon={{ ios: "calendar", android: "calendar_month", web: "calendar_month" }}
+        subtitle={formatShiftTime(entry)}
+        title={formatDayHeading(entry.workDate)}
+      />
+      <ListRow
+        accessibilityLabel={`Paid hours ${formatMinutes(entry.paidMinutes)}, gross pay ${spokenNzd(payCents)}`}
+        icon={{ ios: "dollarsign.circle", android: "payments", web: "payments" }}
+        subtitle={`${formatMinutes(entry.paidMinutes)} · ${formatNzd(payCents)}`}
+        title="Paid hours and gross pay"
+      />
+
+      {state.reason ? <Text style={styles.notice}>{state.reason}</Text> : null}
+      {errorMessage ? (
+        <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={styles.error}>
+          {errorMessage}
+        </Text>
+      ) : null}
+
+      {state.actions.map((item) => {
+        const disabled = mutation.isPending || !item.enabled;
+        const accessibilityLabel = item.reason ? `${item.label}. ${item.reason}` : item.label;
+        const common = {
+          accessibilityLabel,
+          busy: mutation.isPending && pendingAction === item.action,
+          disabled,
+          onPress: () => runAction(item.action),
+        };
+        if (item.action === "worked") {
+          return <PrimaryButton key={item.action} {...common}>{item.label}</PrimaryButton>;
+        }
+        if (item.action === "did_not_work") {
+          return <DestructiveButton key={item.action} {...common}>{item.label}</DestructiveButton>;
+        }
+        return <SecondaryButton key={item.action} {...common}>{item.label}</SecondaryButton>;
+      })}
+
+      {editingHours ? (
+        <View style={styles.editor}>
+          <Text accessibilityRole="header" style={styles.editorTitle}>Change paid hours</Text>
+          <View style={styles.stepperRow}>
+            <Text style={styles.stepperLabel}>Hours</Text>
+            <SecondaryButton
+              accessibilityLabel="Decrease paid hours by one hour"
+              disabled={mutation.isPending || hours === 0}
+              onPress={() => setHours((value) => Math.max(0, value - 1))}
+              style={styles.stepperButton}
+            >
+              −
+            </SecondaryButton>
+            <Text accessibilityLabel={`${hours} hours`} style={styles.stepperValue}>{hours}</Text>
+            <SecondaryButton
+              accessibilityLabel="Increase paid hours by one hour"
+              disabled={mutation.isPending || hours === 23}
+              onPress={() => setHours((value) => Math.min(23, value + 1))}
+              style={styles.stepperButton}
+            >
+              +
+            </SecondaryButton>
+          </View>
+          <View style={styles.stepperRow}>
+            <Text style={styles.stepperLabel}>Minutes</Text>
+            <SecondaryButton
+              accessibilityLabel="Decrease paid minutes by 15 minutes"
+              disabled={mutation.isPending || minutes === 0}
+              onPress={() => setMinutes((value) => stepMinutes(value, -1))}
+              style={styles.stepperButton}
+            >
+              −
+            </SecondaryButton>
+            <Text accessibilityLabel={`${minutes} minutes`} style={styles.stepperValue}>{minutes}</Text>
+            <SecondaryButton
+              accessibilityLabel="Increase paid minutes by 15 minutes"
+              disabled={mutation.isPending || minutes >= 45}
+              onPress={() => setMinutes((value) => stepMinutes(value, 1))}
+              style={styles.stepperButton}
+            >
+              +
+            </SecondaryButton>
+          </View>
+          <PrimaryButton
+            accessibilityLabel={`Save ${hours} hours and ${minutes} minutes for this day only`}
+            busy={mutation.isPending && pendingAction === "change_hours"}
+            disabled={mutation.isPending || paidMinutesError != null}
+            onPress={saveHours}
+          >
+            Save hours for this day
+          </PrimaryButton>
+        </View>
+      ) : null}
+    </Sheet>
+  );
+}
+
+const styles = StyleSheet.create({
+  heading: {
+    alignItems: "flex-start",
+  },
+  notice: {
+    color: theme.mutedHighContrast,
+    fontSize: typeScale.subhead,
+    lineHeight: 22,
+  },
+  error: {
+    color: statusColors.danger,
+    fontSize: typeScale.subhead,
+    lineHeight: 22,
+    fontWeight: "600",
+  },
+  editor: {
+    gap: spacing.sm,
+    paddingTop: spacing.sm,
+  },
+  editorTitle: {
+    color: theme.text,
+    fontSize: typeScale.body,
+    lineHeight: 24,
+    fontWeight: "700",
+  },
+  stepperRow: {
+    minHeight: theme.touchTarget,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  stepperLabel: {
+    flex: 1,
+    color: theme.text,
+    fontSize: typeScale.body,
+    lineHeight: 22,
+    fontWeight: "600",
+  },
+  stepperButton: {
+    minWidth: theme.touchTarget,
+    paddingHorizontal: spacing.sm,
+  },
+  stepperValue: {
+    minWidth: 36,
+    color: theme.text,
+    fontSize: typeScale.body,
+    lineHeight: 22,
+    textAlign: "center",
+    fontVariant: ["tabular-nums"],
+  },
+});

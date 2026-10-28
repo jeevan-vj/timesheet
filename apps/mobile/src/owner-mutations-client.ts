@@ -1,0 +1,42 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { mobileFetch } from "@/api";
+import { OWNER_DASHBOARD_QUERY } from "@/owner-api";
+import {
+  runOwnerShiftException,
+  type OwnerShiftAction,
+  type OwnerShiftMutationError,
+  type OwnerShiftMutationSend,
+} from "@/owner-mutations";
+
+export class OwnerShiftMutationFailure extends Error {
+  readonly detail: OwnerShiftMutationError;
+
+  constructor(detail: OwnerShiftMutationError) {
+    super(detail.message);
+    this.name = "OwnerShiftMutationFailure";
+    this.detail = detail;
+  }
+}
+
+const sendOwnerShiftException: OwnerShiftMutationSend = async (path, init) => {
+  const response = await mobileFetch(path, init);
+  try {
+    return { status: response.status, body: await response.json() };
+  } catch {
+    return { status: response.status, body: null };
+  }
+};
+
+export function useOwnerShiftException() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { entryId: string; action: OwnerShiftAction; paidMinutes?: number }) => {
+      const result = await runOwnerShiftException(input.entryId, input.action, input.paidMinutes, sendOwnerShiftException);
+      if (!result.ok) throw new OwnerShiftMutationFailure(result.error);
+      return result.body;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: [OWNER_DASHBOARD_QUERY] });
+    },
+  });
+}

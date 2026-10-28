@@ -8,11 +8,13 @@ import {
   portalCalendar,
   spokenNzd,
   type OwnerDashboard,
+  type OwnerEntry,
 } from "@cleantrack/core";
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { FinishSetup, OwnerGate, ScheduleNote, latestDataUpdatedAt } from "@/components/owner-feedback";
 import { OwnerShiftRow } from "@/components/owner-shift-row";
+import { OwnerShiftSheet } from "@/components/owner-shift-sheet";
 import { OwnerWeekPicker } from "@/components/owner-week-picker";
 import { useOwnerDashboard } from "@/owner-client";
 import { EmptyState, Screen, SectionHeader, StatTile, StatusPill, spacing } from "@/ui";
@@ -42,6 +44,7 @@ export default function OwnerWeekScreen() {
 }
 
 function WeekBody({ data }: { data: OwnerDashboard }) {
+  const [selectedEntry, setSelectedEntry] = useState<OwnerEntry | null>(null);
   const totals = ownerWeekTotals(data.summary);
   const groups = ownerEntriesByContractor(data.entries);
   return (
@@ -61,9 +64,21 @@ function WeekBody({ data }: { data: OwnerDashboard }) {
       ) : groups.map((group) => (
         <View key={group.contractorId} style={styles.group}>
           <SectionHeader>{group.contractorName}</SectionHeader>
-          {group.entries.map((entry) => <OwnerShiftRow entry={entry} key={entry.id} showContractor={false} />)}
+          {group.entries.map((entry) => (
+            <OwnerShiftRow
+              entry={entry}
+              key={entry.id}
+              onPress={() => setSelectedEntry(entry)}
+              showContractor={false}
+            />
+          ))}
         </View>
       ))}
+      <OwnerShiftSheet
+        approvalStatus={data.approval.status}
+        entry={selectedEntry}
+        onClose={() => setSelectedEntry(null)}
+      />
     </>
   );
 }

@@ -16,15 +16,19 @@ import {
   ownerReadRequest,
   readOwner,
 } from "../apps/mobile/src/owner-api";
+import { ownerShiftExceptionPath } from "../apps/mobile/src/owner-mutations";
 
 const ownerRoots = [
   "apps/mobile/src/owner-api.ts",
   "apps/mobile/src/owner-client.ts",
+  "apps/mobile/src/owner-mutations.ts",
+  "apps/mobile/src/owner-mutations-client.ts",
   "apps/mobile/src/components/owner-tabs.tsx",
   "apps/mobile/src/components/owner-tabs.web.tsx",
   "apps/mobile/src/components/owner-feedback.tsx",
   "apps/mobile/src/components/owner-week-picker.tsx",
   "apps/mobile/src/components/owner-shift-row.tsx",
+  "apps/mobile/src/components/owner-shift-sheet.tsx",
   "apps/mobile/src/app/(owner)",
 ];
 
@@ -137,14 +141,23 @@ describe("owner read client", () => {
     const api = readFileSync("apps/mobile/src/owner-api.ts", "utf8");
     expect(api).toContain('path.includes("apply-schedule")');
     expect(api).toContain('path.includes("/api/weeks")');
-    const banned = [/apply-schedule/, /applySchedule/, /\/api\/weeks/, /\/remittance/, /\b(?:POST|PATCH|PUT|DELETE)\b/, /\bfetch\s*\(/];
+    const bannedEverywhere = [/apply-schedule/, /applySchedule/, /\/api\/weeks/, /\/remittance/, /\bfetch\s*\(/];
+    const mutationFiles = new Set([
+      "apps/mobile/src/owner-mutations.ts",
+      "apps/mobile/src/owner-mutations-client.ts",
+    ]);
     for (const file of sources) {
       if (file.endsWith("owner-api.ts")) continue;
       const source = readFileSync(file, "utf8");
-      for (const pattern of banned) {
+      for (const pattern of bannedEverywhere) {
         expect(source, file).not.toMatch(pattern);
       }
+      if (!mutationFiles.has(file)) expect(source, file).not.toMatch(/\b(?:POST|PATCH|PUT|DELETE)\b/);
     }
+    const mutationSource = readFileSync("apps/mobile/src/owner-mutations.ts", "utf8");
+    const apiPaths = mutationSource.match(/["'`]\/api\/[^"'`]+["'`]/g) ?? [];
+    expect(apiPaths).toEqual(["`/api/time-entries/${ownerShiftResourceId(id)}/exception`"]);
+    expect(ownerShiftExceptionPath("entry_1")).toBe("/api/time-entries/entry_1/exception");
     const model = readFileSync("packages/core/src/owner-read.ts", "utf8");
     expect(model).not.toContain("calculateEntryPayCents");
     expect(model).not.toContain("apply-schedule");
