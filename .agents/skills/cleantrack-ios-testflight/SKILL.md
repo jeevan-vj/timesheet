@@ -65,7 +65,7 @@ eas --version
 
 `eas --version` must report `25.3.0`. On GitHub Actions the workflow installs that package under `$RUNNER_TEMP/eas-cli` and prepends its `node_modules/.bin` to `PATH`.
 
-6. Verify live EAS identity and the remote counter:
+6. From `apps/mobile`, where `eas.json` lives, verify live EAS identity and the remote counter:
 
 ```bash
 APP_VARIANT=production eas whoami
@@ -91,7 +91,7 @@ The printed hash must be `670b454382962443d6d68cf014905b1e42fbbdf5`. That is the
 
 ## Signing setup
 
-For an already configured project, prefer non-interactive builds. If EAS reports missing credentials, run `eas credentials --platform ios` interactively:
+For an already configured project, prefer non-interactive builds. If EAS reports missing credentials, from `apps/mobile` run `eas credentials --platform ios` interactively:
 
 - select the `production` profile;
 - sign in through the local Apple/EAS prompt without exposing secrets;
@@ -109,9 +109,9 @@ Canonical release command, from the repository root of the clean checkout, with 
 COREPACK_HOME=~/.cache/node/corepack pnpm -F mobile build:production -- --auto-submit --non-interactive --no-wait
 ```
 
-`apps/mobile/scripts/build-production.mjs` runs `checkRelease()` before EAS, then `eas build --platform ios --profile production` with the extra arguments. `--auto-submit` is the proven release path: the release guard and the fingerprint preflight run first, and EAS submits that build when it finishes. Do not start a release with a direct `eas build`.
+Run the Fingerprint preflight first. `build:production` does not check the fingerprint. `apps/mobile/scripts/build-production.mjs` runs `checkRelease()` before EAS, then `eas build --platform ios --profile production` with the extra arguments. `--auto-submit` submits that build when it finishes. Do not start a release with a direct `eas build`.
 
-Record the build ID from the EAS output. Poll that exact ID until `FINISHED`:
+Record the build ID from the EAS output. From `apps/mobile`, poll that exact ID until `FINISHED`:
 
 ```bash
 eas build:view BUILD_ID --json
@@ -119,13 +119,13 @@ eas build:view BUILD_ID --json
 
 Do not start a second submit for a build that used `--auto-submit`. Do not treat a failed build, a different revision, a non-production bundle ID, or the wrong profile as releasable.
 
-Manual submit is only a fallback when that build was started without `--auto-submit`. After it is `FINISHED`, submit the same id:
+Manual submit is only a fallback when that build was started without `--auto-submit`. From `apps/mobile`, after it is `FINISHED`, submit the same id:
 
 ```bash
 APP_VARIANT=production eas submit --platform ios --profile production --id BUILD_ID
 ```
 
-Poll a submission ID until `FINISHED` when one was returned:
+From `apps/mobile`, poll a submission ID until `FINISHED` when one was returned:
 
 ```bash
 eas submit:view SUBMISSION_ID --json
@@ -133,7 +133,7 @@ eas submit:view SUBMISSION_ID --json
 
 ## Verify TestFlight, not only upload
 
-Read Apple state through the production identity:
+From `apps/mobile`, read Apple state through the production identity:
 
 ```bash
 APP_VARIANT=production eas submit:status \

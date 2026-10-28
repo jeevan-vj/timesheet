@@ -19,9 +19,16 @@ A signed-in production run needs Jeevan's approval of a named synthetic account.
 | `signed-in-owner.yaml` | `owner-today`, `owner-week`, `owner-team`, `owner-payroll`, `owner-account` |
 | `signed-in-no-workspace.yaml` | `no-workspace` |
 
-Pass credentials as env vars, not in these files:
+Pass `MAESTRO_EMAIL` and `MAESTRO_PASSWORD` through the environment. Do not pass them with `-e`: that stores them in shell history and the process list. Maestro reads those `MAESTRO_*` variables from the environment. Load them from a mode `0600` file that is not committed:
 
 ```bash
+install -m 0600 /dev/null "$HOME/.config/cleantrack-maestro.env"
+# Write MAESTRO_EMAIL and MAESTRO_PASSWORD into that file, then:
+set -a
+. "$HOME/.config/cleantrack-maestro.env"
+set +a
 maestro test .maestro/launch-sign-in.yaml
-maestro test -e MAESTRO_EMAIL=... -e MAESTRO_PASSWORD=... .maestro/signed-in-contractor.yaml
+maestro test .maestro/signed-in-contractor.yaml
 ```
+
+`APP_ID` is not a secret. `-e APP_ID=...` is only for the bundle override above.

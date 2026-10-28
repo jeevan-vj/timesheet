@@ -1,10 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { cleanupVerifyEnv } from "./dev-vars.mjs";
-import { EVIDENCE, root, RUN, stopOwned } from "./lib.mjs";
+import { BASE_URL, EVIDENCE, root, RUN, stopOwned } from "./lib.mjs";
 
 stopOwned();
-cleanupVerifyEnv({ rootDir: root, runDir: RUN });
+cleanupVerifyEnv({ rootDir: root, runDir: RUN, baseUrl: BASE_URL });
 
 const report = path.join(EVIDENCE, "REPORT.md");
 const screenshot = path.join(EVIDENCE, "screenshots/sign-up.png");

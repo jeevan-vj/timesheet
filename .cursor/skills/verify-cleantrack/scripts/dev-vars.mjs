@@ -57,17 +57,40 @@ export function prepareVerifyEnv({ rootDir, runDir, baseUrl }) {
   return { envFile };
 }
 
-export function cleanupVerifyEnv({ rootDir, runDir }) {
+function defaultWarn(message) {
+  process.stderr.write(`${message}\n`);
+}
+
+function isVerifyCopy(bytes, baseUrl) {
+  return bytes !== null && bytes.equals(Buffer.from(verifyEnvContents(baseUrl)));
+}
+
+export function cleanupVerifyEnv({ rootDir, runDir, baseUrl, warn = defaultWarn }) {
+  if (!baseUrl) throw new Error("cleanup needs the verify base URL to recognize a verify .dev.vars");
   const devVarsPath = path.join(rootDir, ".dev.vars");
   const backupPath = path.join(runDir, "dev.vars.backup");
   const createdFlag = path.join(runDir, "dev.vars.created");
-  if (fs.existsSync(backupPath)) {
+  const current = readIfExists(devVarsPath);
+  const disposable = current === null || isVerifyCopy(current, baseUrl);
+  const backupExists = fs.existsSync(backupPath);
+  const createdExists = fs.existsSync(createdFlag);
+
+  if (backupExists && disposable) {
     writePrivate(devVarsPath, fs.readFileSync(backupPath));
     fs.rmSync(backupPath, { force: true });
     fs.rmSync(createdFlag, { force: true });
-  } else if (fs.existsSync(createdFlag)) {
-    fs.rmSync(devVarsPath, { force: true });
+  } else if (!backupExists && createdExists && disposable) {
+    if (current !== null) fs.rmSync(devVarsPath, { force: true });
     fs.rmSync(createdFlag, { force: true });
+  } else if (backupExists || createdExists) {
+    if (backupExists) fs.chmodSync(backupPath, 0o600);
+    const kept = [
+      backupExists ? `${backupPath} (mode 0600)` : "",
+      createdExists ? createdFlag : "",
+    ].filter(Boolean).join(" and ");
+    warn(
+      `cleanup left ${devVarsPath} unchanged because it is not the verify-cleantrack copy. Kept ${kept}. Resolve that leftover by hand.`,
+    );
   }
   fs.rmSync(path.join(rootDir, "dist/server/.dev.vars"), { force: true });
   fs.rmSync(path.join(runDir, "dev.vars"), { force: true });

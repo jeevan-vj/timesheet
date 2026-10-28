@@ -55,7 +55,7 @@ Pass is `user_count = 1`, `session_count >= 1`, `business_count = 0`, plus `veri
 
 ## Cleanup
 
-Kills only the pid from `.wrangler/verify-cleantrack-run/pid` and its children. Removes `dist/server/.dev.vars` and the run env file. If an older launch left `dev.vars.backup` in the run directory, cleanup restores that file once at mode `0600` and deletes the backup. Does not delete `verify-cleantrack-output/`.
+Kills only the pid from `.wrangler/verify-cleantrack-run/pid` and its children. Removes `dist/server/.dev.vars` and the run env file. If an older launch left `dev.vars.backup` or `dev.vars.created`, cleanup restores or deletes the project `.dev.vars` only when that file is missing or byte-identical to the verify copy for this base URL. Otherwise it leaves `.dev.vars` untouched, keeps the backup at mode `0600`, and prints a warning. Does not delete `verify-cleantrack-output/`.
 
 ```bash
 node .cursor/skills/verify-cleantrack/scripts/cleanup.mjs
