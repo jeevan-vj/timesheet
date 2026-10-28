@@ -1,9 +1,21 @@
 import Constants from "expo-constants";
+import * as Updates from "expo-updates";
 import { resolveApiBaseUrl } from "@/api-config";
 
 export function appVersion(): string {
   const version = Constants.expoConfig?.version;
   return typeof version === "string" && version.trim() ? version.trim() : "0.1.0";
+}
+
+export function updateChannel(): string | null {
+  try {
+    const channel = Updates.channel;
+    if (typeof channel !== "string") return null;
+    const trimmed = channel.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  } catch {
+    return null;
+  }
 }
 
 export function apiBaseUrl(): string {

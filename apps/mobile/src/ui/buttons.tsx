@@ -1,45 +1,60 @@
 import type { ReactNode } from "react";
 import { Pressable, StyleSheet, Text, type StyleProp, type ViewStyle } from "react-native";
-import { spacing, theme, typeScale } from "@/ui/tokens";
+import { spacing, statusColors, theme, typeScale } from "@/ui/tokens";
 
 type ButtonProps = {
   accessibilityLabel: string;
+  busy?: boolean;
   children: ReactNode;
   disabled?: boolean;
   onPress: () => void;
   style?: StyleProp<ViewStyle>;
 };
 
-function Button({ accessibilityLabel, children, disabled, onPress, style, primary }: ButtonProps & { primary: boolean }) {
+function Button({
+  accessibilityLabel,
+  busy = false,
+  children,
+  disabled,
+  onPress,
+  style,
+  tone,
+}: ButtonProps & { tone: "primary" | "secondary" | "destructive" }) {
   return (
     <Pressable
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
-      accessibilityState={{ disabled: Boolean(disabled) }}
+      accessibilityState={{ busy, disabled: Boolean(disabled) }}
       disabled={disabled}
       onPress={onPress}
       pressRetentionOffset={spacing.sm}
       style={({ pressed }) => [
         styles.button,
-        primary ? styles.primary : styles.secondary,
+        tone === "primary" ? styles.primary : tone === "destructive" ? styles.destructive : styles.secondary,
         pressed && styles.pressed,
         disabled && styles.disabled,
         style,
       ]}
     >
       {typeof children === "string" ? (
-        <Text style={[styles.label, primary ? styles.primaryLabel : styles.secondaryLabel]}>{children}</Text>
+        <Text style={[styles.label, tone === "primary" ? styles.primaryLabel : tone === "destructive" ? styles.destructiveLabel : styles.secondaryLabel]}>
+          {children}
+        </Text>
       ) : children}
     </Pressable>
   );
 }
 
 export function PrimaryButton(props: ButtonProps) {
-  return <Button {...props} primary />;
+  return <Button {...props} tone="primary" />;
 }
 
 export function SecondaryButton(props: ButtonProps) {
-  return <Button {...props} primary={false} />;
+  return <Button {...props} tone="secondary" />;
+}
+
+export function DestructiveButton(props: ButtonProps) {
+  return <Button {...props} tone="destructive" />;
 }
 
 const styles = StyleSheet.create({
@@ -66,8 +81,16 @@ const styles = StyleSheet.create({
   primaryLabel: {
     color: theme.accentText,
   },
+  destructive: {
+    backgroundColor: theme.surfaceRaised,
+    borderWidth: 1,
+    borderColor: statusColors.danger,
+  },
   secondaryLabel: {
     color: theme.accent,
+  },
+  destructiveLabel: {
+    color: statusColors.danger,
   },
   pressed: {
     opacity: 0.72,

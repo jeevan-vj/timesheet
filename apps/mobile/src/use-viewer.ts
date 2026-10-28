@@ -1,25 +1,27 @@
 import { useCallback, useEffect, useState } from "react";
 import { sessionEndsOnStatus, roleLabel, type ViewerRole } from "@/api-config";
 import { mobileFetch } from "@/api";
-import { readViewerRole } from "@/me-response";
+import { readViewerProfile, type ContractorLink } from "@/me-response";
 
 export type ViewerStatus = "loading" | "ready" | "error";
 
 export function useViewer() {
   const [status, setStatus] = useState<ViewerStatus>("loading");
   const [role, setRole] = useState<ViewerRole>("none");
+  const [contractorOf, setContractorOf] = useState<ContractorLink[]>([]);
 
   const reload = useCallback(async () => {
-    setStatus("loading");
+    setStatus((current) => (current === "ready" ? current : "loading"));
     try {
       const response = await mobileFetch("/api/me");
       if (sessionEndsOnStatus(response.status)) return;
-      const next = response.ok ? readViewerRole(await response.json()) : null;
-      if (!next) {
+      const profile = response.ok ? readViewerProfile(await response.json()) : null;
+      if (!profile) {
         setStatus("error");
         return;
       }
-      setRole(next);
+      setRole(profile.role);
+      setContractorOf(profile.contractorOf);
       setStatus("ready");
     } catch {
       setStatus("error");
@@ -30,5 +32,5 @@ export function useViewer() {
     void reload();
   }, [reload]);
 
-  return { status, role, label: roleLabel(role), reload };
+  return { status, role, label: roleLabel(role), contractorOf, reload };
 }
