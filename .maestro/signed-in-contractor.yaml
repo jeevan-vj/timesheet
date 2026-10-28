@@ -1,0 +1,28 @@
+# Signed-in contractor smoke. Pass credentials only as env vars:
+#   maestro test -e MAESTRO_EMAIL=... -e MAESTRO_PASSWORD=... .maestro/signed-in-contractor.yaml
+# Synthetic local or disposable accounts only. See .maestro/README.md.
+# Tab labels match apps/mobile/src/components/app-tabs.tsx.
+appId: ${APP_ID || "nz.co.jnok.cleantrack.dev"}
+---
+- launchApp
+- tapOn:
+    id: "sign-in-email"
+- inputText: ${MAESTRO_EMAIL}
+- tapOn:
+    id: "sign-in-password"
+- inputText: ${MAESTRO_PASSWORD}
+- hideKeyboard
+- tapOn:
+    id: "sign-in-submit"
+- assertVisible:
+    id: "contractor-home"
+- tapOn: "My week"
+- assertVisible:
+    id: "contractor-week"
+- tapOn: "Pay"
+- assertVisible:
+    id: "contractor-pay"
+- tapOn: "Account"
+- assertVisible:
+    id: "contractor-account"
+- assertNotVisible: "Something went wrong"

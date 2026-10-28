@@ -1,0 +1,3 @@
+# Dev-variant bundle. Flows read APP_ID. Override with: maestro test -e APP_ID=...
+env:
+  APP_ID: nz.co.jnok.cleantrack.dev

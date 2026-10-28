@@ -23,7 +23,7 @@ From the repo root, after `pnpm install --frozen-lockfile` and `pnpm exec playwr
 node .cursor/skills/verify-cleantrack/scripts/launch.mjs
 ```
 
-That wipes `.wrangler/verify-cleantrack`, applies `drizzle/` with `wrangler d1 migrations apply cleantrack-timesheet --local`, builds `dist/server/wrangler.json` when it is missing, and starts `wrangler dev` on `127.0.0.1:3017` (`VERIFY_CLEANTRACK_PORT` overrides the port). Ready means `GET /api/health` is `{ status: "ok", database: "ok", release: "verify-cleantrack" }`. The log is `.wrangler/verify-cleantrack-run/server.log`. Interactive `pnpm dev` is the README server on its own port; it is not this isolated database.
+That wipes `.wrangler/verify-cleantrack`, applies `drizzle/` with `wrangler d1 migrations apply cleantrack-timesheet --local`, builds `dist/server/wrangler.json` when it is missing, and starts `wrangler dev` on `127.0.0.1:3017` (`VERIFY_CLEANTRACK_PORT` overrides the port). Ready means `GET /api/health` is `{ status: "ok", database: "ok", release: "verify-cleantrack" }`. The log is `.wrangler/verify-cleantrack-run/server.log`. Launch does not read or write the project `.dev.vars`. Required secrets go in `.wrangler/verify-cleantrack-run/dev.vars` at mode `0600`, passed as an absolute `wrangler dev --env-file`. `BETTER_AUTH_URL`, `AUTH_TRUSTED_ORIGINS`, and `RELEASE_SHA` stay `--var` bindings. Interactive `pnpm dev` is the README server on its own port; it is not this isolated database.
 
 ## Doctor
 
@@ -55,7 +55,7 @@ Pass is `user_count = 1`, `session_count >= 1`, `business_count = 0`, plus `veri
 
 ## Cleanup
 
-Kills only the pid from `.wrangler/verify-cleantrack-run/pid` and its children. Restores a previous `.dev.vars` if launch replaced one. Does not delete `verify-cleantrack-output/`.
+Kills only the pid from `.wrangler/verify-cleantrack-run/pid` and its children. Removes `dist/server/.dev.vars` and the run env file. If an older launch left `dev.vars.backup` in the run directory, cleanup restores that file once at mode `0600` and deletes the backup. Does not delete `verify-cleantrack-output/`.
 
 ```bash
 node .cursor/skills/verify-cleantrack/scripts/cleanup.mjs

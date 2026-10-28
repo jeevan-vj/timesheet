@@ -1,0 +1,20 @@
+# Signed-in no-workspace smoke. Pass credentials only as env vars:
+#   maestro test -e MAESTRO_EMAIL=... -e MAESTRO_PASSWORD=... .maestro/signed-in-no-workspace.yaml
+# Synthetic local or disposable accounts only. See .maestro/README.md.
+# testID is apps/mobile/src/app/(none)/index.tsx.
+appId: ${APP_ID || "nz.co.jnok.cleantrack.dev"}
+---
+- launchApp
+- tapOn:
+    id: "sign-in-email"
+- inputText: ${MAESTRO_EMAIL}
+- tapOn:
+    id: "sign-in-password"
+- inputText: ${MAESTRO_PASSWORD}
+- hideKeyboard
+- tapOn:
+    id: "sign-in-submit"
+- assertVisible:
+    id: "no-workspace"
+- assertVisible: "No workspace yet"
+- assertNotVisible: "Something went wrong"

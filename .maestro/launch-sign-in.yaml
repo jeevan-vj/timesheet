@@ -1,5 +1,7 @@
 # Launch smoke. Asserts the signed-out screen. No account and no writes.
-appId: nz.co.jnok.cleantrack
+# Default bundle is the dev variant. Production launch-only override:
+# maestro test -e APP_ID=nz.co.jnok.cleantrack .maestro/launch-sign-in.yaml
+appId: ${APP_ID || "nz.co.jnok.cleantrack.dev"}
 ---
 - launchApp
 - assertVisible:
