@@ -2,11 +2,21 @@ import type { ReactNode } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { spacing, theme, typeScale } from "@/ui/tokens";
 
-export function StatTile({ label, value, children }: { label: string; value: string; children?: ReactNode }) {
+export function StatTile({
+  accessibilityLabel,
+  children,
+  label,
+  value,
+}: {
+  accessibilityLabel?: string;
+  children?: ReactNode;
+  label: string;
+  value: string;
+}) {
   return (
     <View style={styles.tile}>
       <Text style={styles.label}>{label}</Text>
-      <Text selectable style={styles.value}>
+      <Text accessibilityLabel={accessibilityLabel} selectable style={styles.value}>
         {value}
       </Text>
       {children}

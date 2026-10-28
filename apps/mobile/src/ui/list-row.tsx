@@ -36,7 +36,7 @@ export function ListRow({
     </>
   );
 
-  if (!onPress) return <View style={styles.row}>{content}</View>;
+  if (!onPress) return <View accessibilityLabel={accessibilityLabel} style={styles.row}>{content}</View>;
   return (
     <Pressable
       accessibilityLabel={accessibilityLabel ?? [title, subtitle].filter(Boolean).join(", ")}
