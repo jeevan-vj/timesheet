@@ -41,6 +41,12 @@ describe("contractor portal view", () => {
     expect(portalQueryPersists(["portal-payments", "2026-10-26"])).toBe(false);
     expect(portalQueryPersists(["portal-payment", "2026-10-19"])).toBe(false);
     expect(portalQueryPersists(["viewer"])).toBe(false);
+    expect(portalQueryPersists(["owner-dashboard", "2026-10-26"])).toBe(false);
+    expect(portalQueryPersists(["owner-contractors"])).toBe(false);
+    expect(portalQueryPersists(["owner-contractor", "contractor-1"])).toBe(false);
+    expect(portalQueryPersists(["owner-invitation", "contractor-1"])).toBe(false);
+    expect(portalQueryPersists(["owner-sites"])).toBe(false);
+    expect(portalQueryPersists(["owner-me"])).toBe(false);
   });
 
   it("leaves remittance download unavailable", () => {

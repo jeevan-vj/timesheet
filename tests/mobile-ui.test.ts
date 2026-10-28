@@ -33,8 +33,10 @@ describe("mobile workspace routing", () => {
     expect(workspaceForRole("none")).toBe("none");
   });
 
-  it("serves owner and no-workspace homes from index routes so / is not unmatched", () => {
-    expect(existsSync(join(mobileApp, "(owner)", "index.tsx"))).toBe(true);
+  it("serves owner tabs and the no-workspace home from index routes so / is not unmatched", () => {
+    expect(existsSync(join(mobileApp, "(owner)", "(tabs)", "index.tsx"))).toBe(true);
+    expect(existsSync(join(mobileApp, "(owner)", "(tabs)", "_layout.tsx"))).toBe(true);
+    expect(existsSync(join(mobileApp, "(owner)", "index.tsx"))).toBe(false);
     expect(existsSync(join(mobileApp, "(none)", "index.tsx"))).toBe(true);
     expect(existsSync(join(mobileApp, "(contractor)", "(tabs)", "index.tsx"))).toBe(true);
     expect(existsSync(join(mobileApp, "(owner)", "owner.tsx"))).toBe(false);
@@ -63,6 +65,8 @@ describe("mobile status pill tones", () => {
     expect(statusPillTone("Recorded")).toBe("info");
     expect(statusPillTone("Approved")).toBe("success");
     expect(statusPillTone("Estimated")).toBe("warning");
+    expect(statusPillTone("Open")).toBe("warning");
+    expect(statusPillTone("Reopened")).toBe("warning");
   });
 
   it("keeps every status label above AA contrast on cards", () => {
