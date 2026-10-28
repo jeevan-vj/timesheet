@@ -1,0 +1,31 @@
+# Signed-in owner smoke.
+# Load MAESTRO_EMAIL and MAESTRO_PASSWORD from the environment, not -e.
+# Synthetic local or disposable accounts only. See .maestro/README.md.
+# Tab labels match apps/mobile/src/components/owner-tabs.tsx.
+appId: ${APP_ID || "nz.co.jnok.cleantrack.dev"}
+---
+- launchApp
+- tapOn:
+    id: "sign-in-email"
+- inputText: ${MAESTRO_EMAIL}
+- tapOn:
+    id: "sign-in-password"
+- inputText: ${MAESTRO_PASSWORD}
+- hideKeyboard
+- tapOn:
+    id: "sign-in-submit"
+- assertVisible:
+    id: "owner-today"
+- tapOn: "Week"
+- assertVisible:
+    id: "owner-week"
+- tapOn: "Team"
+- assertVisible:
+    id: "owner-team"
+- tapOn: "Payroll"
+- assertVisible:
+    id: "owner-payroll"
+- tapOn: "Account"
+- assertVisible:
+    id: "owner-account"
+- assertNotVisible: "Something went wrong"
