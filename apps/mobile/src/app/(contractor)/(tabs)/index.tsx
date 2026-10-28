@@ -6,19 +6,33 @@ import {
   formatShiftTime,
   portalCalendar,
   selectNextJob,
+  shiftStatusLabel,
   spokenNzd,
   sumPaidMinutes,
   type DirectionsPlatform,
   type PortalShift,
 } from "@cleantrack/core";
 import * as Linking from "expo-linking";
-import { router, type Href } from "expo-router";
+import { router } from "expo-router";
 import { useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
-import { ScreenScroll } from "@/components/screen-scroll";
 import { ShiftSheet } from "@/components/shift-sheet";
 import { usePortalPayments, usePortalUpcoming, usePortalWeek } from "@/portal-client";
-import { theme } from "@/theme";
+import {
+  Card,
+  EmptyState,
+  ErrorState,
+  ListRow,
+  PrimaryButton,
+  Screen,
+  SectionHeader,
+  Skeleton,
+  StatTile,
+  StatusPill,
+  spacing,
+  theme,
+  typeScale,
+} from "@/ui";
 
 function mapsPlatform(): DirectionsPlatform {
   if (Platform.OS === "ios") return "ios";
@@ -43,145 +57,195 @@ export default function HomeScreen() {
   const next = upcoming.data ? selectNextJob(shifts, today) : null;
   const weekShifts = week.data?.days.flatMap((day) => day.shifts) ?? [];
   const refreshing = week.isRefetching || upcoming.isRefetching || pay.isRefetching;
+  const loading = (!week.data && week.isPending) || (!upcoming.data && upcoming.isPending) || (!pay.data && pay.isPending);
+  const initialError = (!week.data && week.isError) || (!upcoming.data && upcoming.isError) || (!pay.data && pay.isError);
+  const refreshError = Boolean(week.data && week.isError) || Boolean(upcoming.data && upcoming.isError) || Boolean(pay.data && pay.isError);
+  const businessName = next?.businessName ?? weekShifts[0]?.businessName ?? shifts[0]?.businessName;
+
+  const refetchAll = () => {
+    void week.refetch();
+    void upcoming.refetch();
+    void pay.refetch();
+  };
 
   return (
     <>
-      <ScreenScroll
-        onRefresh={() => {
-          void week.refetch();
-          void upcoming.refetch();
-          void pay.refetch();
-        }}
+      <Screen
+        onRefresh={refetchAll}
         refreshing={refreshing}
         testID="contractor-home"
-        title="Home"
+        title={businessName ? `Kia ora · ${businessName}` : "Kia ora"}
         updatedAt={latestUpdate(week.dataUpdatedAt, upcoming.dataUpdatedAt)}
       >
-        <Text style={styles.section}>This week</Text>
-        <Text style={styles.hours}>{week.data ? `${formatMinutes(sumPaidMinutes(weekShifts))} this week` : "Loading hours"}</Text>
-        {pay.data ? (
-          <Text accessibilityLabel={spokenNzd(pay.data.headline.payCents)} maxFontSizeMultiplier={1.6} style={styles.headline}>
-            {formatNzd(pay.data.headline.payCents)}
-          </Text>
-        ) : (
-          <Text style={styles.body}>{pay.isPending ? "Loading pay" : "Pay loads when you're back online."}</Text>
-        )}
-        {pay.data?.headline.estimated ? <Text style={styles.body}>Estimated, until the week is approved.</Text> : null}
-
-        <Text style={styles.section}>Next job</Text>
-        {upcoming.isPending && !upcoming.data ? <Text accessibilityLabel="Loading">Loading your jobs.</Text> : null}
-        {upcoming.isError ? (
-          <Text accessibilityRole="alert" style={styles.body}>
-            Could not load your jobs.
-          </Text>
-        ) : null}
-        {next ? (
-          <View style={styles.card}>
-            <Pressable
-              accessibilityLabel={`${next.siteName}, ${formatDayHeading(next.workDate)}, ${formatShiftTime(next)}`}
-              accessibilityRole="button"
-              onPress={() => setShift(next)}
-            >
-              <Text style={styles.cardTitle}>{next.siteName}</Text>
-              <Text style={styles.body}>{formatDayHeading(next.workDate)}</Text>
-              <Text style={styles.body}>{formatShiftTime(next)}</Text>
-              {next.address ? <Text style={styles.body}>{next.address}</Text> : null}
-            </Pressable>
-            {directionsUrl(next.address, mapsPlatform()) ? (
-              <Pressable
-                accessibilityLabel={`Directions to ${next.siteName}`}
-                accessibilityRole="link"
-                onPress={() => {
-                  const url = directionsUrl(next.address, mapsPlatform());
-                  if (url) void Linking.openURL(url);
-                }}
-                style={styles.link}
-              >
-                <Text style={styles.linkText}>Directions</Text>
-              </Pressable>
+        {loading && !initialError ? <HomeSkeleton /> : null}
+        {initialError ? <ErrorState message="Your schedule and pay are unavailable." onRetry={refetchAll} /> : null}
+        {!loading && !initialError ? (
+          <>
+            {refreshError ? (
+              <Text accessibilityRole="alert" style={styles.refreshError}>
+                Some information could not refresh. Showing the latest saved details.
+              </Text>
             ) : null}
-          </View>
-        ) : upcoming.data ? (
-          <Text style={styles.body}>No upcoming job.</Text>
-        ) : null}
 
-        {week.data && week.data.tasks.length > 0 ? (
-          <View accessibilityLabel="Tasks" style={styles.card}>
-            <Text style={styles.cardTitle}>Tasks</Text>
-            {week.data.tasks.map((task) => (
-              <View key={task.id}>
-                <Text style={styles.body}>{task.title}</Text>
-                <Text style={styles.muted}>{task.detail}</Text>
+            <SectionHeader>Next job</SectionHeader>
+            {next ? <NextJobCard onOpen={() => setShift(next)} shift={next} /> : (
+              <EmptyState
+                detail="When your next shift is scheduled, its site, time and directions will appear here."
+                icon={{ ios: "calendar.badge.clock", android: "calendar_clock", web: "calendar_clock" }}
+                title="Nothing scheduled yet"
+              />
+            )}
+
+            <View style={styles.stats}>
+              <StatTile label="This week" value={formatMinutes(sumPaidMinutes(weekShifts))} />
+              <StatTile label="Pay" value={pay.data ? formatNzd(pay.data.headline.payCents) : "—"}>
+                {pay.data?.headline.estimated ? <StatusPill label="Estimated" /> : null}
+              </StatTile>
+            </View>
+            {pay.data ? (
+              <Text accessibilityLabel={spokenNzd(pay.data.headline.payCents)} style={styles.payContext}>
+                {pay.data.headline.estimated ? "Updates until your week is approved." : "Approved pay for this week."}
+              </Text>
+            ) : null}
+
+            {week.data && week.data.tasks.length > 0 ? (
+              <View style={styles.sectionGroup}>
+                <SectionHeader>Tasks</SectionHeader>
+                {week.data.tasks.map((task) => (
+                  <ListRow
+                    icon={{ ios: "checklist", android: "checklist", web: "checklist" }}
+                    key={task.id}
+                    subtitle={task.detail}
+                    title={task.title}
+                  />
+                ))}
               </View>
-            ))}
-          </View>
-        ) : null}
+            ) : null}
 
-        <Pressable
-          accessibilityLabel="Next 14 days"
-          accessibilityRole="button"
-          onPress={() => router.push("/upcoming" as Href)}
-          style={styles.link}
-        >
-          <Text style={styles.linkText}>Next 14 days</Text>
-        </Pressable>
-      </ScreenScroll>
+            <View style={styles.sectionGroup}>
+              <SectionHeader>Plan ahead</SectionHeader>
+              <ListRow
+                accessibilityLabel="Open shifts for the next 14 days"
+                icon={{ ios: "calendar", android: "calendar_month", web: "calendar_month" }}
+                onPress={() => router.push("/upcoming")}
+                subtitle="See every scheduled shift"
+                title="Next 14 days"
+              />
+            </View>
+          </>
+        ) : null}
+      </Screen>
       <ShiftSheet onClose={() => setShift(null)} shift={shift} />
     </>
   );
 }
 
+function NextJobCard({ shift, onOpen }: { shift: PortalShift; onOpen: () => void }) {
+  const directions = directionsUrl(shift.address, mapsPlatform());
+  const status = shiftStatusLabel(shift.occurrenceKind);
+  return (
+    <Card style={styles.hero}>
+      <Pressable
+        accessibilityLabel={`${shift.siteName}, ${formatDayHeading(shift.workDate)}, ${formatShiftTime(shift)}, ${status}`}
+        accessibilityRole="button"
+        onPress={onOpen}
+        style={({ pressed }) => [styles.heroContent, pressed && styles.heroPressed]}
+      >
+        <View style={styles.heroHeading}>
+          <Text style={styles.site}>{shift.siteName}</Text>
+          <StatusPill label={status} />
+        </View>
+        <Text style={styles.when}>{formatDayHeading(shift.workDate)} · {formatShiftTime(shift)}</Text>
+        {shift.address ? <Text selectable style={styles.address}>{shift.address}</Text> : null}
+      </Pressable>
+      {directions ? (
+        <PrimaryButton
+          accessibilityLabel={`Directions to ${shift.siteName}`}
+          onPress={() => void Linking.openURL(directions)}
+        >
+          Directions
+        </PrimaryButton>
+      ) : null}
+    </Card>
+  );
+}
+
+function HomeSkeleton() {
+  return (
+    <View accessibilityLabel="Loading home" style={styles.skeletons}>
+      <Skeleton height={174} />
+      <View style={styles.stats}>
+        <Skeleton height={112} style={styles.statSkeleton} />
+        <Skeleton height={112} style={styles.statSkeleton} />
+      </View>
+      <Skeleton height={72} />
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  section: {
-    color: theme.muted,
-    fontSize: 14,
-    fontWeight: "700",
-    lineHeight: 20,
-  },
-  hours: {
-    color: theme.text,
-    fontSize: 16,
-    lineHeight: 24,
-    flexShrink: 1,
-  },
-  headline: {
-    color: theme.text,
-    fontSize: 40,
-    fontWeight: "700",
-    flexShrink: 1,
-  },
-  body: {
-    color: theme.text,
-    fontSize: 16,
-    lineHeight: 24,
-    flexShrink: 1,
-  },
-  muted: {
-    color: theme.muted,
-    fontSize: 16,
-    lineHeight: 24,
-    flexShrink: 1,
-  },
-  card: {
-    backgroundColor: theme.surface,
+  refreshError: {
+    color: theme.mutedHighContrast,
+    backgroundColor: theme.surfaceRaised,
     borderRadius: theme.radius,
-    padding: 16,
-    gap: 4,
+    borderCurve: "continuous",
+    padding: spacing.sm,
+    fontSize: typeScale.subhead,
+    lineHeight: 22,
   },
-  cardTitle: {
+  hero: {
+    gap: spacing.md,
+  },
+  heroContent: {
+    gap: spacing.xs,
+    borderRadius: theme.radius,
+    borderCurve: "continuous",
+  },
+  heroPressed: {
+    opacity: 0.72,
+  },
+  heroHeading: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  site: {
+    flex: 1,
     color: theme.text,
-    fontSize: 20,
+    fontSize: typeScale.title,
+    lineHeight: 29,
     fontWeight: "700",
-    flexShrink: 1,
   },
-  link: {
-    minHeight: theme.touchTarget,
-    minWidth: theme.touchTarget,
-    justifyContent: "center",
+  when: {
+    color: theme.text,
+    fontSize: typeScale.body,
+    lineHeight: 25,
+    fontWeight: "600",
   },
-  linkText: {
-    color: theme.accent,
-    fontSize: 16,
-    fontWeight: "700",
+  address: {
+    color: theme.mutedHighContrast,
+    fontSize: typeScale.subhead,
+    lineHeight: 22,
+  },
+  stats: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+  },
+  payContext: {
+    color: theme.mutedHighContrast,
+    fontSize: typeScale.caption,
+    lineHeight: 18,
+  },
+  sectionGroup: {
+    gap: spacing.xs,
+  },
+  skeletons: {
+    gap: spacing.md,
+  },
+  statSkeleton: {
+    flex: 1,
+    minWidth: 132,
   },
 });
