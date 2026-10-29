@@ -8,10 +8,13 @@ import {
   portalCalendar,
   sumPaidMinutes,
   type OwnerDashboard,
+  type OwnerEntry,
 } from "@cleantrack/core";
+import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Figure, FinishSetup, OwnerGate, ScheduleNote, latestDataUpdatedAt } from "@/components/owner-feedback";
 import { OwnerShiftRow } from "@/components/owner-shift-row";
+import { OwnerShiftSheet } from "@/components/owner-shift-sheet";
 import { useOwnerDashboard } from "@/owner-client";
 import { EmptyState, ListRow, Screen, SectionHeader, spacing } from "@/ui";
 
@@ -39,6 +42,7 @@ export default function OwnerTodayScreen() {
 }
 
 function TodayBody({ data, today }: { data: OwnerDashboard; today: string }) {
+  const [selectedEntry, setSelectedEntry] = useState<OwnerEntry | null>(null);
   const shifts = ownerEntriesOnDate(data.entries, today);
   const tasks = ownerTasks({
     entries: shifts,
@@ -77,9 +81,16 @@ function TodayBody({ data, today }: { data: OwnerDashboard; today: string }) {
         />
       ) : (
         <View style={styles.shifts}>
-          {shifts.map((entry) => <OwnerShiftRow entry={entry} key={entry.id} showContractor />)}
+          {shifts.map((entry) => (
+            <OwnerShiftRow entry={entry} key={entry.id} onPress={() => setSelectedEntry(entry)} showContractor />
+          ))}
         </View>
       )}
+      <OwnerShiftSheet
+        approvalStatus={data.approval.status}
+        entry={selectedEntry}
+        onClose={() => setSelectedEntry(null)}
+      />
     </>
   );
 }
