@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { occurrenceExceptionInput } from "@cleantrack/core";
 import type { OwnerEntry } from "@cleantrack/core";
 import {
+  OWNER_SHIFT_ACTIONS_ENABLED,
   OWNER_SHIFT_MUTATION_MESSAGES,
   ownerShiftActionsState,
   ownerShiftExceptionBody,
@@ -17,6 +18,22 @@ const entry = {
 } as OwnerEntry;
 
 describe("mobile owner shift mutations", () => {
+  it("keeps mobile payroll mutations hard-disabled pending audit and release review", () => {
+    expect(OWNER_SHIFT_ACTIONS_ENABLED).toBe(false);
+  });
+
+  it("does not offer Worked as an implicit reset of custom paid hours", () => {
+    const state = ownerShiftActionsState({ occurrenceKind: "hours_override" }, "open");
+    expect(state.actions.find((item) => item.action === "worked")).toMatchObject({
+      enabled: false,
+      reason: expect.stringMatching(/custom paid hours/i),
+    });
+    expect(state.actions.find((item) => item.action === "reset_pending")).toMatchObject({
+      enabled: true,
+      label: "Reset to pending (restore scheduled hours)",
+    });
+  });
+
   it.each<[OwnerShiftAction, number | undefined, object]>([
     ["worked", undefined, { kind: "confirm_worked", scope: "this_day" }],
     ["did_not_work", undefined, { kind: "absent", scope: "this_day" }],

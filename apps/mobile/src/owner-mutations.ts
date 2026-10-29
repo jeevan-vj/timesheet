@@ -1,5 +1,10 @@
 import type { OwnerApprovalStatus, OwnerEntry } from "@cleantrack/core";
 
+// Re-enable only after #53 audit policy, paid-hours semantics, and mobile evidence are reviewed.
+export const OWNER_SHIFT_ACTIONS_ENABLED: boolean = false;
+export const OWNER_SHIFT_ACTIONS_DISABLED_MESSAGE =
+  "Mobile paid-hours changes are unavailable pending audit history and release review.";
+
 export type OwnerShiftAction = "worked" | "did_not_work" | "reset_pending" | "change_hours";
 
 export type OwnerShiftExceptionBody =
@@ -52,7 +57,7 @@ const ACTIONS: ReadonlyArray<{
 }> = [
   { action: "worked", label: "Worked", currentKind: "worked", currentReason: "This shift is already marked worked." },
   { action: "did_not_work", label: "Didn't work", currentKind: "absent", currentReason: "This shift is already marked didn't work." },
-  { action: "reset_pending", label: "Reset to pending", currentKind: "scheduled", currentReason: "This shift is already pending." },
+  { action: "reset_pending", label: "Reset to pending (restore scheduled hours)", currentKind: "scheduled", currentReason: "This shift is already pending." },
   { action: "change_hours", label: "Change hours (this day only)", currentKind: null, currentReason: null },
 ];
 
@@ -135,7 +140,9 @@ export function ownerShiftActionsState(
   const lockedReason = approvalStatus === "approved" ? OWNER_SHIFT_MUTATION_MESSAGES.weekLocked : null;
   return {
     actions: ACTIONS.map(({ action, label, currentKind, currentReason: alreadyReason }) => {
-      const currentReason = currentKind === entry.occurrenceKind ? alreadyReason : null;
+      const currentReason = action === "worked" && entry.occurrenceKind === "hours_override"
+        ? "This shift has custom paid hours. Use Reset to pending to explicitly restore scheduled hours."
+        : currentKind === entry.occurrenceKind ? alreadyReason : null;
       return {
         action,
         label,
