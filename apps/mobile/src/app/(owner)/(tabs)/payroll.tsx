@@ -12,6 +12,7 @@ import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { Figure, FinishSetup, OwnerGate, ScheduleNote, latestDataUpdatedAt, openOwnerWebDashboard } from "@/components/owner-feedback";
 import { OwnerWeekPicker } from "@/components/owner-week-picker";
+import { OwnerWeekApproval } from "@/components/owner-week-approval";
 import { useOwnerDashboard } from "@/owner-client";
 import { EmptyState, ListRow, Screen, SecondaryButton, StatusPill, spacing, theme, typeScale } from "@/ui";
 
@@ -33,18 +34,21 @@ export default function OwnerPayrollScreen() {
     >
       <OwnerWeekPicker onChange={setWeekStart} weekStart={weekStart} />
       <OwnerGate query={dashboard}>
-        {(data) => ownerSetupIncomplete(data.business) ? <FinishSetup /> : <PayrollBody data={data} />}
+        {(data) => ownerSetupIncomplete(data.business) ? <FinishSetup /> : (
+          <PayrollBody data={data} onRefresh={() => dashboard.refetch()} />
+        )}
       </OwnerGate>
     </Screen>
   );
 }
 
-function PayrollBody({ data }: { data: OwnerDashboard }) {
+function PayrollBody({ data, onRefresh }: { data: OwnerDashboard; onRefresh: () => Promise<unknown> }) {
   const totals = ownerWeekTotals(data.summary);
   return (
     <>
       <ScheduleNote dashboard={data} />
       <StatusPill label={ownerApprovalLabel(data.approval.status)} />
+      <OwnerWeekApproval data={data} onRefresh={onRefresh} />
       <Figure accessibilityLabel={spokenNzd(totals.payCents)} label="Gross pay" value={formatNzd(totals.payCents)} />
       <Text style={styles.caption}>{formatMinutes(totals.paidMinutes)} paid. Gross contractor pay before tax, GST, expenses, or adjustments.</Text>
       {data.summary.length === 0 ? (

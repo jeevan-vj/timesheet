@@ -2,29 +2,36 @@ import { useCallback, useEffect, useState } from "react";
 import { sessionEndsOnStatus, roleLabel, type ViewerRole } from "@/api-config";
 import { mobileFetch } from "@/api";
 import { readViewerProfile, type ContractorLink } from "@/me-response";
+import {
+  workspaceForRole,
+  workspaceSwitchAvailable,
+  type WorkspaceChoice,
+} from "@/role-route";
+import { readWorkspaceChoice, writeWorkspaceChoice } from "@/workspace-choice";
 
 export type ViewerStatus = "loading" | "ready" | "error";
 
 export function useViewer() {
-  const [status, setStatus] = useState<ViewerStatus>("loading");
+  const [profileStatus, setProfileStatus] = useState<ViewerStatus>("loading");
   const [role, setRole] = useState<ViewerRole>("none");
   const [contractorOf, setContractorOf] = useState<ContractorLink[]>([]);
+  const [storedChoice, setStoredChoice] = useState<WorkspaceChoice | null | undefined>(undefined);
 
   const reload = useCallback(async () => {
-    setStatus((current) => (current === "ready" ? current : "loading"));
+    setProfileStatus((current) => (current === "ready" ? current : "loading"));
     try {
       const response = await mobileFetch("/api/me");
       if (sessionEndsOnStatus(response.status)) return;
       const profile = response.ok ? readViewerProfile(await response.json()) : null;
       if (!profile) {
-        setStatus("error");
+        setProfileStatus("error");
         return;
       }
       setRole(profile.role);
       setContractorOf(profile.contractorOf);
-      setStatus("ready");
+      setProfileStatus("ready");
     } catch {
-      setStatus("error");
+      setProfileStatus("error");
     }
   }, []);
 
@@ -32,5 +39,27 @@ export function useViewer() {
     void reload();
   }, [reload]);
 
-  return { status, role, label: roleLabel(role), contractorOf, reload };
+  useEffect(() => {
+    void readWorkspaceChoice()
+      .then(setStoredChoice)
+      .catch(() => setStoredChoice(null));
+  }, []);
+
+  const selectWorkspace = useCallback(async (choice: WorkspaceChoice) => {
+    if (!workspaceSwitchAvailable(role)) return;
+    await writeWorkspaceChoice(choice);
+    setStoredChoice(choice);
+  }, [role]);
+
+  const status = storedChoice === undefined ? "loading" : profileStatus;
+  return {
+    status,
+    role,
+    label: roleLabel(role),
+    contractorOf,
+    workspace: workspaceForRole(role, storedChoice ?? null),
+    canSwitchWorkspace: workspaceSwitchAvailable(role),
+    selectWorkspace,
+    reload,
+  };
 }

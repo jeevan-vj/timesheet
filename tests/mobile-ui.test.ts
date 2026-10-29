@@ -1,8 +1,13 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { shiftStatusLabel } from "@cleantrack/core/portal";
-import { workspaceForRole } from "../apps/mobile/src/role-route";
+import {
+  contractorWorkspaceLabel,
+  nextWorkspace,
+  workspaceForRole,
+  workspaceSwitchAvailable,
+} from "../apps/mobile/src/role-route";
 import { statusColors, theme } from "../apps/mobile/src/theme";
 import { screenSafeAreaEdges } from "../apps/mobile/src/ui/screen-edges";
 import { statusPillTone } from "../apps/mobile/src/ui/status-tone";
@@ -28,9 +33,43 @@ const mobileApp = join(process.cwd(), "apps/mobile/src/app");
 describe("mobile workspace routing", () => {
   it("routes every viewer role without showing the wrong workspace", () => {
     expect(workspaceForRole("contractor")).toBe("contractor");
-    expect(workspaceForRole("owner_and_contractor")).toBe("contractor");
+    expect(workspaceForRole("owner_and_contractor")).toBe("owner");
+    expect(workspaceForRole("owner_and_contractor", "contractor")).toBe("contractor");
+    expect(workspaceForRole("owner_and_contractor", "owner")).toBe("owner");
     expect(workspaceForRole("owner")).toBe("owner");
     expect(workspaceForRole("none")).toBe("none");
+  });
+
+  it("ignores stale choices and only offers switching to dual-role users", () => {
+    expect([
+      workspaceForRole("owner", null),
+      workspaceForRole("owner", "owner"),
+      workspaceForRole("owner", "contractor"),
+    ]).toEqual(["owner", "owner", "owner"]);
+    expect([
+      workspaceForRole("contractor", null),
+      workspaceForRole("contractor", "owner"),
+      workspaceForRole("contractor", "contractor"),
+    ]).toEqual(["contractor", "contractor", "contractor"]);
+    expect([
+      workspaceForRole("none", null),
+      workspaceForRole("none", "owner"),
+      workspaceForRole("none", "contractor"),
+    ]).toEqual(["none", "none", "none"]);
+    expect(workspaceSwitchAvailable("owner_and_contractor")).toBe(true);
+    expect(workspaceSwitchAvailable("owner")).toBe(false);
+    expect(workspaceSwitchAvailable("contractor")).toBe(false);
+    expect(nextWorkspace("owner")).toBe("contractor");
+    expect(nextWorkspace("contractor")).toBe("owner");
+  });
+
+  it("names contractor workspaces with the linked businesses", () => {
+    expect(contractorWorkspaceLabel([])).toBe("My work");
+    expect(contractorWorkspaceLabel([{ businessId: "b1", businessName: "Northwind" }])).toBe("My work at Northwind");
+    expect(contractorWorkspaceLabel([
+      { businessId: "b1", businessName: "Northwind" },
+      { businessId: "b2", businessName: "Harbour" },
+    ])).toBe("My work at Northwind and Harbour");
   });
 
   it("serves owner tabs and the no-workspace home from index routes so / is not unmatched", () => {
@@ -41,6 +80,21 @@ describe("mobile workspace routing", () => {
     expect(existsSync(join(mobileApp, "(contractor)", "(tabs)", "index.tsx"))).toBe(true);
     expect(existsSync(join(mobileApp, "(owner)", "owner.tsx"))).toBe(false);
     expect(existsSync(join(mobileApp, "(none)", "no-workspace.tsx"))).toBe(false);
+  });
+
+  it("offers the dual-role switch from both homes and account screens", () => {
+    for (const file of [
+      "(owner)/(tabs)/index.tsx",
+      "(contractor)/(tabs)/index.tsx",
+    ]) {
+      expect(readFileSync(join(mobileApp, file), "utf8")).toContain("WorkspaceSwitchButton");
+    }
+    for (const file of [
+      "(owner)/(tabs)/account.tsx",
+      "(contractor)/(tabs)/account.tsx",
+    ]) {
+      expect(readFileSync(join(mobileApp, file), "utf8")).toContain("WorkspaceSwitchSection");
+    }
   });
 });
 

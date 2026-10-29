@@ -231,7 +231,7 @@ describe("owner read models", () => {
     expect(ownerTasks({ entries: [{ ...monday, occurrenceKind: "worked" }], approvalStatus: "open" })).toEqual([{
       id: "week-ready",
       title: "Week ready to approve",
-      detail: "Approval stays on the web for now.",
+      detail: "Review the totals in Week or Payroll before approving.",
     }]);
     expect(ownerTasks({
       entries: [{ ...monday, occurrenceKind: "worked" }],

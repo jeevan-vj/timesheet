@@ -15,6 +15,7 @@ import { StyleSheet, View } from "react-native";
 import { Figure, FinishSetup, OwnerGate, ScheduleNote, latestDataUpdatedAt } from "@/components/owner-feedback";
 import { OwnerShiftRow } from "@/components/owner-shift-row";
 import { OwnerShiftSheet } from "@/components/owner-shift-sheet";
+import { WorkspaceSwitchButton } from "@/components/workspace-switcher";
 import { useOwnerDashboard } from "@/owner-client";
 import { EmptyState, ListRow, Screen, SectionHeader, spacing } from "@/ui";
 
@@ -34,6 +35,7 @@ export default function OwnerTodayScreen() {
       title="Today"
       updatedAt={latestDataUpdatedAt(dashboard.dataUpdatedAt)}
     >
+      <WorkspaceSwitchButton />
       <OwnerGate query={dashboard}>
         {(data) => ownerSetupIncomplete(data.business) ? <FinishSetup /> : <TodayBody data={data} today={today} />}
       </OwnerGate>

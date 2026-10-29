@@ -8,10 +8,9 @@ import { RouteErrorBoundary, ScreenErrorBoundary } from "@/components/route-erro
 import { reportScreenError } from "@/report-screen-error";
 import { authClient } from "@/auth-client";
 import { PortalQueryProvider } from "@/query-client";
-import { workspaceForRole } from "@/role-route";
 import { theme } from "@/theme";
 import { ErrorState } from "@/ui";
-import { useViewer } from "@/use-viewer";
+import { ViewerProvider, useCurrentViewer } from "@/viewer-context";
 
 void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
@@ -51,7 +50,13 @@ function RootNavigator() {
   }, [data?.user, isPending]);
   if (isPending) return <View style={styles.fill} />;
   const signedIn = Boolean(data?.user);
-  if (signedIn) return <SignedInNavigator />;
+  if (signedIn) {
+    return (
+      <ViewerProvider>
+        <SignedInNavigator />
+      </ViewerProvider>
+    );
+  }
   return (
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.background } }}>
       <Stack.Protected guard redirectTo="/">
@@ -67,7 +72,7 @@ function RootNavigator() {
 }
 
 function SignedInNavigator() {
-  const viewer = useViewer();
+  const viewer = useCurrentViewer();
   useEffect(() => {
     if (viewer.status !== "loading") void SplashScreen.hideAsync().catch(() => undefined);
   }, [viewer.status]);
@@ -79,7 +84,7 @@ function SignedInNavigator() {
       </View>
     );
   }
-  const workspace = workspaceForRole(viewer.role);
+  const workspace = viewer.workspace;
   return (
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.background } }}>
       <Stack.Protected guard={false}>

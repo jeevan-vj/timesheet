@@ -39,6 +39,8 @@ Contractor identity/contact data, site locations, rates, work notes, time record
 | CSRF approves or reopens a week | Cookie-authenticated POST `/api/weeks/approve` and `/api/weeks/reopen` require a trusted Origin, or `X-CleanTrack-Client: mobile/<version>` when Origin is absent |
 | One owner approves or reopens another owner's week | `week_approval` lookups and writes use the session owner plus week start; foreign rows are invisible (`open` / `week_not_approved`) |
 | Approve commits stale hours or pay | Compare-and-set on current owner-scoped minutes and entry-snapshot pay; mismatch returns `stale_week` with no insert or timestamp bump |
+| Mobile approval retries stale totals or locks without confirmation | Week and Payroll send the exact displayed integer totals only after a confirm tap. Mutations are not optimistic or automatically retried; stale/locked/not-approved responses refetch the selected week for review |
+| A shared device exposes the last dual-role workspace | The stored preference is only `owner` or `contractor`, contains no identity or pay data, is ignored when the server role no longer allows it, and is cleared on sign-out |
 | Money/time rounding drift | Integer cents and minutes; per-entry cent rounding is specified and tested |
 | Owner downloads another owner's remittance PDF | Session-derived owner plus owner predicates on contractor, time entry, and contractor/site joins; missing and cross-owner ids return identical `not_found` |
 | Remittance generation mutates a locked week | Remittance is generate-on-read and does not write `time_entry` or `week_approval`; `week_locked` applies to time-entry writes only |

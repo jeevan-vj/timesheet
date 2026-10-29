@@ -17,6 +17,7 @@ import { router } from "expo-router";
 import { useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { ShiftSheet } from "@/components/shift-sheet";
+import { WorkspaceSwitchButton } from "@/components/workspace-switcher";
 import { usePortalPayments, usePortalUpcoming, usePortalWeek } from "@/portal-client";
 import {
   Card,
@@ -77,6 +78,7 @@ export default function HomeScreen() {
         title={businessName ? `Kia ora · ${businessName}` : "Kia ora"}
         updatedAt={latestUpdate(week.dataUpdatedAt, upcoming.dataUpdatedAt)}
       >
+        <WorkspaceSwitchButton />
         {loading && !initialError ? <HomeSkeleton /> : null}
         {initialError ? <ErrorState message="Your schedule and pay are unavailable." onRetry={refetchAll} /> : null}
         {!loading && !initialError ? (

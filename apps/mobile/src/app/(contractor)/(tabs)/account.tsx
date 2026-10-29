@@ -4,9 +4,10 @@ import { Alert, Platform, StyleSheet, Text, View } from "react-native";
 import { endSession } from "@/api";
 import { authClient } from "@/auth-client";
 import { SignedInIdentity } from "@/components/signed-in-identity";
+import { WorkspaceSwitchSection } from "@/components/workspace-switcher";
 import { accountWebUrl, formatAppBuild } from "@/contractor-view";
 import { apiBaseUrl, appVersion, updateChannel } from "@/runtime-config";
-import { useViewer } from "@/use-viewer";
+import { useCurrentViewer } from "@/viewer-context";
 import {
   DestructiveButton,
   EmptyState,
@@ -24,7 +25,7 @@ export { ErrorBoundary } from "@/components/route-error-boundary";
 
 export default function AccountScreen() {
   const { data } = authClient.useSession();
-  const viewer = useViewer();
+  const viewer = useCurrentViewer();
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [linkError, setLinkError] = useState("");
@@ -105,6 +106,7 @@ export default function AccountScreen() {
           )}
         </View>
       ) : null}
+      <WorkspaceSwitchSection />
       <View style={styles.section}>
         <SectionHeader>Website</SectionHeader>
         <ListRow

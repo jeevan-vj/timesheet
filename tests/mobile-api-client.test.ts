@@ -48,21 +48,22 @@ describe("mobile client header", () => {
     expect(mobileClientValue("a".repeat(40))).toBe("mobile/0");
   });
 
-  it("sends the header and session cookie on native requests and omits credentials", () => {
+  it("sends the header and session cookie on native week-approval mutations and omits credentials", () => {
     const request = buildApiRequest({
       baseUrl: "https://api.example.test/",
-      path: "/api/me",
+      path: "/api/weeks/approve",
       version: "0.1.0",
       cookie: `  ${COOKIE}  `,
-      headers: { accept: "application/json", [MOBILE_CLIENT_HEADER]: "mobile/spoofed" },
+      headers: { accept: "application/json", "content-type": "application/json", [MOBILE_CLIENT_HEADER]: "mobile/spoofed" },
     });
     const headers = new Headers(request.headers);
-    expect(request.url).toBe("https://api.example.test/api/me");
+    expect(request.url).toBe("https://api.example.test/api/weeks/approve");
     expect(request.url).not.toContain(COOKIE);
     expect(request.credentials).toBe("omit");
     expect(headers.get(MOBILE_CLIENT_HEADER)).toBe("mobile/0.1.0");
     expect(headers.get("cookie")).toBe(COOKIE);
     expect(headers.get("accept")).toBe("application/json");
+    expect(headers.get("content-type")).toBe("application/json");
   });
 
   it("keeps the client header on web fetches and lets the browser send the cookie", () => {
