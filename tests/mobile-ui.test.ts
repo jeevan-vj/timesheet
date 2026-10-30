@@ -121,6 +121,10 @@ describe("mobile status pill tones", () => {
     expect(statusPillTone("Estimated")).toBe("warning");
     expect(statusPillTone("Open")).toBe("warning");
     expect(statusPillTone("Reopened")).toBe("warning");
+    expect(statusPillTone("Active")).toBe("success");
+    expect(statusPillTone("Invitation pending")).toBe("warning");
+    expect(statusPillTone("Invitation expired")).toBe("danger");
+    expect(statusPillTone("Archived")).toBe("neutral");
   });
 
   it("keeps every status label above AA contrast on cards", () => {

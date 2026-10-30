@@ -3,15 +3,20 @@ import {
   formatNzd,
   isIsoDate,
   ownerEngagementLabel,
-  ownerInvitationLabel,
   type OwnerContractor,
-  type OwnerInvitation,
 } from "@cleantrack/core";
 import { router, useLocalSearchParams } from "expo-router";
+import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  OwnerContractorFormSheet,
+  OwnerContractorLifecycleActions,
+  OwnerInvitationActions,
+} from "@/components/owner-contractor-management";
 import { OwnerFailure, OwnerGate, OwnerLoading, RefreshWarning, latestDataUpdatedAt } from "@/components/owner-feedback";
 import { useOwnerContractor, useOwnerInvitation } from "@/owner-client";
-import { Card, Screen, spacing, theme, typeScale } from "@/ui";
+import { Card, Screen, StatusPill, spacing, theme, typeScale } from "@/ui";
+import type { StatusPillLabel } from "@/ui/status-tone";
 
 export { ErrorBoundary } from "@/components/route-error-boundary";
 
@@ -33,6 +38,7 @@ export default function OwnerContractorScreen() {
   const id = oneParam(params.id);
   const contractor = useOwnerContractor(id);
   const invitation = useOwnerInvitation(id);
+  const [editing, setEditing] = useState(false);
 
   return (
     <Screen
@@ -60,7 +66,18 @@ export default function OwnerContractorScreen() {
         {(person) => (
           <>
             <ContractorDetail contractor={person} />
-            <InvitationDetail query={invitation} />
+            <OwnerContractorLifecycleActions
+              contractor={person}
+              onArchived={() => router.replace("/team")}
+              onEdit={() => setEditing(true)}
+            />
+            <InvitationDetail contractor={person} query={invitation} />
+            <OwnerContractorFormSheet
+              contractor={person}
+              onClose={() => setEditing(false)}
+              onSaved={() => setEditing(false)}
+              visible={editing}
+            />
           </>
         )}
       </OwnerGate>
@@ -74,7 +91,7 @@ function ContractorDetail({ contractor }: { contractor: OwnerContractor }) {
   return (
     <Card>
       <Text style={styles.name}>{contractor.name}</Text>
-      <Text style={styles.sub}>{ownerEngagementLabel(contractor.engagementStatus)}</Text>
+      <StatusPill label={ownerEngagementLabel(contractor.engagementStatus) as StatusPillLabel} />
       {preferred && preferred !== contractor.name ? <Text style={styles.body}>Preferred name {preferred}</Text> : null}
       {contractor.email ? <Text selectable style={styles.body}>{contractor.email}</Text> : null}
       {contractor.phone ? <Text selectable style={styles.body}>{contractor.phone}</Text> : null}
@@ -91,26 +108,15 @@ function ContractorDetail({ contractor }: { contractor: OwnerContractor }) {
   );
 }
 
-function InvitationDetail({ query }: { query: ReturnType<typeof useOwnerInvitation> }) {
+function InvitationDetail({ contractor, query }: { contractor: OwnerContractor; query: ReturnType<typeof useOwnerInvitation> }) {
   if (query.data == null && query.isPending) return <OwnerLoading />;
   if (query.data == null && query.isError) return <OwnerFailure error={query.error} onRetry={() => void query.refetch()} />;
   if (query.data == null) return null;
   return (
     <View style={styles.invitation}>
       <RefreshWarning visible={query.isError} />
-      <InvitationCard invitation={query.data} />
+      <OwnerInvitationActions contractor={contractor} invitation={query.data} />
     </View>
-  );
-}
-
-function InvitationCard({ invitation }: { invitation: OwnerInvitation }) {
-  const expires = dateLabel(invitation.expiresAt);
-  return (
-    <Card>
-      <Text style={styles.kicker}>Portal invitation</Text>
-      <Text style={styles.body}>{ownerInvitationLabel(invitation.state)}</Text>
-      {expires ? <Text style={styles.sub}>Expires {expires}</Text> : null}
-    </Card>
   );
 }
 
@@ -130,12 +136,6 @@ const styles = StyleSheet.create({
     color: theme.text,
     fontSize: typeScale.title,
     lineHeight: 28,
-    fontWeight: "700",
-  },
-  kicker: {
-    color: theme.mutedHighContrast,
-    fontSize: typeScale.caption,
-    lineHeight: 18,
     fontWeight: "700",
   },
   body: {

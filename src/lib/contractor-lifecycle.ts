@@ -1,13 +1,13 @@
-import { ENGAGEMENT_STATUSES, gstNumberDigits, type EngagementStatus } from "@cleantrack/core/engagement";
+import { ENGAGEMENT_STATUSES, type EngagementStatus } from "@cleantrack/core/engagement";
 import { isUniqueConstraintError } from "@/lib/db-errors";
 
-export { ENGAGEMENT_STATUSES, gstNumberDigits };
+export { contractorMayHoldPortalAccess, gstNumberDigits } from "@cleantrack/core/engagement";
+export { ENGAGEMENT_STATUSES };
 export type { EngagementStatus };
 
 export type IncludeArchivedQuery = { ok: true; includeArchived: boolean } | { ok: false };
 
 const SCHEDULABLE_STATUSES = new Set<EngagementStatus>(["invited", "active"]);
-const PORTAL_ACCESS_STATUSES = new Set<EngagementStatus>(["invited", "active"]);
 
 export function isEngagementStatus(value: string): value is EngagementStatus {
   return (ENGAGEMENT_STATUSES as readonly string[]).includes(value);
@@ -15,10 +15,6 @@ export function isEngagementStatus(value: string): value is EngagementStatus {
 
 export function activeForEngagementStatus(status: EngagementStatus): boolean {
   return SCHEDULABLE_STATUSES.has(status);
-}
-
-export function contractorMayHoldPortalAccess(status: EngagementStatus): boolean {
-  return PORTAL_ACCESS_STATUSES.has(status);
 }
 
 export type EngagementAssignmentEffect = "deactivate" | "reactivate" | "none";
