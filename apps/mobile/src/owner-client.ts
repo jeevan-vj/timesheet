@@ -15,7 +15,6 @@ import { useQuery } from "@tanstack/react-query";
 import type { ZodType } from "zod";
 import { mobileFetch } from "@/api";
 import {
-  OWNER_CONTRACTORS_PATH,
   OWNER_CONTRACTORS_QUERY,
   OWNER_CONTRACTOR_QUERY,
   OWNER_DASHBOARD_QUERY,
@@ -32,6 +31,7 @@ import {
   readOwner,
   type OwnerLoadResult,
 } from "@/owner-api";
+import { ownerContractorsPath } from "@/owner-team";
 
 async function loadOwner(path: string, method: typeof OWNER_HTTP_METHOD): Promise<OwnerLoadResult> {
   const response = await mobileFetch(path, { method });
@@ -54,10 +54,10 @@ export function useOwnerDashboard(weekStart: string) {
   return useOwnerRead<OwnerDashboard>([OWNER_DASHBOARD_QUERY, weekStart], () => ownerDashboardPath(weekStart), ownerDashboardSchema);
 }
 
-export function useOwnerContractors() {
+export function useOwnerContractors(includeArchived = false) {
   return useOwnerRead<{ contractors: OwnerContractor[] }>(
-    [OWNER_CONTRACTORS_QUERY],
-    () => OWNER_CONTRACTORS_PATH,
+    [OWNER_CONTRACTORS_QUERY, includeArchived ? "all" : "current"],
+    () => ownerContractorsPath(includeArchived),
     ownerContractorsSchema,
   );
 }

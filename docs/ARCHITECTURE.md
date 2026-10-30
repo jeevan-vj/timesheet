@@ -132,6 +132,8 @@ The web app stays at the repository root (`src/`, `drizzle/`, `wrangler.jsonc`, 
 
 The owner shell is Today, Week, Team, Payroll, and Account. Week and Payroll reuse the dashboard summary and send those exact integer totals to `POST /api/weeks/approve`; reopen sends only the selected Monday to `POST /api/weeks/reopen`. Both calls use the existing mobile request wrapper, session cookie, and client header. The mutation is explicit, never optimistic, never automatically retried, and invalidates only the selected owner-dashboard query after success. `stale_week`, `week_locked`, and `week_not_approved` refetch the dashboard so the owner reviews current server state before another action. Owner dashboard data remains excluded from persisted query storage.
 
+Owner Team reads `GET /api/contractors` with optional `includeArchived=1`, then uses the existing contractor create, patch, archive, restore, and invitation endpoints through `mobileFetch`. Mutations are explicit, non-optimistic, and invalidate the contractor list plus the affected contractor or invitation query only after success. The focused mobile form reuses `contractorInput` for name, email, phone, and integer-cent rate validation. One-time invitation links live only in component memory until native Share is opened; owner query roots remain excluded from the persisted contractor cache.
+
 ### Weekly approval HTTP contract
 
 `WeekApprovalResource` omits `ownerUserId` and serializes timestamps as ISO strings:

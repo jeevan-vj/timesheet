@@ -25,7 +25,7 @@ export function Sheet({
             {title}
           </Text>
         </View>
-        <ScrollView contentContainerStyle={styles.content}>{children}</ScrollView>
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">{children}</ScrollView>
         <SecondaryButton accessibilityLabel={closeLabel} onPress={onClose}>
           Close
         </SecondaryButton>
