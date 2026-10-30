@@ -25,7 +25,7 @@ describe("runtime dependency pins", () => {
     expect(root.dependencies["react-dom"]).toBe("19.3.0");
     expect(root.dependencies["react-server-dom-webpack"]).toBe("19.3.0");
     expect(mobile.dependencies.react).toBe("19.3.0");
-    expect(mobile.dependencies["react-native"]).toBe("0.88.0");
+    expect(mobile.dependencies["react-native"]).toBe("0.88.1");
     expect(root.devDependencies.typescript).toBe("6.0.3");
     expect(mobile.devDependencies.typescript).toBe("~6.0.3");
     expect(root.devDependencies["@types/react"]).toBe("19.3.0");
