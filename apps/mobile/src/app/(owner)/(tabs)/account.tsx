@@ -4,6 +4,7 @@ import { Alert, Platform, StyleSheet, Text, View } from "react-native";
 import { endSession } from "@/api";
 import { authClient } from "@/auth-client";
 import { Figure, FinishSetup, OwnerFailure, OwnerLoading, RefreshWarning, latestDataUpdatedAt } from "@/components/owner-feedback";
+import { WorkspaceSwitchSection } from "@/components/workspace-switcher";
 import { useOwnerMe, useOwnerSites } from "@/owner-client";
 import { Card, EmptyState, ListRow, Screen, SecondaryButton, SectionHeader, spacing, theme, typeScale } from "@/ui";
 
@@ -59,6 +60,7 @@ export default function OwnerAccountScreen() {
           )}
         </>
       ) : null}
+      <WorkspaceSwitchSection />
       <SecondaryButton
         accessibilityLabel={busy ? "Signing out" : "Sign out"}
         disabled={busy}

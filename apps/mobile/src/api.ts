@@ -3,6 +3,7 @@ import { buildApiRequest, sessionEndsOnStatus } from "@/api-config";
 import { authClient } from "@/auth-client";
 import { clearStoredPortalCache } from "@/query-client";
 import { apiBaseUrl, appVersion } from "@/runtime-config";
+import { clearWorkspaceChoice } from "@/workspace-choice";
 
 let endingSession = false;
 
@@ -10,6 +11,7 @@ export async function endSession(): Promise<void> {
   if (endingSession) return;
   endingSession = true;
   clearStoredPortalCache();
+  await clearWorkspaceChoice().catch(() => undefined);
   try {
     await authClient.signOut();
   } catch {

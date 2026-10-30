@@ -16,6 +16,7 @@ import { FinishSetup, OwnerGate, ScheduleNote, latestDataUpdatedAt } from "@/com
 import { OwnerShiftRow } from "@/components/owner-shift-row";
 import { OwnerShiftSheet } from "@/components/owner-shift-sheet";
 import { OwnerWeekPicker } from "@/components/owner-week-picker";
+import { OwnerWeekApproval } from "@/components/owner-week-approval";
 import { useOwnerDashboard } from "@/owner-client";
 import { EmptyState, Screen, SectionHeader, StatTile, StatusPill, spacing } from "@/ui";
 
@@ -37,13 +38,15 @@ export default function OwnerWeekScreen() {
     >
       <OwnerWeekPicker onChange={setWeekStart} weekStart={weekStart} />
       <OwnerGate query={dashboard}>
-        {(data) => ownerSetupIncomplete(data.business) ? <FinishSetup /> : <WeekBody data={data} />}
+        {(data) => ownerSetupIncomplete(data.business) ? <FinishSetup /> : (
+          <WeekBody data={data} onRefresh={() => dashboard.refetch()} />
+        )}
       </OwnerGate>
     </Screen>
   );
 }
 
-function WeekBody({ data }: { data: OwnerDashboard }) {
+function WeekBody({ data, onRefresh }: { data: OwnerDashboard; onRefresh: () => Promise<unknown> }) {
   const [selectedEntry, setSelectedEntry] = useState<OwnerEntry | null>(null);
   const totals = ownerWeekTotals(data.summary);
   const groups = ownerEntriesByContractor(data.entries);
@@ -51,6 +54,7 @@ function WeekBody({ data }: { data: OwnerDashboard }) {
     <>
       <ScheduleNote dashboard={data} />
       <StatusPill label={ownerApprovalLabel(data.approval.status)} />
+      <OwnerWeekApproval data={data} onRefresh={onRefresh} />
       <View style={styles.stats}>
         <StatTile label="Paid hours" value={formatMinutes(totals.paidMinutes)} />
         <StatTile accessibilityLabel={spokenNzd(totals.payCents)} label="Gross pay" value={formatNzd(totals.payCents)} />

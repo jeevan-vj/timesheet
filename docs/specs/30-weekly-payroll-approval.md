@@ -47,3 +47,7 @@ Create checks the lock after `invalid_shift` and before inline `assignSite`. Upd
 Dashboard GET stays `authorize(request)` and adds `approval` without `id` or `ownerUserId`.
 
 Owner ID comes only from the session. Cross-owner rows are invisible.
+
+## Mobile owner client
+
+Owner Week and Payroll show an explicit confirmation before approve or reopen. Approve sends the same `paidMinutes` and `payCents` currently displayed from the dashboard summary; reopen sends only the selected Monday. The mobile request wrapper supplies the authenticated cookie and `X-CleanTrack-Client` header. These mutations are not optimistic and are never automatically retried. `stale_week`, `week_locked`, and `week_not_approved` trigger a dashboard refetch so the owner must review current server state before confirming again. Owner dashboard and pay data are not persisted locally.
