@@ -14,7 +14,6 @@ import { StyleSheet, Text, View } from "react-native";
 import { OwnerShiftMutationFailure, useOwnerShiftException } from "@/owner-mutations-client";
 import {
   OWNER_SHIFT_ACTIONS_ENABLED,
-  OWNER_SHIFT_ACTIONS_DISABLED_MESSAGE,
   ownerShiftActionsState,
   ownerShiftPaidMinutesError,
   type OwnerShiftAction,
@@ -168,9 +167,6 @@ export function OwnerShiftSheet({
         title="Paid hours and gross pay"
       />
 
-      {!OWNER_SHIFT_ACTIONS_ENABLED ? (
-        <Text style={styles.notice}>{OWNER_SHIFT_ACTIONS_DISABLED_MESSAGE}</Text>
-      ) : null}
       {state.reason ? <Text style={styles.notice}>{state.reason}</Text> : null}
       {errorMessage ? (
         <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={styles.error}>

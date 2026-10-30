@@ -179,6 +179,18 @@ export const opsAudit = sqliteTable("ops_audit", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 }, (t) => [index("ops_audit_created_at_idx").on(t.createdAt)]);
 
+export const ownerTimeEntryAudit = sqliteTable("owner_time_entry_audit", {
+  id: text("id").primaryKey(),
+  ownerUserId: text("owner_user_id").notNull(),
+  businessId: text("business_id").notNull(),
+  actorUserId: text("actor_user_id").notNull(),
+  entryId: text("entry_id").notNull(),
+  action: text("action").notNull().$type<"confirm_worked" | "absent" | "worked_as_scheduled" | "hours_override">(),
+  oldJson: text("old_json").notNull(),
+  newJson: text("new_json").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+}, (t) => [index("owner_time_entry_audit_scope_idx").on(t.ownerUserId, t.businessId, t.entryId, t.createdAt)]);
+
 export const contractorInvitation = sqliteTable("contractor_invitation", {
   id: text("id").primaryKey(),
   businessId: text("business_id").notNull().references(() => business.id, { onDelete: "restrict" }),

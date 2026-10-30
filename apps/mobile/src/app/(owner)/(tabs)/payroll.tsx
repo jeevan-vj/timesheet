@@ -10,39 +10,52 @@ import {
 } from "@cleantrack/core";
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { Figure, FinishSetup, OwnerGate, ScheduleNote, latestDataUpdatedAt, openOwnerWebDashboard } from "@/components/owner-feedback";
+import { Figure, FinishSetup, OwnerGate, ScheduleNote, latestDataUpdatedAt } from "@/components/owner-feedback";
+import { OwnerRemittanceSheet } from "@/components/owner-remittance-sheet";
 import { OwnerWeekPicker } from "@/components/owner-week-picker";
 import { OwnerWeekApproval } from "@/components/owner-week-approval";
 import { useOwnerDashboard } from "@/owner-client";
-import { EmptyState, ListRow, Screen, SecondaryButton, StatusPill, spacing, theme, typeScale } from "@/ui";
+import { EmptyState, ListRow, Screen, StatusPill, spacing, theme, typeScale } from "@/ui";
 
 export { ErrorBoundary } from "@/components/route-error-boundary";
 
 export default function OwnerPayrollScreen() {
   const [weekStart, setWeekStart] = useState(() => portalCalendar().weekStart);
+  const [remittance, setRemittance] = useState<{ contractorId: string; contractorName: string } | null>(null);
   const dashboard = useOwnerDashboard(weekStart);
 
   return (
-    <Screen
-      onRefresh={() => {
-        void dashboard.refetch();
-      }}
-      refreshing={dashboard.isRefetching}
-      testID="owner-payroll"
-      title="Payroll"
-      updatedAt={latestDataUpdatedAt(dashboard.dataUpdatedAt)}
-    >
-      <OwnerWeekPicker onChange={setWeekStart} weekStart={weekStart} />
-      <OwnerGate query={dashboard}>
-        {(data) => ownerSetupIncomplete(data.business) ? <FinishSetup /> : (
-          <PayrollBody data={data} onRefresh={() => dashboard.refetch()} />
-        )}
-      </OwnerGate>
-    </Screen>
+    <>
+      <Screen
+        onRefresh={() => {
+          void dashboard.refetch();
+        }}
+        refreshing={dashboard.isRefetching}
+        testID="owner-payroll"
+        title="Payroll"
+        updatedAt={latestDataUpdatedAt(dashboard.dataUpdatedAt)}
+      >
+        <OwnerWeekPicker onChange={(value) => { setRemittance(null); setWeekStart(value); }} weekStart={weekStart} />
+        <OwnerGate query={dashboard}>
+          {(data) => ownerSetupIncomplete(data.business) ? <FinishSetup /> : (
+            <PayrollBody data={data} onRefresh={() => dashboard.refetch()} onSelectRemittance={setRemittance} />
+          )}
+        </OwnerGate>
+      </Screen>
+      <OwnerRemittanceSheet onClose={() => setRemittance(null)} selection={remittance} weekStart={weekStart} />
+    </>
   );
 }
 
-function PayrollBody({ data, onRefresh }: { data: OwnerDashboard; onRefresh: () => Promise<unknown> }) {
+function PayrollBody({
+  data,
+  onRefresh,
+  onSelectRemittance,
+}: {
+  data: OwnerDashboard;
+  onRefresh: () => Promise<unknown>;
+  onSelectRemittance: (selection: { contractorId: string; contractorName: string }) => void;
+}) {
   const totals = ownerWeekTotals(data.summary);
   return (
     <>
@@ -61,9 +74,10 @@ function PayrollBody({ data, onRefresh }: { data: OwnerDashboard; onRefresh: () 
         <View style={styles.list}>
           {data.summary.map((row) => (
             <ListRow
-              accessibilityLabel={`${row.contractorName}, ${formatMinutes(row.paidMinutes)}, ${spokenNzd(row.payCents)}`}
+              accessibilityLabel={`View remittance for ${row.contractorName}, ${formatMinutes(row.paidMinutes)}, ${spokenNzd(row.payCents)}`}
               icon={{ ios: "person", android: "person", web: "person" }}
               key={row.contractorId}
+              onPress={() => onSelectRemittance({ contractorId: row.contractorId, contractorName: row.contractorName })}
               subtitle={formatMinutes(row.paidMinutes)}
               title={row.contractorName}
               trailing={<Text accessibilityLabel={spokenNzd(row.payCents)} style={styles.pay}>{formatNzd(row.payCents)}</Text>}
@@ -71,9 +85,6 @@ function PayrollBody({ data, onRefresh }: { data: OwnerDashboard; onRefresh: () 
           ))}
         </View>
       )}
-      <SecondaryButton accessibilityLabel="Open remittance on web" onPress={openOwnerWebDashboard}>
-        Open remittance on web
-      </SecondaryButton>
     </>
   );
 }

@@ -23,12 +23,14 @@ const ownerRoots = [
   "apps/mobile/src/owner-client.ts",
   "apps/mobile/src/owner-mutations.ts",
   "apps/mobile/src/owner-mutations-client.ts",
+  "apps/mobile/src/owner-remittance.ts",
   "apps/mobile/src/components/owner-tabs.tsx",
   "apps/mobile/src/components/owner-tabs.web.tsx",
   "apps/mobile/src/components/owner-feedback.tsx",
   "apps/mobile/src/components/owner-week-picker.tsx",
   "apps/mobile/src/components/owner-shift-row.tsx",
   "apps/mobile/src/components/owner-shift-sheet.tsx",
+  "apps/mobile/src/components/owner-remittance-sheet.tsx",
   "apps/mobile/src/app/(owner)",
 ];
 
@@ -141,7 +143,12 @@ describe("owner read client", () => {
     const api = readFileSync("apps/mobile/src/owner-api.ts", "utf8");
     expect(api).toContain('path.includes("apply-schedule")');
     expect(api).toContain('path.includes("/api/weeks")');
-    const bannedEverywhere = [/apply-schedule/, /applySchedule/, /\/api\/weeks/, /\/remittance/, /\bfetch\s*\(/];
+    const bannedEverywhere = [/apply-schedule/, /applySchedule/, /\/api\/weeks/, /\bfetch\s*\(/];
+    const remittanceFiles = new Set([
+      "apps/mobile/src/owner-remittance.ts",
+      "apps/mobile/src/components/owner-remittance-sheet.tsx",
+      "apps/mobile/src/app/(owner)/(tabs)/payroll.tsx",
+    ]);
     const mutationFiles = new Set([
       "apps/mobile/src/owner-mutations.ts",
       "apps/mobile/src/owner-mutations-client.ts",
@@ -152,6 +159,7 @@ describe("owner read client", () => {
       for (const pattern of bannedEverywhere) {
         expect(source, file).not.toMatch(pattern);
       }
+      if (!remittanceFiles.has(file)) expect(source, file).not.toMatch(/\/remittance/);
       if (!mutationFiles.has(file)) expect(source, file).not.toMatch(/\b(?:POST|PATCH|PUT|DELETE)\b/);
     }
     const mutationSource = readFileSync("apps/mobile/src/owner-mutations.ts", "utf8");
