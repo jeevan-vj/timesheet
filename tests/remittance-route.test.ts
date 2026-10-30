@@ -136,6 +136,24 @@ describe("contractor remittance route", () => {
     expect(pdfRender.renderRemittancePdf).toHaveBeenCalledTimes(1);
   });
 
+  it("returns the canonical model as no-store JSON for the native owner view", async () => {
+    remittanceService.getContractorWeekRemittance.mockResolvedValue(payload);
+    const response = await GET(cookieRequest(remittanceUrl("c1"), "GET", { accept: "application/json" }), idParams("c1"));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toMatch(/application\/json/);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(await response.json()).toMatchObject({
+      contractorId: "c1",
+      contractorName: "Aroha",
+      weekStart,
+      weekEnd,
+      paidMinutes: 570,
+      payCents: 29_800,
+      currency: "NZD",
+    });
+    expect(pdfRender.renderRemittancePdf).not.toHaveBeenCalled();
+  });
+
   it("returns not_found for another owner's contractor id without a PDF", async () => {
     session.user = { id: "owner-b", email: "b@example.test", name: "Owner B" };
     remittanceService.getContractorWeekRemittance.mockRejectedValue(new Error("not_found"));

@@ -9,6 +9,7 @@ export const OWNER_CONTRACTOR_QUERY = "owner-contractor";
 export const OWNER_INVITATION_QUERY = "owner-invitation";
 export const OWNER_SITES_QUERY = "owner-sites";
 export const OWNER_ME_QUERY = "owner-me";
+export const OWNER_REMITTANCE_QUERY = "owner-remittance";
 
 export const OWNER_QUERY_ROOTS = [
   OWNER_DASHBOARD_QUERY,
@@ -17,6 +18,7 @@ export const OWNER_QUERY_ROOTS = [
   OWNER_INVITATION_QUERY,
   OWNER_SITES_QUERY,
   OWNER_ME_QUERY,
+  OWNER_REMITTANCE_QUERY,
 ] as const;
 
 export const OWNER_ME_PATH = "/api/me";
@@ -30,6 +32,7 @@ export type OwnerReadCode =
   | "business_required"
   | "offline"
   | "not_found"
+  | "no_entries"
   | "unavailable";
 
 export class OwnerReadError extends Error {
@@ -73,6 +76,9 @@ export function ownerReadMessage(error: unknown): { title: string; detail: strin
   if (code === "not_found") {
     return { title: "Not available", detail: "That record is not on this account.", finishOnWeb: false };
   }
+  if (code === "no_entries") {
+    return { title: "No remittance available", detail: "There are no recorded shifts for this contractor and week.", finishOnWeb: false };
+  }
   return { title: "Couldn't load CleanTrack", detail: "Check your connection and try again.", finishOnWeb: false };
 }
 
@@ -87,6 +93,7 @@ export function ownerReadErrorFromResponse(status: number, body: unknown): Owner
   if (status === 401 || code === "unauthorized") return new OwnerReadError("unauthorized");
   if (status === 409 && code === "business_required") return new OwnerReadError("business_required");
   if (status === 400 && code === "invalid_week") return new OwnerReadError("invalid_week");
+  if (status === 400 && code === "no_entries") return new OwnerReadError("no_entries");
   if (status === 404 || code === "not_found") return new OwnerReadError("not_found");
   return new OwnerReadError("unavailable");
 }
@@ -121,6 +128,11 @@ export function ownerContractorPath(id: string): string {
 
 export function ownerInvitationPath(id: string): string {
   return `/api/contractors/${ownerResourceId(id)}/invitation`;
+}
+
+export function ownerRemittancePath(id: string, weekStart: string): string {
+  if (!isMonday(weekStart)) throw new OwnerReadError("invalid_week");
+  return `/api/contractors/${ownerResourceId(id)}/remittance?week=${encodeURIComponent(weekStart)}`;
 }
 
 export type OwnerLoadResult = { status: number; body: unknown };

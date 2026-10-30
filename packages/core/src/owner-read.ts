@@ -151,6 +151,42 @@ export const ownerMeSchema = z.object({
   })),
 });
 
+export const ownerRemittanceLineSchema = z.object({
+  workDate: z.string().refine(isIsoDate),
+  siteName: z.string(),
+  paidMinutes: z.number().int().min(0),
+  rateCents: z.number().int().min(0),
+  payCents: z.number().int().min(0),
+});
+
+export const ownerRemittanceSchema = z.object({
+  reference: z.string().min(1),
+  filename: z.string().min(1),
+  contractorId: z.string().min(1),
+  contractorName: z.string(),
+  weekStart: z.string().refine(isMonday),
+  weekEnd: z.string().refine(isIsoDate),
+  remitterName: z.string().min(1),
+  remitterEmail: z.string().min(1),
+  currency: z.literal("NZD"),
+  lines: z.array(ownerRemittanceLineSchema),
+  paidMinutes: z.number().int().min(0),
+  payCents: z.number().int().min(0),
+  disclaimer: z.string().min(1),
+}).superRefine((value, context) => {
+  if (value.weekEnd !== weekEnd(value.weekStart)) {
+    context.addIssue({ code: "custom", message: "invalid week end", path: ["weekEnd"] });
+  }
+  const paidMinutes = value.lines.reduce((sum, line) => sum + line.paidMinutes, 0);
+  const payCents = value.lines.reduce((sum, line) => sum + line.payCents, 0);
+  if (paidMinutes !== value.paidMinutes) {
+    context.addIssue({ code: "custom", message: "invalid paid minutes", path: ["paidMinutes"] });
+  }
+  if (payCents !== value.payCents) {
+    context.addIssue({ code: "custom", message: "invalid pay total", path: ["payCents"] });
+  }
+});
+
 export type OwnerBusiness = z.infer<typeof ownerBusinessSchema>;
 export type OwnerDashboard = z.infer<typeof ownerDashboardSchema>;
 export type OwnerEntry = z.infer<typeof ownerEntrySchema>;
@@ -159,6 +195,7 @@ export type OwnerContractor = z.infer<typeof ownerContractorSchema>;
 export type OwnerInvitation = z.infer<typeof ownerInvitationSchema>;
 export type OwnerSite = z.infer<typeof ownerSiteSchema>;
 export type OwnerMe = z.infer<typeof ownerMeSchema>;
+export type OwnerRemittance = z.infer<typeof ownerRemittanceSchema>;
 export type OwnerApprovalStatus = z.infer<typeof approvalStatus>;
 
 export type OwnerTask = {

@@ -28,6 +28,9 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       remitterEmail,
       entries: data.entries,
     });
+    if (request.headers.get("accept")?.toLowerCase().includes("application/json")) {
+      return noStoreJson(model, 200);
+    }
     const pdf = await renderRemittancePdf(model);
     return new Response(pdf as Uint8Array<ArrayBuffer>, {
       status: 200,
