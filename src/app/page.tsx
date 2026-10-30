@@ -26,6 +26,10 @@ export default function HomePage() {
         <article><span>02</span><h2>Connect each site</h2><p>Assign people wherever they work, with a site-specific rate when needed.</p></article>
         <article><span>03</span><h2>Close the week</h2><p>Review daily shifts and see exact gross payment totals by contractor and by site.</p></article>
       </section>
+      <footer className="site-footer">
+        <span>© 2026 CleanTrack</span>
+        <nav aria-label="Legal"><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
+      </footer>
     </main>
   );
 }
