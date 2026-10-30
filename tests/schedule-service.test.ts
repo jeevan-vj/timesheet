@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/sql-js";
 import { eq } from "drizzle-orm";
 import initSqlJs, { type Database as SqlJsDatabase } from "sql.js";
 import { describe, expect, it } from "vitest";
-import { assignmentScheduleVersions, timeEntries } from "../src/db/schema";
+import { assignmentScheduleVersions, ownerTimeEntryAudit, timeEntries } from "../src/db/schema";
 import { calculateEntryPayCents, summarizeWeek } from "../src/lib/payroll";
 import { createSite } from "../src/services/sites";
 import { execContractorEngagementMigration, seedOwnerWorkspace } from "./owner-workspace";
@@ -54,6 +54,7 @@ async function openMemoryDb() {
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0002_week_approval.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0003_recurring_schedules.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0004_business_workspace.sql"), "utf8"));
+  sqlite.exec(fs.readFileSync(path.resolve("drizzle/0009_owner_time_entry_audit.sql"), "utf8"));
   execContractorEngagementMigration(sqlite);
   const database = drizzle(sqlite) as unknown as TimesheetDb;
   return { sqlite, database };
@@ -428,6 +429,60 @@ describe("recurring schedule service", () => {
     expect(reset).toMatchObject({ occurrenceKind: "scheduled", paidMinutes: 90, rateCents: RATE });
   });
 
+  it("atomically records the authenticated owner and old/new pay state for a same-day change", async () => {
+    const { database, owner } = await seedFixture();
+    await putAssignmentSchedule(database, "owner-a", owner.assignment.id, createSchedule);
+    const monday = (await ownerEntries(database, "owner-a")).find((row) => row.workDate === MONDAY)!;
+
+    await applyOccurrenceException(database, "owner-a", monday.id, { kind: "absent", scope: "this_day" });
+
+    const [audit] = await database.select().from(ownerTimeEntryAudit);
+    expect(audit).toMatchObject({
+      ownerUserId: "owner-a",
+      actorUserId: "owner-a",
+      businessId: "biz_owner-a",
+      entryId: monday.id,
+      action: "absent",
+    });
+    expect(JSON.parse(audit!.oldJson)).toEqual({
+      occurrenceKind: "scheduled",
+      entryMode: "paid_hours",
+      paidMinutes: 90,
+      startMinutes: 0,
+      endMinutes: 90,
+      breakMinutes: 0,
+      scheduleVersionId: monday.scheduleVersionId,
+    });
+    expect(JSON.parse(audit!.newJson)).toEqual({
+      occurrenceKind: "absent",
+      entryMode: "absent",
+      paidMinutes: 0,
+      startMinutes: 0,
+      endMinutes: 0,
+      breakMinutes: 0,
+      scheduleVersionId: monday.scheduleVersionId,
+    });
+    expect(audit!.oldJson).not.toMatch(/notes|contractor|rate/i);
+    expect(audit!.newJson).not.toMatch(/notes|contractor|rate/i);
+  });
+
+  it("fails closed without changing pay when the owner audit insert is rejected", async () => {
+    const { sqlite, database, owner } = await seedFixture();
+    await putAssignmentSchedule(database, "owner-a", owner.assignment.id, createSchedule);
+    const monday = (await ownerEntries(database, "owner-a")).find((row) => row.workDate === MONDAY)!;
+    sqlite.exec(`CREATE TRIGGER reject_owner_time_entry_audit
+      BEFORE INSERT ON owner_time_entry_audit BEGIN SELECT RAISE(ABORT, 'audit_rejected'); END;`);
+
+    await expect(applyOccurrenceException(database, "owner-a", monday.id, {
+      kind: "absent",
+      scope: "this_day",
+    })).rejects.toThrow("audit_rejected");
+
+    const kept = (await ownerEntries(database, "owner-a")).find((row) => row.id === monday.id);
+    expect(kept).toMatchObject({ occurrenceKind: "scheduled", paidMinutes: 90, rateCents: RATE });
+    expect(await database.select().from(ownerTimeEntryAudit)).toEqual([]);
+  });
+
   it("rejects reset and absence once a confirmed day is on an approved week", async () => {
     const { database, owner } = await seedFixture();
     await putAssignmentSchedule(database, "owner-a", owner.assignment.id, createSchedule);
@@ -538,6 +593,7 @@ describe("recurring schedule service", () => {
       kind: "absent",
       scope: "this_day",
     })).rejects.toThrow("not_found");
+    expect(await database.select().from(ownerTimeEntryAudit)).toEqual([]);
 
     const bApply = await applyScheduleToWeek(database, "owner-b", MONDAY);
     expect(bApply.inserted).toBe(0);

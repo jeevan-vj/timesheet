@@ -28,6 +28,9 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       remitterEmail,
       entries: data.entries,
     });
+    if (request.headers.get("accept")?.includes("application/vnd.cleantrack.remittance+json")) {
+      return noStoreJson(model);
+    }
     const pdf = await renderRemittancePdf(model);
     return new Response(pdf as Uint8Array<ArrayBuffer>, {
       status: 200,
