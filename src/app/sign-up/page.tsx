@@ -59,7 +59,7 @@ export default function SignUpPage() {
       <label>Email<input type="email" autoComplete="email" required disabled={pending !== null} value={email} onChange={(e) => setEmail(e.target.value)} /></label>
       <label>Password<input type="password" autoComplete="new-password" required disabled={pending !== null} minLength={AUTH_MIN_PASSWORD_LENGTH} maxLength={128} value={password} onChange={(e) => setPassword(e.target.value)} /><small>Use at least {AUTH_MIN_PASSWORD_LENGTH} characters.</small></label>
       {error ? <p className="alert" role="alert">{error}</p> : null}
-      <button className="button" disabled={pending !== null}>{pending === "email" ? "Creating…" : "Create account"}</button>
+      <button className="button" type="submit" disabled={pending !== null}>{pending === "email" ? "Creating…" : "Create account"}</button>
     </form>
     <p className="switch-copy">Already set up? <a href={`/sign-in?returnTo=${encodeURIComponent(returnTo)}`}>Sign in</a></p>
   </AuthShell>;

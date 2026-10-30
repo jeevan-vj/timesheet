@@ -64,7 +64,7 @@ export default function SignInPage() {
       <label>Email<input type="email" autoComplete="email" required disabled={pending !== null} value={email} onChange={(e) => setEmail(e.target.value)} /></label>
       <label>Password<input type="password" autoComplete="current-password" required disabled={pending !== null} minLength={AUTH_MIN_PASSWORD_LENGTH} value={password} onChange={(e) => setPassword(e.target.value)} /></label>
       {error ? <p className="alert" role="alert">{error}</p> : null}
-      <button className="button" disabled={pending !== null}>{pending === "email" ? "Signing in…" : "Sign in"}</button>
+      <button className="button" type="submit" disabled={pending !== null}>{pending === "email" ? "Signing in…" : "Sign in"}</button>
     </form>
     <p className="switch-copy">New to CleanTrack? <a href={`/sign-up?returnTo=${encodeURIComponent(returnTo)}`}>Create an account</a></p>
   </AuthShell>;
