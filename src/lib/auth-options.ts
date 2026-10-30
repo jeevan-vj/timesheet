@@ -12,12 +12,21 @@ export function createAuth(input: {
   db: AuthDatabase;
   trustedOrigins: string[];
   secureCookies: boolean;
+  googleClientId?: string;
+  googleClientSecret?: string;
 }) {
+  const googleClientId = input.googleClientId?.trim();
+  const googleClientSecret = input.googleClientSecret?.trim();
+  const google = googleClientId && googleClientSecret
+    ? { clientId: googleClientId, clientSecret: googleClientSecret, prompt: "select_account" as const }
+    : undefined;
+
   return betterAuth({
     secret: input.secret,
     baseURL: input.baseURL,
     database: drizzleAdapter(input.db, { provider: "sqlite", schema: authSchema }),
     plugins: [expo()],
+    socialProviders: google ? { google } : undefined,
     trustedOrigins: input.trustedOrigins,
     telemetry: { enabled: false },
     logger: { disabled: true },
@@ -30,6 +39,15 @@ export function createAuth(input: {
       maxPasswordLength: 128,
       revokeSessionsOnPasswordReset: true,
     },
+    account: {
+      accountLinking: {
+        enabled: true,
+        trustedProviders: ["google"],
+        requireLocalEmailVerified: false,
+        disableImplicitLinking: false,
+        allowDifferentEmails: false,
+      },
+    },
     rateLimit: {
       enabled: true,
       window: 60,
@@ -38,6 +56,7 @@ export function createAuth(input: {
       customRules: {
         "/sign-in/email": { window: 60, max: 5 },
         "/sign-up/email": { window: 60, max: 3 },
+        "/sign-in/social": { window: 60, max: 10 },
       },
     },
     advanced: {

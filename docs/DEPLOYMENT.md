@@ -1,5 +1,15 @@
 # Deployment
 
+## Google sign-in
+
+Create one Google OAuth client of type **Web application**. Configure these exact authorized redirect URIs for the environments you operate:
+
+- `http://localhost:3000/api/auth/callback/google`
+- `https://cleantrack-timesheet-preview.jeevan90wijerathna.workers.dev/api/auth/callback/google`
+- `https://cleantrack-timesheet.jeevan90wijerathna.workers.dev/api/auth/callback/google`
+
+If an environment moves to a custom domain, add that domain's exact `/api/auth/callback/google` URL before changing `BETTER_AUTH_URL`; do not add wildcards. Store `GOOGLE_CLIENT_ID` as a Worker variable and `GOOGLE_CLIENT_SECRET` as an encrypted Worker secret on both the production and preview environments. The client id is not confidential, but it remains server-side rather than entering the native bundle. Never put the client secret in GitHub variables, `EXPO_PUBLIC_*`, app config, or repository files. Existing email/password sign-in remains available if Google is temporarily unavailable.
+
 ## Production resources
 
 - Worker: `cleantrack-timesheet`
@@ -20,7 +30,7 @@ Weekly remittance advice is generated on read in the Worker with `pdf-lib`. Remi
 
 1. Run `pnpm install --frozen-lockfile` and `pnpm verify`.
 2. Apply migrations with `pnpm exec wrangler d1 migrations apply cleantrack-timesheet --remote --config wrangler.jsonc`. This release includes `0004_business_workspace.sql`, `0005_ops_audit.sql`, `0006_contractor_engagement.sql`, `0007_contractor_portal_access.sql`, and `0008_account_provider_key.sql` (and still requires `0002_week_approval.sql` and `0003_recurring_schedules.sql`). Deploy the Worker and those migrations together. `0004` adds `business` and `business_member`, backfills one owner business per existing user (`biz_<user id>`, `mem_<user id>`), and sets `business_id` on existing domain rows. It does not rewrite `time_entry.rate_cents`, paid minutes, or week-approval status and timestamps. It aborts if an owner cannot be mapped deterministically, if a user name or email is blank, or if any domain `business_id` would stay null. After it commits, inserts and updates that omit `business_id` fail with `business_required`. `0005` adds append-only `ops_audit` and does not rewrite payroll rows. Set `OPS_BOT_TOKEN` before deploying the Worker that requires it. `0006` adds contractor engagement columns and backfills `engagement_status` from the existing `active` flag (`1` to `active`, `0` to `archived`). It does not rewrite `time_entry.rate_cents`, paid minutes, or week approvals. The release workflow applies this migration before the new Worker is serving. A pre-0006 archive or restore sets only `active`. The align trigger rewrites `engagement_status` to `archived` or `active` for that write, so the request commits and the row stays consistent. A writer that sets `engagement_status` to a value that disagrees with `active` still fails with `engagement_active_mismatch`. An unknown status fails with `invalid_engagement_status`. `0007` adds `contractor_invitation` and `contractor_account`, stores only the SHA-256 digest of an invite token, and does not backfill rows or rewrite `time_entry`.
-3. Deploy the generated Worker with `pnpm exec wrangler deploy --config dist/server/wrangler.json`, supplying the exact HTTPS `BETTER_AUTH_URL`, an empty or explicitly approved `AUTH_TRUSTED_ORIGINS`, and a safe `RELEASE_SHA` variable.
+3. Deploy the generated Worker with `pnpm exec wrangler deploy --config dist/server/wrangler.json`, supplying the exact HTTPS `BETTER_AUTH_URL`, an empty or explicitly approved `AUTH_TRUSTED_ORIGINS`, and a safe `RELEASE_SHA` variable. Before the first Google-enabled deploy, provision `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` on that Worker.
 4. Verify `/api/health` reports D1 health and the expected release, then verify sign-up/sign-in, owner isolation, mutation origin checks, a rate override, and a weekly total using synthetic data only.
 
 Rollback of weekly approval: leave the `week_approval` table in place. Do not `DROP` it without a backup. A Worker rollback that no longer writes the table is safe; existing Open weeks remain Open.
@@ -76,6 +86,8 @@ Cloudflare, not GitHub:
 | Name | Where | Purpose |
 | --- | --- | --- |
 | `BETTER_AUTH_SECRET` | Worker secret on `cleantrack-timesheet-preview` | Auth signing secret. Set with `wrangler secret put BETTER_AUTH_SECRET`. Do not copy it into GitHub or Cursor |
+| `GOOGLE_CLIENT_ID` | Worker variable on `cleantrack-timesheet-preview` | Google Web application OAuth client id. This value is public but remains server-side |
+| `GOOGLE_CLIENT_SECRET` | Worker secret on `cleantrack-timesheet-preview` | Google OAuth client secret. Set with `wrangler secret put GOOGLE_CLIENT_SECRET`. Do not copy it into GitHub or Cursor |
 | `SENTRY_DSN` | Optional Worker secret on `cleantrack-timesheet-preview` | Error capture. Set with `wrangler secret put SENTRY_DSN`. Unset means capture is off. Do not copy it into GitHub |
 
 Create the preview database with `pnpm exec wrangler d1 create cleantrack-timesheet-preview`, put its id in `PREVIEW_D1_DATABASE_ID`, and set `PREVIEW_URL` to the workers.dev (or custom) origin before the first deploy. The workflow rewrites the built `dist/server/wrangler.json` to the preview name and database, applies migrations there, and deploys. It does not read or write the production D1 database.

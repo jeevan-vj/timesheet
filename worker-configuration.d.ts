@@ -10,6 +10,8 @@ interface __BaseEnv_Env {
 	SMTP_HOST: "127.0.0.1";
 	SMTP_PORT: "1025";
 	BETTER_AUTH_SECRET: string;
+	GOOGLE_CLIENT_ID: string;
+	GOOGLE_CLIENT_SECRET: string;
 	RESEND_API_KEY?: string;
 }
 declare namespace Cloudflare {
@@ -20,5 +22,5 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "BETTER_AUTH_URL" | "AUTH_TRUSTED_ORIGINS" | "RELEASE_SHA" | "EMAIL_FROM" | "MAIL_TRANSPORT" | "SMTP_HOST" | "SMTP_PORT" | "BETTER_AUTH_SECRET" | "RESEND_API_KEY">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "BETTER_AUTH_URL" | "AUTH_TRUSTED_ORIGINS" | "RELEASE_SHA" | "EMAIL_FROM" | "MAIL_TRANSPORT" | "SMTP_HOST" | "SMTP_PORT" | "BETTER_AUTH_SECRET" | "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET" | "RESEND_API_KEY">> {}
 }

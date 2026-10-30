@@ -75,6 +75,8 @@ function SetupForm({ model, setModel }: { model: Extract<Model, { phase: "ready"
     <h1>Set up your CleanTrack account</h1>
     <p className="muted">{model.screen.businessName} invited you.</p>
     <label>Email<input type="email" value={model.screen.email} readOnly aria-readonly="true" autoComplete="username" /></label>
+    <GoogleInviteButton email={model.screen.email} busy={busy} setBusy={setBusy} setMessage={setMessage} />
+    <div className="auth-divider"><span>or create a password</span></div>
     <PasswordFields password={password} confirm={confirm} visible={visible} onPassword={setPassword} onConfirm={setConfirm} onVisible={setVisible} />
     {message ? <p className="alert" role="alert">{message}</p> : null}
     <button className="button" disabled={busy}>{busy ? "Creating…" : "Create account and continue"}</button>
@@ -107,12 +109,46 @@ function PasswordFields({
 }
 
 function SignInPrompt({ model }: { model: Extract<Model, { phase: "ready" }> }) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
   return <div data-feature="invite-sign-in">
     <p className="eyebrow">Invitation</p>
     <h1>Sign in to accept</h1>
     <p className="muted">{model.screen.businessName} invited {model.screen.email}. Sign in with that email, then we will finish the invitation.</p>
+    <GoogleInviteButton email={model.screen.email} busy={busy} setBusy={setBusy} setMessage={setMessage} />
+    {message ? <p className="alert" role="alert">{message}</p> : null}
     <p className="switch-copy"><a href={signInHref(model.screen.email)}>Sign in</a></p>
   </div>;
+}
+
+function GoogleInviteButton({
+  email, busy, setBusy, setMessage,
+}: {
+  email: string;
+  busy: boolean;
+  setBusy: (busy: boolean) => void;
+  setMessage: (message: string) => void;
+}) {
+  async function continueWithGoogle() {
+    if (busy) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await authClient.signIn.social({
+        provider: "google",
+        callbackURL: "/invite",
+        errorCallbackURL: "/invite",
+      });
+      if (result.error) setMessage(result.error.status === 429 ? "Too many attempts. Try again shortly." : `Google sign-in is not available for ${email}. Try email instead.`);
+    } catch {
+      setMessage("Could not connect. Check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return <button data-testid="invite-google" className="button secondary auth-provider" type="button" disabled={busy} onClick={() => void continueWithGoogle()}>
+    {busy ? "Opening Google…" : "Continue with Google"}
+  </button>;
 }
 
 function Mismatch({ model, setModel }: { model: Extract<Model, { phase: "ready" }>; setModel: (model: Model) => void }) {

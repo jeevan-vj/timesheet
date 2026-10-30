@@ -6,7 +6,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "assets": { "not_found_handling": "none" },
-  "secrets": { "required": ["BETTER_AUTH_SECRET", "OPS_BOT_TOKEN"] },
+  "secrets": { "required": ["BETTER_AUTH_SECRET", "OPS_BOT_TOKEN", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"] },
   "observability": {
     "enabled": true,
     "logs": { "head_sampling_rate": 1 },

@@ -1,4 +1,5 @@
 import * as Linking from "expo-linking";
+import { useRouter } from "expo-router";
 import { useRef, useState, type ComponentRef } from "react";
 import {
   KeyboardAvoidingView,
@@ -17,21 +18,22 @@ import { apiBaseUrl } from "@/runtime-config";
 import { theme } from "@/theme";
 
 export function SignInForm() {
+  const router = useRouter();
   const passwordRef = useRef<ComponentRef<typeof TextInput>>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<"email" | "google" | null>(null);
   const [error, setError] = useState("");
 
   async function submit() {
-    if (busy) return;
+    if (pending) return;
     const nextEmail = email.trim();
     if (!nextEmail || !password) {
       setError("Enter your email and password.");
       return;
     }
-    setBusy(true);
+    setPending("email");
     setError("");
     try {
       const result = await authClient.signIn.email({ email: nextEmail, password });
@@ -39,7 +41,25 @@ export function SignInForm() {
     } catch {
       setError(signInErrorMessage({ offline: true }));
     } finally {
-      setBusy(false);
+      setPending(null);
+    }
+  }
+
+  async function signInWithGoogle() {
+    if (pending) return;
+    setPending("google");
+    setError("");
+    try {
+      const result = await authClient.signIn.social({ provider: "google", callbackURL: "/" });
+      if (result.error) {
+        setError(result.error.status === 429 ? "Too many attempts. Try again shortly." : "Google sign-in is not available. Try email instead.");
+        return;
+      }
+      router.replace("/");
+    } catch {
+      setError(signInErrorMessage({ offline: true }));
+    } finally {
+      setPending(null);
     }
   }
 
@@ -64,6 +84,24 @@ export function SignInForm() {
             Sign in
           </Text>
           <Text style={styles.detail}>See your next job, this week’s hours, and your pay.</Text>
+          <Pressable
+            accessibilityLabel={pending === "google" ? "Opening Google" : "Continue with Google"}
+            accessibilityRole="button"
+            testID="google-sign-in"
+            accessibilityState={{ busy: pending === "google", disabled: pending !== null }}
+            disabled={pending !== null}
+            onPress={() => {
+              void signInWithGoogle();
+            }}
+            style={[styles.googleButton, pending ? styles.buttonBusy : null]}
+          >
+            <Text style={styles.googleButtonText}>{pending === "google" ? "Opening Google…" : "Continue with Google"}</Text>
+          </Pressable>
+          <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.dividerRow}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>or use email</Text>
+            <View style={styles.dividerLine} />
+          </View>
           <View style={styles.field}>
             <Text style={styles.label}>Email</Text>
             <TextInput
@@ -72,7 +110,7 @@ export function SignInForm() {
               autoCapitalize="none"
               autoComplete="email"
               autoCorrect={false}
-              editable={!busy}
+              editable={!pending}
               importantForAutofill="yes"
               inputMode="email"
               keyboardType="email-address"
@@ -96,7 +134,7 @@ export function SignInForm() {
               autoCapitalize="none"
               autoComplete="current-password"
               autoCorrect={false}
-              editable={!busy}
+              editable={!pending}
               importantForAutofill="yes"
               onChangeText={setPassword}
               onSubmitEditing={() => {
@@ -115,7 +153,7 @@ export function SignInForm() {
           <Pressable
             accessibilityLabel={showPassword ? "Hide password" : "Show password"}
             accessibilityRole="button"
-            disabled={busy}
+            disabled={pending !== null}
             onPress={() => setShowPassword((current) => !current)}
             style={styles.link}
           >
@@ -127,17 +165,17 @@ export function SignInForm() {
             </Text>
           ) : null}
           <Pressable
-            accessibilityLabel={busy ? "Signing in" : "Sign in"}
+            accessibilityLabel={pending === "email" ? "Signing in" : "Sign in"}
             accessibilityRole="button"
             testID="sign-in-submit"
-            accessibilityState={{ busy, disabled: busy }}
-            disabled={busy}
+            accessibilityState={{ busy: pending === "email", disabled: pending !== null }}
+            disabled={pending !== null}
             onPress={() => {
               void submit();
             }}
-            style={[styles.button, busy ? styles.buttonBusy : null]}
+            style={[styles.button, pending ? styles.buttonBusy : null]}
           >
-            <Text style={styles.buttonText}>{busy ? "Signing in…" : "Sign in"}</Text>
+            <Text style={styles.buttonText}>{pending === "email" ? "Signing in…" : "Sign in"}</Text>
           </Pressable>
           <Text style={styles.note}>Creating an account and resetting a password stay on the website.</Text>
           <Pressable
@@ -213,6 +251,37 @@ const styles = StyleSheet.create({
     color: theme.text,
     fontSize: 16,
     paddingHorizontal: 16,
+  },
+  googleButton: {
+    minHeight: theme.touchTarget,
+    borderRadius: theme.radiusLarge,
+    borderWidth: 1,
+    borderColor: theme.muted,
+    backgroundColor: theme.surfaceRaised,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 20,
+  },
+  googleButtonText: {
+    color: theme.text,
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  dividerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: theme.muted,
+    opacity: 0.45,
+  },
+  dividerText: {
+    color: theme.muted,
+    fontSize: 13,
+    fontWeight: "600",
   },
   error: {
     color: theme.text,

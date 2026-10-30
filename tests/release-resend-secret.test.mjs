@@ -49,7 +49,7 @@ describe("production RESEND_API_KEY provisioning", () => {
   it("keeps the key off preview and out of required Worker secrets", () => {
     expect(preview).not.toContain("RESEND_API_KEY");
     expect(wrangler).not.toContain("RESEND_API_KEY");
-    expect(wrangler).toContain('"required": ["BETTER_AUTH_SECRET", "OPS_BOT_TOKEN"]');
+    expect(wrangler).toContain('"required": ["BETTER_AUTH_SECRET", "OPS_BOT_TOKEN", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]');
     expect(deployment).toContain("invites@jnok.co.nz");
     expect(deployment).toContain("restricted to `jnok.co.nz`");
     expect(deployment).toContain("Settings > Environments > production > Environment secrets");

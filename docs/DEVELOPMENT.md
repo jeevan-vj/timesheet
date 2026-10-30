@@ -11,6 +11,8 @@ pnpm dev
 
 Open `http://localhost:3000`. `pnpm dev` is the local Worker dev server. A production build refuses the dev mail transport below, including `pnpm start` of that build.
 
+For Google sign-in, create a Google OAuth **Web application** client and put its development client id and secret in `.dev.vars`. Add exactly `http://localhost:3000/api/auth/callback/google` as an authorized redirect URI. Do not use an `EXPO_PUBLIC_*` variable for either value. Email/password sign-in continues to work while Google credentials are absent, but the Google button cannot complete a provider flow.
+
 ## Checks
 
 `pnpm verify` checks the web app: lint, test, web typecheck, `packages/core` typecheck, and the vinext build. `pnpm verify:mobile` typechecks `packages/core`, then typechecks and lints `apps/mobile`. Core stays on both commands so a web-only run still typechecks the shared package.

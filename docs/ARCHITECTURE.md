@@ -94,9 +94,13 @@ There is no DELETE on contractors. Cookie-authenticated mutations use `authorize
 
 The vinext App Router runs as a Cloudflare Worker. D1 is accessed through the `DB` binding with Drizzle. Better Auth stores users and sessions in the same D1 database. The browser calls same-origin route handlers; route handlers validate input and invoke owner-scoped services.
 
+Email/password and Google OAuth both create the same Better Auth session. Google uses the server's `/api/auth/callback/google`; on native, `@better-auth/expo` and `expo-web-browser` return the completed flow to the `cleantrack` app scheme. The app then uses the existing `/api/me` role read rather than provider claims to choose a workspace.
+
 A native client uses the same routes. Better Auth's Expo server plugin stores the session cookie for the app's secure storage and trusts the `cleantrack://` scheme. `cleantrack-preview://` is trusted only when `BETTER_AUTH_URL` is exactly `https://cleantrack-timesheet-preview.jeevan90wijerathna.workers.dev`, and also on loopback HTTP. `exp://` patterns are trusted only for loopback HTTP and are not production variables. Cookie mutations that omit `Origin` must send `X-CleanTrack-Client: mobile/<version>`. `GET /api/me` remains the signed-in role read for that cookie. There is no second role endpoint.
 
 Better Auth 1.7.13 identifies an account by `provider_id` and `account_id`. Migration `0008_account_provider_key.sql` keeps `issuer`, makes it nullable with default `local:credential`, drops the old issuer unique index, copies existing rows unchanged, and adds a unique index on `(provider_id, account_id)`. The Drizzle schema maps `issuer` as an optional column with default `local:credential`, which is the value invitation acceptance writes. Better Auth sign-up omits the column, so SQLite applies that default. The password hash stays on the row. The migration does not rewrite `time_entry`. Dropping the column is a later cleanup.
+
+Google is configured only when both server-side credentials are present. Its verified email may implicitly link to a local account with the same normalized email, including existing unverified credential accounts created while email verification is disabled. Different-email linking is forbidden. No owner or contractor id comes from OAuth profile data.
 
 Site APIs are `GET/POST /api/sites`, `GET/PATCH/DELETE /api/sites/[id]`, and `POST /api/sites/[id]/restore`. Collection GET is a read (`authorize(request)`) and defaults to the owner's active sites; `?includeArchived=1` includes archived rows. Cookie-authenticated site mutations require a trusted Origin, or `X-CleanTrack-Client: mobile/<version>` when Origin is absent. Duplicate names map to `duplicate_site` (409). DELETE archives; it never issues `DELETE FROM site` and never updates `time_entry` rows. Archive and restore update the site and that site's owner-scoped assignments together through D1/Drizzle `batch`.
 
@@ -123,6 +127,8 @@ Contractor and time-entry writes, and wage reads, take `ownerUserId` and resolve
 - Deleting a recorded shift requires confirmation that names the contractor, site, and work date before the owner-scoped DELETE runs.
 
 ### Repository layout
+
+The mobile Google flow adds Expo's SDK-pinned `expo-web-browser`; Google credentials remain Worker-only and are not present in the native bundle.
 
 The web app stays at the repository root (`src/`, `drizzle/`, `wrangler.jsonc`, vinext). `pnpm-workspace.yaml` includes `.`, `apps/*`, and `packages/*`. A separate repository was rejected because it would copy schemas and split an API change from the client that calls it.
 
