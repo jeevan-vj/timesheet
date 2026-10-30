@@ -56,6 +56,13 @@ export function PortalHome() {
     }
   }
 
+  let portalContent = <output className="loading-card" aria-live="polite">Loading your work…</output>;
+  if (viewer && data) {
+    portalContent = <PortalBody data={data} detail={detail} detailFailed={detailFailed} onOpenRemittance={openRemittance} viewer={viewer} />;
+  } else if (failed) {
+    portalContent = <></>;
+  }
+
   return <main className="app-shell" data-feature="contractor-portal">
     <header className="app-header">
       <a className="brand" href="/"><span className="brand-mark">C</span> CleanTrack</a>
@@ -69,7 +76,7 @@ export function PortalHome() {
       </div>
     </section>
     {failed ? <p className="alert" role="alert">Could not open the portal. Try again from the sign-in page.</p> : null}
-    {viewer && data ? <PortalBody data={data} detail={detail} detailFailed={detailFailed} onOpenRemittance={openRemittance} viewer={viewer} /> : failed ? null : <section className="loading-card" role="status">Loading your work…</section>}
+    {portalContent}
   </main>;
 }
 
@@ -98,13 +105,13 @@ async function loadPortal(): Promise<{ viewer: ViewerShape; data: PortalData } |
 
 function PortalBody({
   viewer, data, detail, detailFailed, onOpenRemittance,
-}: {
+}: Readonly<{
   viewer: ViewerShape;
   data: PortalData;
   detail: PortalPaymentDetail | null;
   detailFailed: boolean;
   onOpenRemittance: (weekStart: string) => Promise<void>;
-}) {
+}>) {
   const shifts = data.upcoming.days.flatMap((day) => day.shifts);
   return <>
     <RoleSwitcher viewer={viewer} current="portal" />

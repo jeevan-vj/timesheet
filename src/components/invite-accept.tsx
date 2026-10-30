@@ -123,12 +123,12 @@ function SignInPrompt({ model }: { model: Extract<Model, { phase: "ready" }> }) 
 
 function GoogleInviteButton({
   email, busy, setBusy, setMessage,
-}: {
+}: Readonly<{
   email: string;
   busy: boolean;
   setBusy: (busy: boolean) => void;
   setMessage: (message: string) => void;
-}) {
+}>) {
   async function continueWithGoogle() {
     if (busy) return;
     setBusy(true);

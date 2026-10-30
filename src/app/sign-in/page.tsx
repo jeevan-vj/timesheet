@@ -56,7 +56,7 @@ export default function SignInPage() {
   }
   return <AuthShell>
     <p className="eyebrow">Welcome back</p><h1>Sign in to your workspace</h1><p className="muted">Continue to this week’s hours and payment totals.</p>
-    <button data-testid="google-sign-in" className="button secondary auth-provider" disabled={pending !== null} onClick={() => void signInWithGoogle()}>
+    <button data-testid="google-sign-in" className="button secondary auth-provider" type="button" disabled={pending !== null} onClick={() => void signInWithGoogle()}>
       {pending === "google" ? "Opening Google…" : "Continue with Google"}
     </button>
     <div className="auth-divider"><span>or use email</span></div>

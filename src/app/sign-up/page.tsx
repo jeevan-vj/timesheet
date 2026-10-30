@@ -50,7 +50,7 @@ export default function SignUpPage() {
   }
   return <AuthShell>
     <p className="eyebrow">Get organised</p><h1>Create your owner account</h1><p className="muted">One private workspace for your cleaning sites and contractors.</p>
-    <button data-testid="google-sign-up" className="button secondary auth-provider" disabled={pending !== null} onClick={() => void signUpWithGoogle()}>
+    <button data-testid="google-sign-up" className="button secondary auth-provider" type="button" disabled={pending !== null} onClick={() => void signUpWithGoogle()}>
       {pending === "google" ? "Opening Google…" : "Continue with Google"}
     </button>
     <div className="auth-divider"><span>or use email</span></div>
