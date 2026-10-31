@@ -65,6 +65,8 @@ Mon = 1, Tue = 2, Wed = 4, Thu = 8, Fri = 16, Sat = 32, Sun = 64. Mon–Fri = 31
 
 `entry_mode` type is `"clock" \| "paid_hours" \| "absent"`. Absent exception rows store `paid_minutes = 0` with `occurrence_kind = 'absent'` and do not change schedule versions.
 
+Changed same-day exceptions commit the owner-scoped time-entry update and one `owner_time_entry_audit` row as an atomic D1 batch. The authenticated owner is recorded as `actor_user_id`; the client cannot supply an actor. Old/new JSON contains only occurrence kind, entry mode, minute fields, and schedule version id. Audit insert failure leaves the time entry unchanged.
+
 ## HTTP contract
 
 | Method | Path | CSRF | Body | Success |

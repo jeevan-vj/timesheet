@@ -3,11 +3,7 @@ import { isIsoDate, isMonday, weekStartFromDate } from "./payroll";
 
 export const PORTAL_UPCOMING_DAYS = 14;
 
-/**
- * Contractor remittance download stays off until a contractor-scoped PDF route exists.
- * The owner route takes a contractor id and is not safe for this app.
- */
-export const PORTAL_REMITTANCE_AVAILABLE = false;
+export const PORTAL_REMITTANCE_AVAILABLE = true;
 
 const occurrenceKind = z.enum(["manual", "scheduled", "worked", "absent", "hours_override"]);
 const entryMode = z.enum(["clock", "paid_hours", "absent"]);
@@ -67,6 +63,7 @@ export const portalPaymentsSchema = z.object({
 
 export const portalPaymentLineSchema = z.object({
   id: z.string().min(1),
+  businessId: z.string().min(1),
   workDate: z.string(),
   siteName: z.string(),
   businessName: z.string(),
@@ -74,8 +71,14 @@ export const portalPaymentLineSchema = z.object({
   payCents: z.number().int().min(0),
 }).strict();
 
+export const portalRemittanceTargetSchema = z.object({
+  businessId: z.string().min(1),
+  businessName: z.string(),
+}).strict();
+
 export const portalPaymentDetailSchema = portalPaymentWeekSchema.extend({
   lines: z.array(portalPaymentLineSchema),
+  remittances: z.array(portalRemittanceTargetSchema),
 }).strict();
 
 export type PortalShift = z.infer<typeof portalShiftSchema>;
@@ -84,6 +87,7 @@ export type PortalWeek = z.infer<typeof portalWeekSchema>;
 export type PortalUpcoming = z.infer<typeof portalUpcomingSchema>;
 export type PortalPayments = z.infer<typeof portalPaymentsSchema>;
 export type PortalPaymentDetail = z.infer<typeof portalPaymentDetailSchema>;
+export type PortalRemittanceTarget = z.infer<typeof portalRemittanceTargetSchema>;
 export type DirectionsPlatform = "ios" | "android" | "web";
 
 const PERSISTED_PORTAL_QUERIES = new Set(["portal-week", "portal-upcoming"]);

@@ -18,8 +18,8 @@ const entry = {
 } as OwnerEntry;
 
 describe("mobile owner shift mutations", () => {
-  it("keeps mobile payroll mutations hard-disabled pending audit and release review", () => {
-    expect(OWNER_SHIFT_ACTIONS_ENABLED).toBe(false);
+  it("enables the reviewed owner mobile payroll actions", () => {
+    expect(OWNER_SHIFT_ACTIONS_ENABLED).toBe(true);
   });
 
   it("does not offer Worked as an implicit reset of custom paid hours", () => {

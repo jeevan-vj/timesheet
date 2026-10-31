@@ -12,7 +12,6 @@ import {
   ownerContractorPath,
   ownerDashboardPath,
   ownerInvitationPath,
-  ownerRemittancePath,
   ownerQueryRetry,
   ownerReadMessage,
   ownerReadRequest,
@@ -25,12 +24,14 @@ const ownerRoots = [
   "apps/mobile/src/owner-client.ts",
   "apps/mobile/src/owner-mutations.ts",
   "apps/mobile/src/owner-mutations-client.ts",
+  "apps/mobile/src/owner-remittance.ts",
   "apps/mobile/src/components/owner-tabs.tsx",
   "apps/mobile/src/components/owner-tabs.web.tsx",
   "apps/mobile/src/components/owner-feedback.tsx",
   "apps/mobile/src/components/owner-week-picker.tsx",
   "apps/mobile/src/components/owner-shift-row.tsx",
   "apps/mobile/src/components/owner-shift-sheet.tsx",
+  "apps/mobile/src/components/owner-remittance-sheet.tsx",
   "apps/mobile/src/app/(owner)",
 ];
 
@@ -60,6 +61,14 @@ describe("owner read client", () => {
     };
     expect(ownerRemittanceSchema.safeParse(model).success).toBe(true);
     expect(ownerRemittanceSchema.safeParse({ ...model, payCents: 2_999 }).success).toBe(false);
+    expect(ownerRemittanceSchema.safeParse({ ...model, lines: [], paidMinutes: 0, payCents: 0 }).success).toBe(false);
+    expect(ownerRemittanceSchema.safeParse({ ...model, remitterName: "" }).success).toBe(false);
+    expect(ownerRemittanceSchema.safeParse({
+      ...model,
+      lines: [{ ...model.lines[0], paidMinutes: 1_440, payCents: 72_000 }],
+      paidMinutes: 1_440,
+      payCents: 72_000,
+    }).success).toBe(false);
   });
 
   it("issues GET requests and refuses week mutations", async () => {
@@ -90,7 +99,6 @@ describe("owner read client", () => {
     await expect(readOwner("/api/me", okSchema, async () => ({ status: 409, body: { error: "business_required" } }))).rejects.toMatchObject({ code: "business_required" });
     await expect(readOwner("/api/dashboard?week=2026-10-27", okSchema, async () => ({ status: 400, body: { error: "invalid_week" } }))).rejects.toMatchObject({ code: "invalid_week" });
     await expect(readOwner("/api/contractors", okSchema, async () => ({ status: 400, body: { error: "invalid_request" } }))).rejects.toMatchObject({ code: "unavailable" });
-    await expect(readOwner("/api/contractors/c1/remittance?week=2026-10-26", okSchema, async () => ({ status: 400, body: { error: "no_entries" } }))).rejects.toMatchObject({ code: "no_entries" });
     await expect(readOwner("/api/contractors/missing", okSchema, async () => ({ status: 404, body: { error: "not_found" } }))).rejects.toMatchObject({ code: "not_found" });
     await expect(readOwner("/api/me", okSchema, async () => ({ status: 200, body: { ok: false } }))).rejects.toMatchObject({ code: "unavailable" });
   });
@@ -100,8 +108,6 @@ describe("owner read client", () => {
     expect(() => ownerDashboardPath("2026-10-27")).toThrow(/invalid_week/);
     expect(ownerContractorPath("contractor-1")).toBe("/api/contractors/contractor-1");
     expect(ownerInvitationPath("contractor-1")).toBe("/api/contractors/contractor-1/invitation");
-    expect(ownerRemittancePath("contractor-1", "2026-10-26")).toBe("/api/contractors/contractor-1/remittance?week=2026-10-26");
-    expect(() => ownerRemittancePath("contractor-1", "2026-10-27")).toThrow(/invalid_week/);
     expect(() => ownerContractorPath("../contractor-1")).toThrow(/not_found/);
     expect(() => ownerInvitationPath("a/b")).toThrow(/not_found/);
     expect(OWNER_WEB_DASHBOARD_PATH).toBe("/dashboard");
@@ -129,7 +135,6 @@ describe("owner read client", () => {
     expect(ownerReadMessage(new OwnerReadError("invalid_week")).title).toBe("That week is not a Monday.");
     expect(ownerReadMessage(new OwnerReadError("unauthorized")).title).toBe("Sign in again");
     expect(ownerReadMessage(new OwnerReadError("offline")).title).toBe("You're offline");
-    expect(ownerReadMessage(new OwnerReadError("no_entries")).title).toBe("No remittance available");
   });
 
   it("keeps owner query roots out of the persisted cache", () => {
@@ -140,7 +145,6 @@ describe("owner read client", () => {
       "owner-invitation",
       "owner-sites",
       "owner-me",
-      "owner-remittance",
     ]);
     for (const root of OWNER_QUERY_ROOTS) {
       expect(portalQueryPersists([root, "2026-10-26"])).toBe(false);
@@ -153,7 +157,6 @@ describe("owner read client", () => {
       "OWNER_INVITATION_QUERY",
       "OWNER_SITES_QUERY",
       "OWNER_ME_QUERY",
-      "OWNER_REMITTANCE_QUERY",
     ]) {
       expect(client).toContain(root);
     }
@@ -170,6 +173,11 @@ describe("owner read client", () => {
     expect(api).toContain('path.includes("apply-schedule")');
     expect(api).toContain('path.includes("/api/weeks")');
     const bannedEverywhere = [/apply-schedule/, /applySchedule/, /\/api\/weeks/, /\bfetch\s*\(/];
+    const remittanceFiles = new Set([
+      "apps/mobile/src/owner-remittance.ts",
+      "apps/mobile/src/components/owner-remittance-sheet.tsx",
+      "apps/mobile/src/app/(owner)/(tabs)/payroll.tsx",
+    ]);
     const mutationFiles = new Set([
       "apps/mobile/src/owner-mutations.ts",
       "apps/mobile/src/owner-mutations-client.ts",
@@ -180,6 +188,7 @@ describe("owner read client", () => {
       for (const pattern of bannedEverywhere) {
         expect(source, file).not.toMatch(pattern);
       }
+      if (!remittanceFiles.has(file)) expect(source, file).not.toMatch(/\/remittance/);
       if (!mutationFiles.has(file)) expect(source, file).not.toMatch(/\b(?:POST|PATCH|PUT|DELETE)\b/);
     }
     const mutationSource = readFileSync("apps/mobile/src/owner-mutations.ts", "utf8");
@@ -187,15 +196,19 @@ describe("owner read client", () => {
     expect(apiPaths).toEqual(["`/api/time-entries/${ownerShiftResourceId(id)}/exception`"]);
     expect(ownerShiftExceptionPath("entry_1")).toBe("/api/time-entries/entry_1/exception");
     const ownerApi = readFileSync("apps/mobile/src/owner-api.ts", "utf8");
-    expect(ownerApi).toContain("ownerRemittancePath");
     expect(ownerApi).toContain("OWNER_HTTP_METHOD");
-    const ownerClient = readFileSync("apps/mobile/src/owner-client.ts", "utf8");
-    expect(ownerClient).toContain('Accept: "application/json"');
+    expect(ownerApi).not.toContain("ownerRemittancePath");
+    const remittanceClient = readFileSync("apps/mobile/src/owner-remittance.ts", "utf8");
+    expect(remittanceClient).toContain("ownerRemittancePath");
+    expect(remittanceClient).toContain("application/vnd.cleantrack.remittance+json");
     const payroll = readFileSync("apps/mobile/src/app/(owner)/(tabs)/payroll.tsx", "utf8");
-    expect(payroll).toContain("<Sheet");
+    expect(payroll).toContain("OwnerRemittanceSheet");
     expect(payroll).toContain("View remittance for");
-    expect(payroll).toContain("useOwnerRemittance");
+    expect(payroll).not.toContain("useOwnerRemittance");
     expect(payroll).not.toContain("openOwnerWebDashboard");
+    const sheet = readFileSync("apps/mobile/src/components/owner-remittance-sheet.tsx", "utf8");
+    expect(sheet).toContain("<Sheet");
+    expect(sheet).not.toContain("useQuery");
     const model = readFileSync("packages/core/src/owner-read.ts", "utf8");
     expect(model).not.toContain("calculateEntryPayCents");
     expect(model).not.toContain("apply-schedule");

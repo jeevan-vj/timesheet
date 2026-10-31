@@ -1,9 +1,6 @@
 import type { OwnerApprovalStatus, OwnerEntry } from "@cleantrack/core";
 
-// Re-enable only after #53 audit policy, paid-hours semantics, and mobile evidence are reviewed.
-export const OWNER_SHIFT_ACTIONS_ENABLED: boolean = false;
-export const OWNER_SHIFT_ACTIONS_DISABLED_MESSAGE =
-  "Mobile paid-hours changes are unavailable pending audit history and release review.";
+export const OWNER_SHIFT_ACTIONS_ENABLED: boolean = true;
 
 export type OwnerShiftAction = "worked" | "did_not_work" | "reset_pending" | "change_hours";
 

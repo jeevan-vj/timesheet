@@ -8,11 +8,14 @@ import { createServer, transformWithEsbuild } from "vite";
 // Native decoration and network I/O are adapters; no API or production credentials are used.
 const root = process.cwd();
 const mobile = path.join(root, "apps/mobile/src");
-const output = path.join(root, "docs/verification/pr114");
+const output = path.join(root, "docs/verification/mobile-status-remittance");
 await fs.mkdir(output, { recursive: true });
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({
+  executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  headless: true,
+});
 
-async function scenario(enabled) {
+async function scenario() {
   const virtual = {
     "test-entry": `
       import React, { useState } from 'react';
@@ -68,11 +71,6 @@ async function scenario(enabled) {
         if (id === "\0test-entry") return (await transformWithEsbuild(virtual["test-entry"], "test-entry.jsx", { loader: "jsx", jsx: "automatic" })).code;
         if (id.startsWith("\0")) return virtual[id.slice(1)];
       },
-      transform(code, id) {
-        if (enabled && id === path.join(mobile, "owner-mutations.ts")) {
-          return code.replace("OWNER_SHIFT_ACTIONS_ENABLED: boolean = false", "OWNER_SHIFT_ACTIONS_ENABLED: boolean = true");
-        }
-      },
       configureServer(dev) {
         dev.middlewares.use("/proof", (_request, response) => {
           response.setHeader("Content-Type", "text/html");
@@ -94,12 +92,7 @@ async function scenario(enabled) {
     const absent = page.getByRole("button", { name: "Didn't work", exact: true });
     await absent.waitFor();
     await page.waitForFunction(() => document.querySelector('[aria-label="Close shift actions"]')?.getBoundingClientRect().bottom <= window.innerHeight);
-    if (!enabled) {
-      assert.equal(await absent.isDisabled(), true);
-      assert.equal(await calls(), 0);
-      await page.getByText(/unavailable pending audit history/).waitFor();
-      await page.screenshot({ path: path.join(output, "release-disabled.png") });
-    } else {
+    {
       await absent.click();
       await page.getByText(/sets paid time to 0/).waitFor();
       assert.equal(await calls(), 0);
@@ -147,11 +140,11 @@ async function scenario(enabled) {
       await page.evaluate(() => window.__settle());
     }
     assert.deepEqual(errors, []);
-    process.stdout.write(`PASS owner sheet ${enabled ? "synthetic enabled interactions" : "committed release gate"}\n`);
+    process.stdout.write("PASS owner sheet committed enabled interactions\n");
   } finally {
     await page.close();
     await server.close();
   }
 }
 
-try { await scenario(false); await scenario(true); } finally { await browser.close(); }
+try { await scenario(); } finally { await browser.close(); }

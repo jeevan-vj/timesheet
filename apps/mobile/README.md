@@ -75,6 +75,8 @@ After publish, force-quit and reopen the release build up to twice so the update
 
 Existing TestFlight / store builds that were compiled **before** this PR (no `expo-updates` / no `updates.url`) cannot receive OTA. Ship a new production build after merge, then OTA works for that binary and later matching fingerprints.
 
+Contractor remittance PDF download uses the native `expo-file-system` and `expo-sharing` modules. A binary built before those modules were added cannot receive that feature through OTA. The PDF is written to `Paths.cache`, passed to the native share sheet, and removed afterwards; saving or sharing a copy from the system sheet is the contractor's explicit action.
+
 ### Rollback
 
 ```sh

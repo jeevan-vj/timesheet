@@ -136,9 +136,12 @@ describe("contractor remittance route", () => {
     expect(pdfRender.renderRemittancePdf).toHaveBeenCalledTimes(1);
   });
 
-  it("returns the canonical model as no-store JSON for the native owner view", async () => {
+  it.each([
+    ["application/json"],
+    ["application/vnd.cleantrack.remittance+json"],
+  ])("returns the canonical remittance model as no-store JSON for Accept %s", async (accept) => {
     remittanceService.getContractorWeekRemittance.mockResolvedValue(payload);
-    const response = await GET(cookieRequest(remittanceUrl("c1"), "GET", { accept: "application/json" }), idParams("c1"));
+    const response = await GET(cookieRequest(remittanceUrl("c1"), "GET", { accept }), idParams("c1"));
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toMatch(/application\/json/);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
@@ -147,9 +150,13 @@ describe("contractor remittance route", () => {
       contractorName: "Aroha",
       weekStart,
       weekEnd,
+      currency: "NZD",
       paidMinutes: 570,
       payCents: 29_800,
-      currency: "NZD",
+      lines: [
+        { workDate: weekStart, siteName: "Harbour Offices", paidMinutes: 480, rateCents: 3_200, payCents: 25_600 },
+        { workDate: "2026-09-01", siteName: "Warehouse", paidMinutes: 90, rateCents: 2_800, payCents: 4_200 },
+      ],
     });
     expect(pdfRender.renderRemittancePdf).not.toHaveBeenCalled();
   });

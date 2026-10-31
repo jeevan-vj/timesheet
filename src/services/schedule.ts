@@ -1,6 +1,14 @@
 import { and, asc, eq, gte, inArray, lte } from "drizzle-orm";
 import type { db } from "@/db/client";
-import { assignmentScheduleVersions, assignments, contractors, sites, timeEntries, weekApprovals } from "@/db/schema";
+import {
+  assignmentScheduleVersions,
+  assignments,
+  contractors,
+  ownerTimeEntryAudit,
+  sites,
+  timeEntries,
+  weekApprovals,
+} from "@/db/schema";
 import { ownerBusinessIdOrNull, requireOwnerBusinessId } from "@/lib/business";
 import { isUniqueConstraintError } from "@/lib/db-errors";
 import { weekEnd, weekStartFromDate } from "@/lib/payroll";
@@ -80,6 +88,79 @@ function thisDayWouldChange(
     || existing.startMinutes !== next.startMinutes
     || existing.endMinutes !== next.endMinutes
     || existing.breakMinutes !== next.breakMinutes;
+}
+
+type AuditedOccurrenceState = {
+  occurrenceKind: string;
+  entryMode: string;
+  paidMinutes: number;
+  startMinutes: number;
+  endMinutes: number;
+  breakMinutes: number;
+  scheduleVersionId: string | null;
+};
+
+function auditedOccurrenceState(value: AuditedOccurrenceState): AuditedOccurrenceState {
+  return {
+    occurrenceKind: value.occurrenceKind,
+    entryMode: value.entryMode,
+    paidMinutes: value.paidMinutes,
+    startMinutes: value.startMinutes,
+    endMinutes: value.endMinutes,
+    breakMinutes: value.breakMinutes,
+    scheduleVersionId: value.scheduleVersionId,
+  };
+}
+
+async function writeAuditedThisDayOccurrence(
+  database: Database,
+  input: {
+    ownerUserId: string;
+    businessId: string;
+    existing: typeof timeEntries.$inferSelect;
+    action: OccurrenceExceptionInput["kind"];
+    next: ThisDayOccurrence;
+  },
+) {
+  const timestamp = now();
+  const next = { ...input.next, scheduleVersionId: input.existing.scheduleVersionId };
+  const auditRow = {
+    id: id(),
+    ownerUserId: input.ownerUserId,
+    businessId: input.businessId,
+    actorUserId: input.ownerUserId,
+    entryId: input.existing.id,
+    action: input.action,
+    oldJson: JSON.stringify(auditedOccurrenceState(input.existing)),
+    newJson: JSON.stringify(auditedOccurrenceState(next)),
+    createdAt: timestamp,
+  };
+  const auditInsert = database.insert(ownerTimeEntryAudit).values(auditRow);
+  const entryUpdate = database
+    .update(timeEntries)
+    .set({ ...input.next, updatedAt: timestamp })
+    .where(and(
+      eq(timeEntries.id, input.existing.id),
+      eq(timeEntries.ownerUserId, input.ownerUserId),
+      eq(timeEntries.businessId, input.businessId),
+    ));
+
+  if ("batch" in database && typeof database.batch === "function") {
+    await database.batch([auditInsert, entryUpdate]);
+    return;
+  }
+
+  type SyncAtomicDatabase = {
+    transaction<T>(callback: (transaction: Database) => T): T;
+  };
+  (database as unknown as SyncAtomicDatabase).transaction((transaction) => {
+    transaction.insert(ownerTimeEntryAudit).values(auditRow).run();
+    transaction.update(timeEntries).set({ ...input.next, updatedAt: timestamp }).where(and(
+      eq(timeEntries.id, input.existing.id),
+      eq(timeEntries.ownerUserId, input.ownerUserId),
+      eq(timeEntries.businessId, input.businessId),
+    )).run();
+  });
 }
 
 async function loadOwnedAssignment(database: Database, ownerUserId: string, businessId: string, assignmentId: string) {
@@ -597,10 +678,13 @@ export async function applyOccurrenceException(
   const next = await nextThisDayOccurrence(database, ownerUserId, businessId, existing, input);
   if (thisDayWouldChange(existing, next)) {
     await assertUnlockedWeek(database, ownerUserId, existing.workDate, businessId);
-    await database
-      .update(timeEntries)
-      .set({ ...next, updatedAt: now() })
-      .where(and(eq(timeEntries.id, existing.id), eq(timeEntries.ownerUserId, ownerUserId), eq(timeEntries.businessId, businessId)));
+    await writeAuditedThisDayOccurrence(database, {
+      ownerUserId,
+      businessId,
+      existing,
+      action: input.kind,
+      next,
+    });
   }
 
   return requireEntryResource(database, ownerUserId, existing.id);

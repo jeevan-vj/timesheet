@@ -12,14 +12,17 @@ import { useOwnerShiftException } from "../apps/mobile/src/owner-mutations-clien
 
 describe("mobile owner release gate", () => {
   it.each(["worked", "did_not_work", "reset_pending", "change_hours"])(
-    "rejects %s before transport or cache invalidation",
+    "sends %s and refreshes the owner dashboard after success",
     async (action) => {
-      // Only the React Query adapter is replaced; the real mutation function and gate run.
+      io.send.mockResolvedValueOnce({ status: 200, json: async () => ({ ok: true }) });
       const options = useOwnerShiftException();
       await expect(options.mutationFn({ entryId: "synthetic_1", action, paidMinutes: 75 }))
-        .rejects.toThrow(/pending audit history and release review/i);
-      expect(io.send).not.toHaveBeenCalled();
-      expect(io.invalidate).not.toHaveBeenCalled();
+        .resolves.toEqual({ ok: true });
+      expect(io.send).toHaveBeenCalledTimes(1);
+      await options.onSuccess();
+      expect(io.invalidate).toHaveBeenCalledWith({ queryKey: ["owner-dashboard"] });
+      io.send.mockClear();
+      io.invalidate.mockClear();
     },
   );
 });
