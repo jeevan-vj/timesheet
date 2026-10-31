@@ -124,12 +124,14 @@ describe("contractor screens stay read-only", () => {
     }
   });
 
-  it("keeps remittance on the website until the portal flag is on", () => {
+  it("offers the contractor-scoped PDF action inside approved week detail", () => {
     const pay = readFileSync("apps/mobile/src/app/(contractor)/(tabs)/pay.tsx", "utf8");
-    expect(PORTAL_REMITTANCE_AVAILABLE).toBe(false);
+    expect(PORTAL_REMITTANCE_AVAILABLE).toBe(true);
     expect(pay).toContain("PORTAL_REMITTANCE_AVAILABLE");
-    expect(pay).toContain("Remittance PDFs stay on the website.");
-    expect(pay).toContain("View on web");
+    expect(pay).toContain("ContractorRemittanceActions");
+    expect(pay).not.toContain("Remittance PDFs stay on the website.");
+    expect(pay).not.toContain("View on web");
+    expect(readFileSync("apps/mobile/src/contractor-remittance.ts", "utf8")).not.toContain("/api/contractors/");
     expect(pay).toContain("<Sheet");
     expect(readFileSync("apps/mobile/src/ui/sheet.tsx", "utf8")).toContain('presentationStyle="pageSheet"');
   });

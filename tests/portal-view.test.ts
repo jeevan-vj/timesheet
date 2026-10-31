@@ -49,8 +49,8 @@ describe("contractor portal view", () => {
     expect(portalQueryPersists(["owner-me"])).toBe(false);
   });
 
-  it("leaves remittance download unavailable", () => {
-    expect(PORTAL_REMITTANCE_AVAILABLE).toBe(false);
+  it("enables contractor remittance download through the contractor-scoped route", () => {
+    expect(PORTAL_REMITTANCE_AVAILABLE).toBe(true);
   });
 
   it("rejects notes, rates, and pay on a week shift", () => {
