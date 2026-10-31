@@ -6,6 +6,12 @@ import { buildRemittanceModel, renderRemittancePdf } from "@/lib/remittance";
 import { weekStartInput } from "@/lib/validation";
 import { getContractorWeekRemittance } from "@/services/remittance";
 
+function acceptsRemittanceModel(request: Request): boolean {
+  const accept = request.headers.get("accept")?.toLowerCase() ?? "";
+  return accept.includes("application/vnd.cleantrack.remittance+json")
+    || accept.includes("application/json");
+}
+
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const access = await authorize(request);
   if ("response" in access) return access.response;
@@ -28,9 +34,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       remitterEmail,
       entries: data.entries,
     });
-    if (request.headers.get("accept")?.includes("application/vnd.cleantrack.remittance+json")) {
-      return noStoreJson(model);
-    }
+    if (acceptsRemittanceModel(request)) return noStoreJson(model);
     const pdf = await renderRemittancePdf(model);
     return new Response(pdf as Uint8Array<ArrayBuffer>, {
       status: 200,

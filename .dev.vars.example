@@ -2,6 +2,8 @@ BETTER_AUTH_SECRET=local-development-secret-change-me-123456789
 BETTER_AUTH_URL=http://localhost:3000
 AUTH_TRUSTED_ORIGINS=
 OPS_BOT_TOKEN=local-ops-bot-token-change-me
+GOOGLE_CLIENT_ID=replace-with-google-web-client-id
+GOOGLE_CLIENT_SECRET=replace-with-google-web-client-secret
 # Leave blank. Wrangler does not bind this name locally while it stays off secrets.required.
 RESEND_API_KEY=
 # Local invite capture. Uncomment only for `pnpm dev`. Production refuses smtp-dev.

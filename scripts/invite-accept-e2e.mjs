@@ -46,6 +46,26 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function api(page, pathname, body, method = "POST") {
+  return page.evaluate(async ({ pathname, body, method }) => {
+    const response = await fetch(pathname, {
+      method,
+      headers: body === undefined ? undefined : { "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(`${method} ${pathname}:${response.status}:${data.error ?? "request_failed"}`);
+    return data;
+  }, { pathname, body, method });
+}
+
+function mondayIso(now = new Date()) {
+  const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const weekday = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() - (weekday - 1));
+  return date.toISOString().slice(0, 10);
+}
+
 async function signUpOwner(page) {
   await page.goto(`${baseUrl}/sign-up`, { waitUntil: "networkidle" });
   await page.getByLabel("Your name").fill("Owner Invite");
@@ -75,6 +95,21 @@ async function addContractor(page) {
   await shot(page, "03-contractor-added");
 }
 
+async function addAssignedWork(page) {
+  const listed = await api(page, "/api/contractors", undefined, "GET");
+  const contractor = listed.contractors?.find((item) => item.email === cleanerEmail);
+  if (!contractor) throw new Error("created contractor was not listed");
+  const site = await api(page, "/api/sites", { name: "Queen Street Office", address: "12 Queen Street, Auckland" });
+  const assignment = await api(page, "/api/assignments", { contractorId: contractor.id, siteId: site.id, rateCents: null });
+  const weekStart = mondayIso();
+  await api(page, `/api/assignments/${assignment.id}/schedule`, {
+    weekdays: [1, 2, 3, 4, 5], paidMinutes: 120, weekStart, fromDate: weekStart, mode: "create",
+  }, "PUT");
+  await api(page, "/api/weeks/approve", { weekStart, expectedPaidMinutes: 600, expectedPayCents: 32_000 });
+  await page.reload({ waitUntil: "networkidle" });
+  await shot(page, "03b-assigned-work-approved");
+}
+
 async function sendInvite(page) {
   await page.getByRole("button", { name: "Invite Aroha North" }).click();
   await page.getByRole("button", { name: "Send invitation" }).click();
@@ -92,7 +127,14 @@ async function acceptInvite(page, link) {
   await page.getByRole("button", { name: "Create account and continue" }).click();
   await page.getByRole("heading", { name: "My work" }).waitFor();
   await page.getByText("My work at Northwind Cleaning").waitFor();
+  await page.getByRole("heading", { name: "Assigned work" }).waitFor();
+  await page.getByRole("heading", { name: "Remittance" }).waitFor();
+  await page.getByText("Queen Street Office").first().waitFor();
+  await page.getByText("$320.00").first().waitFor();
   await shot(page, "06-portal-signed-in");
+  await page.getByRole("button").filter({ hasText: "$320.00" }).click();
+  await page.getByText("$64.00").first().waitFor();
+  await shot(page, "06b-remittance-detail");
 }
 
 async function signInAgain(page) {
@@ -105,17 +147,20 @@ async function signInAgain(page) {
   await page.getByRole("button", { name: "Sign in" }).click();
   await page.getByRole("heading", { name: "My work" }).waitFor();
   await page.getByText("My work at Northwind Cleaning").waitFor();
+  await page.getByRole("heading", { name: "Remittance" }).waitFor();
   await shot(page, "08-portal-signed-in-again");
 }
 
 async function main() {
   fs.mkdirSync(outDir, { recursive: true });
-  const browser = await chromium.launch({ headless: process.env.E2E_HEADLESS !== "0" });
+  const channel = process.env.PLAYWRIGHT_CHANNEL || undefined;
+  const browser = await chromium.launch({ channel, headless: process.env.E2E_HEADLESS !== "0" });
   const ownerContext = await browser.newContext({ viewport: { width: 1280, height: 900 }, recordVideo: { dir: path.join(outDir, "video") } });
   const owner = await ownerContext.newPage();
   await signUpOwner(owner);
   await saveBusiness(owner);
   await addContractor(owner);
+  await addAssignedWork(owner);
   await sendInvite(owner);
   const link = await inviteLinkFromInbox();
   const contractorContext = await browser.newContext({ viewport: { width: 1280, height: 900 }, recordVideo: { dir: path.join(outDir, "video") } });

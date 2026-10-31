@@ -9,4 +9,6 @@ export const auth = createAuth({
   db,
   trustedOrigins: getTrustedOrigins(),
   secureCookies: getSecureCookies(),
+  googleClientId: env.GOOGLE_CLIENT_ID,
+  googleClientSecret: env.GOOGLE_CLIENT_SECRET,
 });

@@ -28,6 +28,7 @@ describe("runtime dependency pins", () => {
     expect(mobile.dependencies["react-native"]).toBe("0.88.1");
     expect(mobile.dependencies["expo-file-system"]).toBe("~58.0.13");
     expect(mobile.dependencies["expo-sharing"]).toBe("~58.0.21");
+    expect(mobile.dependencies["expo-web-browser"]).toBe("~58.0.7");
     expect(root.devDependencies.typescript).toBe("6.0.3");
     expect(mobile.devDependencies.typescript).toBe("~6.0.3");
     expect(root.devDependencies["@types/react"]).toBe("19.3.0");

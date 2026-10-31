@@ -14,7 +14,7 @@ function returnToFromLocation(): string {
 export default function SignInPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<"email" | "google" | null>(null);
   const [error, setError] = useState("");
   const [returnTo, setReturnTo] = useState("/dashboard");
   useEffect(() => {
@@ -23,7 +23,9 @@ export default function SignInPage() {
     if (/^[^\s@]+@[^\s@]+$/.test(email) && email.length <= 254) setEmail(email);
   }, []);
   async function submit(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setError("");
+    event.preventDefault();
+    if (pending) return;
+    setPending("email"); setError("");
     const next = returnToFromLocation();
     try {
       const result = await authClient.signIn.email({ email, password });
@@ -32,16 +34,37 @@ export default function SignInPage() {
     } catch {
       setError("Could not connect. Check your connection and try again.");
     } finally {
-      setBusy(false);
+      setPending(null);
+    }
+  }
+  async function signInWithGoogle() {
+    if (pending) return;
+    setPending("google"); setError("");
+    const next = returnToFromLocation();
+    try {
+      const result = await authClient.signIn.social({
+        provider: "google",
+        callbackURL: next,
+        errorCallbackURL: `/sign-in?returnTo=${encodeURIComponent(next)}`,
+      });
+      if (result.error) setError(result.error.status === 429 ? "Too many attempts. Try again shortly." : "Google sign-in is not available. Try email instead.");
+    } catch {
+      setError("Could not connect. Check your connection and try again.");
+    } finally {
+      setPending(null);
     }
   }
   return <AuthShell>
     <p className="eyebrow">Welcome back</p><h1>Sign in to your workspace</h1><p className="muted">Continue to this week’s hours and payment totals.</p>
+    <button data-testid="google-sign-in" className="button secondary auth-provider" type="button" disabled={pending !== null} onClick={() => void signInWithGoogle()}>
+      {pending === "google" ? "Opening Google…" : "Continue with Google"}
+    </button>
+    <div className="auth-divider"><span>or use email</span></div>
     <form className="form-stack" onSubmit={submit}>
-      <label>Email<input type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></label>
-      <label>Password<input type="password" autoComplete="current-password" required minLength={AUTH_MIN_PASSWORD_LENGTH} value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+      <label>Email<input type="email" autoComplete="email" required disabled={pending !== null} value={email} onChange={(e) => setEmail(e.target.value)} /></label>
+      <label>Password<input type="password" autoComplete="current-password" required disabled={pending !== null} minLength={AUTH_MIN_PASSWORD_LENGTH} value={password} onChange={(e) => setPassword(e.target.value)} /></label>
       {error ? <p className="alert" role="alert">{error}</p> : null}
-      <button className="button" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
+      <button className="button" type="submit" disabled={pending !== null}>{pending === "email" ? "Signing in…" : "Sign in"}</button>
     </form>
     <p className="switch-copy">New to CleanTrack? <a href={`/sign-up?returnTo=${encodeURIComponent(returnTo)}`}>Create an account</a></p>
   </AuthShell>;

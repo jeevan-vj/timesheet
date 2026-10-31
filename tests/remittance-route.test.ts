@@ -136,12 +136,12 @@ describe("contractor remittance route", () => {
     expect(pdfRender.renderRemittancePdf).toHaveBeenCalledTimes(1);
   });
 
-  it("returns the same canonical remittance model for the authenticated in-app viewer", async () => {
+  it.each([
+    ["application/json"],
+    ["application/vnd.cleantrack.remittance+json"],
+  ])("returns the canonical remittance model as no-store JSON for Accept %s", async (accept) => {
     remittanceService.getContractorWeekRemittance.mockResolvedValue(payload);
-    const response = await GET(cookieRequest(remittanceUrl("c1"), "GET", {
-      accept: "application/vnd.cleantrack.remittance+json",
-    }), idParams("c1"));
-
+    const response = await GET(cookieRequest(remittanceUrl("c1"), "GET", { accept }), idParams("c1"));
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toMatch(/application\/json/);
     expect(response.headers.get("Cache-Control")).toBe("no-store");

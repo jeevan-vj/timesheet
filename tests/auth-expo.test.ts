@@ -102,4 +102,68 @@ describe("Better Auth Expo server", () => {
     expect(session?.user.email).toBe("one@example.test");
     expect(await auth.api.getSession({ headers: new Headers() })).toBeNull();
   });
+
+  it("starts Google OAuth with the configured callback and explicit linking policy", async () => {
+    const sqlite = await openPortalSqlite();
+    const auth = createAuth({
+      secret: SECRET,
+      baseURL: BASE_URL,
+      db: drizzle(sqlite),
+      trustedOrigins: trustedOriginsFor(BASE_URL),
+      secureCookies: true,
+      googleClientId: "google-client-id",
+      googleClientSecret: "google-client-secret",
+    });
+
+    expect(auth.options.socialProviders?.google).toMatchObject({
+      clientId: "google-client-id",
+      clientSecret: "google-client-secret",
+    });
+    expect(auth.options.account?.accountLinking).toMatchObject({
+      allowDifferentEmails: false,
+      disableImplicitLinking: false,
+      requireLocalEmailVerified: false,
+      trustedProviders: ["google"],
+    });
+    expect(auth.options.rateLimit).toMatchObject({
+      customRules: {
+        "/sign-in/social": { window: 60, max: 10 },
+      },
+    });
+
+    const response = await postAuth(auth, "sign-in/social", {
+      origin: BASE_URL,
+      "cf-connecting-ip": SIGN_IN_IP,
+    }, {
+      provider: "google",
+      callbackURL: "/portal",
+      errorCallbackURL: "/sign-in?returnTo=%2Fportal",
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json() as { redirect: boolean; url: string };
+    expect(body.redirect).toBe(true);
+    const authorization = new URL(body.url);
+    expect(authorization.origin).toBe("https://accounts.google.com");
+    expect(authorization.searchParams.get("client_id")).toBe("google-client-id");
+    expect(authorization.searchParams.get("redirect_uri")).toBe(`${BASE_URL}/api/auth/callback/google`);
+
+    const mobile = await postAuth(auth, "sign-in/social", {
+      "expo-origin": CLEANTRACK_APP_SCHEME,
+      "cf-connecting-ip": SIGN_IN_IP,
+    }, {
+      provider: "google",
+      callbackURL: "cleantrack:///",
+    });
+    expect(mobile.status).toBe(200);
+    expect(await mobile.json()).toMatchObject({ redirect: true });
+
+    const rejected = await postAuth(auth, "sign-in/social", {
+      origin: BASE_URL,
+      "cf-connecting-ip": SIGN_IN_IP,
+    }, {
+      provider: "google",
+      callbackURL: "https://attacker.example/steal",
+    });
+    expect(rejected.status).toBe(403);
+  });
 });
