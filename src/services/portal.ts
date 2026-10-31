@@ -12,14 +12,17 @@ import {
   type PortalWeek,
 } from "@cleantrack/core/portal";
 import type { db } from "@/db/client";
-import { assignmentScheduleVersions, assignments, business, contractorAccount, contractors, sites, timeEntries, weekApprovals } from "@/db/schema";
+import { assignmentScheduleVersions, assignments, business, contractorAccount, contractors, sites, timeEntries, user, weekApprovals } from "@/db/schema";
 import { calculateEntryPayCents, weekEnd, weekStartFromDate } from "@/lib/payroll";
 
 type Database = typeof db;
 
 type Scope = {
   contractorId: string;
+  contractorName: string;
   ownerUserId: string;
+  ownerName: string;
+  ownerEmail: string;
   businessId: string;
   businessName: string;
 };
@@ -151,12 +154,16 @@ export async function listPortalScopes(database: Database, userId: string): Prom
   return database
     .select({
       contractorId: contractorAccount.contractorId,
+      contractorName: contractors.name,
       ownerUserId: contractorAccount.ownerUserId,
+      ownerName: user.name,
+      ownerEmail: user.email,
       businessId: contractorAccount.businessId,
       businessName: business.name,
     })
     .from(contractorAccount)
     .innerJoin(business, eq(business.id, contractorAccount.businessId))
+    .innerJoin(user, eq(user.id, contractorAccount.ownerUserId))
     .innerJoin(contractors, and(
       eq(contractors.id, contractorAccount.contractorId),
       eq(contractors.ownerUserId, contractorAccount.ownerUserId),
@@ -366,10 +373,15 @@ export async function getPortalPaymentDetail(database: Database, userId: string,
   let paidMinutes = 0;
   let payCents = 0;
   let found = false;
+  const remittanceCandidates: PortalPaymentDetail["remittances"] = [];
   for (const scope of scopes) {
     const weeks = await approvedWeekStarts(database, scope);
     if (!weeks.has(weekStart)) continue;
-    for (const entry of await loadEntries(database, scope, weekStart, end)) {
+    const entries = await loadEntries(database, scope, weekStart, end);
+    if (entries.length > 0) {
+      remittanceCandidates.push({ businessId: scope.businessId, businessName: scope.businessName });
+    }
+    for (const entry of entries) {
       found = true;
       const linePay = entryPayCents(entry.paidMinutes, entry.rateCents);
       paidMinutes += entry.paidMinutes;
@@ -377,6 +389,7 @@ export async function getPortalPaymentDetail(database: Database, userId: string,
       if (entry.paidMinutes <= 0) continue;
       lines.push({
         id: entry.id,
+        businessId: scope.businessId,
         workDate: entry.workDate,
         siteName: entry.siteName,
         businessName: scope.businessName,
@@ -387,5 +400,39 @@ export async function getPortalPaymentDetail(database: Database, userId: string,
   }
   if (!found) return null;
   lines.sort((a, b) => a.workDate.localeCompare(b.workDate) || a.siteName.localeCompare(b.siteName) || a.id.localeCompare(b.id));
-  return { weekStart, weekEnd: end, paidMinutes, payCents, lines };
+  const businessCounts = new Map<string, number>();
+  for (const target of remittanceCandidates) {
+    businessCounts.set(target.businessId, (businessCounts.get(target.businessId) ?? 0) + 1);
+  }
+  const remittances = remittanceCandidates
+    .filter((target) => businessCounts.get(target.businessId) === 1)
+    .sort((a, b) => a.businessName.localeCompare(b.businessName) || a.businessId.localeCompare(b.businessId));
+  return { weekStart, weekEnd: end, paidMinutes, payCents, lines, remittances };
+}
+
+export async function getPortalWeekRemittance(database: Database, userId: string, businessId: string, weekStart: string) {
+  const matching = (await listPortalScopes(database, userId)).filter((scope) => scope.businessId === businessId);
+  if (matching.length !== 1) throw new Error("not_found");
+  const [scope] = matching;
+  if (!scope || !(await approvedWeekStarts(database, scope)).has(weekStart)) throw new Error("not_found");
+  const end = weekEnd(weekStart);
+  const entries = await loadEntries(database, scope, weekStart, end);
+  if (entries.length === 0) throw new Error("no_entries");
+  return {
+    contractorId: scope.contractorId,
+    contractorName: scope.contractorName,
+    weekStart,
+    weekEnd: end,
+    remitterName: scope.ownerName,
+    remitterEmail: scope.ownerEmail,
+    entries: entries.map((entry) => ({
+      id: entry.id,
+      workDate: entry.workDate,
+      siteName: entry.siteName,
+      paidMinutes: entry.paidMinutes,
+      rateCents: entry.rateCents,
+      contractorId: scope.contractorId,
+      contractorName: scope.contractorName,
+    })),
+  };
 }

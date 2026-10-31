@@ -6,12 +6,11 @@ import {
   portalCalendar,
   spokenNzd,
 } from "@cleantrack/core";
-import * as Linking from "expo-linking";
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { payWeekRows } from "@/contractor-view";
+import { ContractorRemittanceActions } from "@/components/contractor-remittance-actions";
 import { usePortalPaymentDetail, usePortalPayments } from "@/portal-client";
-import { apiBaseUrl } from "@/runtime-config";
 import {
   EmptyState,
   ErrorState,
@@ -106,22 +105,6 @@ export default function PayScreen() {
                 })}
               </View>
             )}
-            <View style={styles.list}>
-              <SectionHeader>Remittance</SectionHeader>
-              {PORTAL_REMITTANCE_AVAILABLE ? (
-                <ListRow
-                  accessibilityLabel="View remittance on the web"
-                  icon={{ ios: "doc.text", android: "description", web: "description" }}
-                  onPress={() => {
-                    void Linking.openURL(`${apiBaseUrl()}/portal`);
-                  }}
-                  subtitle="Remittance PDFs stay on the website"
-                  title="View on web"
-                />
-              ) : (
-                <Text style={styles.note}>Remittance PDFs stay on the website.</Text>
-              )}
-            </View>
           </>
         ) : null}
       </Screen>
@@ -163,6 +146,16 @@ export default function PayScreen() {
                 />
               ))
             )}
+            {PORTAL_REMITTANCE_AVAILABLE ? (
+              <View style={styles.list}>
+                <SectionHeader>Remittance</SectionHeader>
+                <ContractorRemittanceActions
+                  remittances={detail.data.remittances}
+                  weekEnd={detail.data.weekEnd}
+                  weekStart={detail.data.weekStart}
+                />
+              </View>
+            ) : null}
           </>
         ) : null}
       </Sheet>

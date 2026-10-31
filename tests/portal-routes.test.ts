@@ -37,6 +37,7 @@ vi.mock("@/lib/request-session", () => ({
 }));
 
 import { GET as readPayment } from "../src/app/api/portal/payments/[week]/route";
+import { GET as downloadRemittance } from "../src/app/api/portal/payments/[week]/remittance/[business]/route";
 import { GET as readPayments } from "../src/app/api/portal/payments/route";
 import { GET as readUpcoming } from "../src/app/api/portal/upcoming/route";
 import { GET as readWeek } from "../src/app/api/portal/week/route";
@@ -382,4 +383,43 @@ describe("contractor portal reads", () => {
     const open = await readPayment(mobileRequest("/api/portal/payments/2026-10-26"), { params: Promise.resolve({ week: "2026-10-26" }) });
     expect(open.status).toBe(404);
   });
+
+  it("downloads one approved remittance per linked business without accepting a contractor id", async () => {
+    const northwind = await downloadRemittance(
+      mobileRequest("/api/portal/payments/2026-10-19/remittance/biz_owner-a?contractorId=c-b"),
+      { params: Promise.resolve({ week: "2026-10-19", business: "biz_owner-a" }) },
+    );
+    expect(northwind.status).toBe(200);
+    expect(northwind.headers.get("content-type")).toBe("application/pdf");
+    expect(northwind.headers.get("content-disposition")).toBe('attachment; filename="remittance-aroha-2026-10-25.pdf"');
+    expect(northwind.headers.get("cache-control")).toBe("no-store");
+    expect(northwind.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(new TextDecoder().decode((await northwind.arrayBuffer()).slice(0, 4))).toBe("%PDF");
+
+    const harbour = await downloadRemittance(
+      mobileRequest("/api/portal/payments/2026-10-19/remittance/biz_owner-b"),
+      { params: Promise.resolve({ week: "2026-10-19", business: "biz_owner-b" }) },
+    );
+    expect(harbour.status).toBe(200);
+    expect(harbour.headers.get("content-disposition")).toBe('attachment; filename="remittance-aroha-harbour-2026-10-25.pdf"');
+  });
+
+  it("fails closed for an unlinked business, an unapproved week, or an ineligible contractor", async () => {
+    const context = (week: string, business: string) => ({ params: Promise.resolve({ week, business }) });
+    expect((await downloadRemittance(
+      mobileRequest("/api/portal/payments/2026-10-19/remittance/biz_unknown"),
+      context("2026-10-19", "biz_unknown"),
+    )).status).toBe(404);
+    expect((await downloadRemittance(
+      mobileRequest("/api/portal/payments/2026-10-26/remittance/biz_owner-a"),
+      context("2026-10-26", "biz_owner-a"),
+    )).status).toBe(404);
+
+    sqlite.run("UPDATE contractor SET engagement_status = 'suspended', active = 0 WHERE id = 'c-a'");
+    expect((await downloadRemittance(
+      mobileRequest("/api/portal/payments/2026-10-19/remittance/biz_owner-a"),
+      context("2026-10-19", "biz_owner-a"),
+    )).status).toBe(404);
+  });
+
 });
