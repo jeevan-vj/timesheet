@@ -104,14 +104,14 @@ async function hashRegularFiles(run, root, entries) {
   for (let offset = 0; offset < regular.length; offset += HASH_CHUNK) {
     const chunk = regular.slice(offset, offset + HASH_CHUNK);
     const absolute = chunk.map((entry) => path.join(root, entry.path));
-    const hashed = await run(["hash-object", "--", ...absolute]);
+    const hashed = await run(["-c", "core.autocrlf=false", "hash-object", "--no-filters", "--", ...absolute]);
     if (hashed.code === 0) {
       const oids = oidsFromHashOutput(hashed.stdout, chunk.length);
       chunk.forEach((entry, index) => worktree.set(entry.path, { oid: oids[index] }));
       continue;
     }
     for (const entry of chunk) {
-      const one = chunk.length === 1 ? hashed : await run(["hash-object", "--", path.join(root, entry.path)]);
+      const one = chunk.length === 1 ? hashed : await run(["-c", "core.autocrlf=false", "hash-object", "--no-filters", "--", path.join(root, entry.path)]);
       recordHashResult(worktree, entry, one);
     }
   }

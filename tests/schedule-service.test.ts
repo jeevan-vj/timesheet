@@ -335,6 +335,9 @@ describe("recurring schedule service", () => {
   it("skips approved weeks on apply and exception, and going-forward from next Monday does not rewrite locked rows", async () => {
     const { database, owner } = await seedFixture();
     await putAssignmentSchedule(database, "owner-a", owner.assignment.id, createSchedule);
+    for (const entry of await ownerEntries(database, "owner-a")) {
+      await applyOccurrenceException(database, "owner-a", entry.id, { kind: "confirm_worked", scope: "this_day" });
+    }
     const locked = await ownerEntries(database, "owner-a");
     await approveWeek(database, "owner-a", {
       weekStart: MONDAY,
@@ -375,10 +378,13 @@ describe("recurring schedule service", () => {
     }))).toEqual(snapshot);
   });
 
-  it("rejects confirm, reset, and hour changes on an approved week", async () => {
+  it("keeps repeat confirmation idempotent and rejects reset and hour changes on an approved week", async () => {
     const { database, owner } = await seedFixture();
     await putAssignmentSchedule(database, "owner-a", owner.assignment.id, createSchedule);
     const monday = (await ownerEntries(database, "owner-a")).find((row) => row.workDate === MONDAY)!;
+    for (const entry of await ownerEntries(database, "owner-a")) {
+      await applyOccurrenceException(database, "owner-a", entry.id, { kind: "confirm_worked", scope: "this_day" });
+    }
     await approveWeek(database, "owner-a", {
       weekStart: MONDAY,
       expectedPaidMinutes: 450,
@@ -388,17 +394,16 @@ describe("recurring schedule service", () => {
     await expect(applyOccurrenceException(database, "owner-a", monday.id, {
       kind: "confirm_worked",
       scope: "this_day",
-    })).rejects.toThrow("week_locked");
+    })).resolves.toMatchObject({ occurrenceKind: "worked", paidMinutes: 90 });
     await expect(applyOccurrenceException(database, "owner-a", monday.id, {
       kind: "hours_override",
       scope: "this_day",
       paidMinutes: 30,
     })).rejects.toThrow("week_locked");
-    const unchanged = await applyOccurrenceException(database, "owner-a", monday.id, {
+    await expect(applyOccurrenceException(database, "owner-a", monday.id, {
       kind: "worked_as_scheduled",
       scope: "this_day",
-    });
-    expect(unchanged).toMatchObject({ occurrenceKind: "scheduled", paidMinutes: 90, rateCents: RATE });
+    })).rejects.toThrow("week_locked");
     expect(await ownerEntries(database, "owner-a")).toEqual(before);
   });
 
@@ -487,7 +492,9 @@ describe("recurring schedule service", () => {
     const { database, owner } = await seedFixture();
     await putAssignmentSchedule(database, "owner-a", owner.assignment.id, createSchedule);
     const monday = (await ownerEntries(database, "owner-a")).find((row) => row.workDate === MONDAY)!;
-    await applyOccurrenceException(database, "owner-a", monday.id, { kind: "confirm_worked", scope: "this_day" });
+    for (const entry of await ownerEntries(database, "owner-a")) {
+      await applyOccurrenceException(database, "owner-a", entry.id, { kind: "confirm_worked", scope: "this_day" });
+    }
     await approveWeek(database, "owner-a", {
       weekStart: MONDAY,
       expectedPaidMinutes: 450,

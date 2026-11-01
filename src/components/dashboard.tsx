@@ -86,7 +86,7 @@ function fullDate(value: string) { return new Intl.DateTimeFormat("en-NZ", { wee
 function mutateErrorMessage(error: unknown) {
   const code = error instanceof Error ? error.message : "";
   if (code === "invalid_shift") return "Finish time and break must leave a positive paid shift.";
-  if (code === "week_locked" || code === "stale_week" || code === "week_not_approved") return weekApprovalErrorMessage(code);
+  if (code === "week_locked" || code === "stale_week" || code === "pending_shifts" || code === "week_not_approved") return weekApprovalErrorMessage(code);
   if (code === "schedule_exists" || code === "no_schedule" || code === "invalid_week") return assignmentMutationMessage(code);
   return "That could not be saved. Check for a duplicate or missing assignment.";
 }
@@ -168,6 +168,7 @@ export function Dashboard() {
     activeSiteCount: data.sites.length,
     activeContractorCount: data.contractors.length,
     activeAssignmentCount: data.assignments.length,
+    scheduledAssignmentCount: data.assignments.filter((assignment) => assignment.schedule !== null).length,
   }) : null;
   const totalMinutes = data?.summary.reduce((sum, row) => sum + row.paidMinutes, 0) ?? 0;
   const totalPay = data?.summary.reduce((sum, row) => sum + row.payCents, 0) ?? 0;
@@ -212,6 +213,7 @@ export function Dashboard() {
     await mutateRef.current(() => send(request.url, request.body, request.method), success);
   }, setApprovalSession)).current;
   const weekLocked = data?.approval.status === "approved";
+  const pendingShiftCount = data?.entries.filter((entry) => entry.occurrenceKind === "scheduled").length ?? 0;
   const pendingKind = weekApprovalPendingKind(approvalSession);
   const weekRangeLabel = data ? `${readableDate(data.weekStart)} – ${readableDate(data.weekEnd)}` : "";
   const approvalPrompt = data && pendingKind === "approve"
@@ -240,7 +242,7 @@ export function Dashboard() {
     <LoadWhenViewerReady ready={gate.ready} load={load} />
     <header className="app-header"><a className="brand" href="/"><span className="brand-mark">C</span> CleanTrack</a><nav><a href="#team">Team & sites</a><button className="link-button" onClick={() => void authClient.signOut().then(() => window.location.assign("/"))}>Sign out</button></nav></header>
     <RoleSwitcher viewer={gate.viewer} current="dashboard" />
-    <section className="dashboard-heading"><div><p className="eyebrow">Weekly workspace</p><h1>Hours & contractor pay</h1><p className="muted">Gross contractor payments before tax, GST, expenses, or adjustments.</p></div><div className="week-heading-tools"><WeekPicker week={week} onChange={setWeek} />{!loading && data ? <WeekApprovalBar status={data.approval.status} onApprove={() => approvalFlow.requestApprove()} onReopen={() => approvalFlow.requestReopen()} /> : null}</div></section>
+    <section className="dashboard-heading"><div><p className="eyebrow">Weekly workspace</p><h1>Hours & contractor pay</h1><p className="muted">Gross contractor payments before tax, GST, expenses, or adjustments.</p></div><div className="week-heading-tools"><WeekPicker week={week} onChange={setWeek} />{!loading && data ? <WeekApprovalBar status={data.approval.status} pendingShiftCount={pendingShiftCount} onApprove={() => approvalFlow.requestApprove()} onReopen={() => approvalFlow.requestReopen()} /> : null}</div></section>
     {message ? <p className="notice" role="status">{message}</p> : null}
     {loading ? <section className="loading-card" role="status">Loading your week…</section> : loadFailed || !data ? <section className="loading-card" role="alert"><p>Could not refresh this week. Any confirmed changes are saved.</p><button type="button" className="button" onClick={() => void load()}>Try again</button></section> : <LoadedWeek data={data} onboarding={onboarding} weekLocked={weekLocked} editing={editing} onReload={() => load(true)} onAnnounce={setMessage} onCopyWeekBrief={() => void copyWeekBrief()} onEdit={setEditing} onDelete={(target) => deleteFlow.request(target)} onRemittance={(target) => remittanceFlow.request(target)} />}
     <DeleteShiftDialog session={deleteSession} onCancel={() => deleteFlow.cancel()} onConfirm={() => void deleteFlow.confirm()} />
@@ -305,7 +307,7 @@ function WeekEntries({ data, entries, weekLocked, onReload, onAnnounce, onEdit, 
   onMarkWorked: (ids: string[]) => void;
 }>) {
   const rows = buildWeekGridRows({ assignments: data.assignments, contractors: data.contractors, sites: data.sites, entries });
-  return <section className="panel"><div className="panel-title"><div><p className="eyebrow">Monday – Sunday</p><h2>{readableDate(data.weekStart)} – {readableDate(data.weekEnd)}</h2></div><div className="week-panel-tools"><AddRepeatingSchedule assignments={data.assignments} contractors={data.contractors} sites={data.sites} weekStart={data.weekStart} locked={weekLocked} onSave={async (assignmentId, body) => { await send(`/api/assignments/${assignmentId}/schedule`, body, "PUT"); await onReload(); onAnnounce("Repeating schedule added."); }} /><ShiftEntrySheet data={data} locked={weekLocked} onSave={async (body) => { await send("/api/time-entries", body); await onReload(); onAnnounce("Shift added."); }} /></div></div>
+  return <section className="panel" id="week-shifts"><div className="panel-title"><div><p className="eyebrow">Monday – Sunday</p><h2>{readableDate(data.weekStart)} – {readableDate(data.weekEnd)}</h2></div><div className="week-panel-tools"><AddRepeatingSchedule assignments={data.assignments} contractors={data.contractors} sites={data.sites} weekStart={data.weekStart} locked={weekLocked} onSave={async (assignmentId, body) => { await send(`/api/assignments/${assignmentId}/schedule`, body, "PUT"); await onReload(); onAnnounce("Repeating schedule added."); }} /><ShiftEntrySheet data={data} locked={weekLocked} onSave={async (body) => { await send("/api/time-entries", body); await onReload(); onAnnounce("Shift added."); }} /></div></div>
     {weekGridIsEmpty(rows, entries) ? <EmptyState title="No shifts this week" body="Record the first shift after adding a contractor and assigning them to a site." /> : <WeekGrid weekStart={data.weekStart} assignments={data.assignments} contractors={data.contractors} sites={data.sites} entries={entries} locked={weekLocked} onEdit={(entry) => openManualEntry(entry, onEdit)} onDelete={onDelete} onException={onException} onMarkWorked={onMarkWorked} />}
   </section>;
 }
@@ -325,12 +327,13 @@ function PaySummary({ data, summary, totalPay, siteSummary, onCopyWeekBrief, onR
   </aside>;
 }
 
-function WeekApprovalBar({ status, onApprove, onReopen }: { status: WeekApprovalStatus; onApprove: () => void; onReopen: () => void }) {
+function WeekApprovalBar({ status, pendingShiftCount, onApprove, onReopen }: { status: WeekApprovalStatus; pendingShiftCount: number; onApprove: () => void; onReopen: () => void }) {
   const label = weekApprovalBadgeLabel(status);
   return <div className="week-approval-bar">
     <span className={`week-approval-badge is-${status}`} aria-label={`Week status: ${label}`}>{label}</span>
-    {canApproveWeek(status) ? <button type="button" className="button small" onClick={onApprove}>Approve week</button> : null}
+    {status !== "approved" ? <button type="button" className="button small" disabled={!canApproveWeek(status, pendingShiftCount)} onClick={onApprove}>Approve week</button> : null}
     {canReopenWeek(status) ? <button type="button" className="button small secondary" onClick={onReopen}>Reopen week</button> : null}
+    {pendingShiftCount > 0 ? <a className="week-readiness" href="#week-shifts">Resolve pending shifts before approval · {noun(pendingShiftCount, "shift", "shifts")}</a> : null}
   </div>;
 }
 
@@ -424,8 +427,14 @@ const ONBOARDING_COPY: Record<OnboardingStep, { kicker: string; title: string; b
   },
   schedule: {
     kicker: "Schedule",
-    title: "Add a repeating schedule, or finish",
-    body: "A repeating schedule is optional. Use Add repeating schedule on the week panel when the same days repeat. Finish setup whenever you are ready to record shifts.",
+    title: "Optional: automate future weeks",
+    body: "Add a repeating schedule when the same days repeat, or finish setup and record shifts as needed.",
+    action: "Finish setup",
+  },
+  finish: {
+    kicker: "Ready",
+    title: "Your workspace is ready",
+    body: "Your first site, contractor, assignment, and repeating schedule are in place. Finish setup to start your weekly review.",
     action: "Finish setup",
   },
 };
@@ -549,6 +558,10 @@ function OwnerOnboarding({ step, onReload, onAnnounce }: Readonly<{ step: Onboar
         <a className="button onboarding-link" href="#team">{copy.action}</a>
       </div> : null}
       {step === "schedule" ? <div className="form-actions">
+        <a className="button secondary onboarding-link" href="#week-shifts">Add repeating schedule</a>
+        <button type="button" className="button" onClick={finishSetup} disabled={busy} aria-busy={busy}>{copy.action}</button>
+      </div> : null}
+      {step === "finish" ? <div className="form-actions">
         <button type="button" className="button" onClick={finishSetup} disabled={busy} aria-busy={busy}>{copy.action}</button>
       </div> : null}
     </div>

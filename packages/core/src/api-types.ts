@@ -21,6 +21,7 @@ export const API_ERROR_CODES = [
   "no_schedule",
   "not_found",
   "payload_too_large",
+  "pending_shifts",
   "resend_too_soon",
   "schedule_exists",
   "service_unavailable",

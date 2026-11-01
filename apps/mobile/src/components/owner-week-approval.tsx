@@ -24,7 +24,7 @@ export function OwnerWeekApproval({
   data,
   onRefresh,
 }: {
-  data: Pick<OwnerDashboard, "approval" | "summary" | "weekEnd" | "weekStart">;
+  data: Pick<OwnerDashboard, "approval" | "entries" | "summary" | "weekEnd" | "weekStart">;
   onRefresh: () => Promise<unknown>;
 }) {
   const mutation = useOwnerWeekApproval();
@@ -32,6 +32,7 @@ export function OwnerWeekApproval({
   const [message, setMessage] = useState("");
   const totals = ownerWeekTotals(data.summary);
   const approved = data.approval.status === "approved";
+  const pendingShiftCount = data.entries.filter((entry) => entry.occurrenceKind === "scheduled").length;
   const action = approved ? "reopen" : "approve";
 
   const open = () => {
@@ -69,7 +70,10 @@ export function OwnerWeekApproval({
       {approved ? (
         <SecondaryButton accessibilityLabel="Reopen week" onPress={open}>Reopen week</SecondaryButton>
       ) : (
-        <PrimaryButton accessibilityLabel="Approve week" onPress={open}>Approve week</PrimaryButton>
+        <View style={styles.readiness}>
+          <PrimaryButton accessibilityLabel="Approve week" disabled={pendingShiftCount > 0} onPress={open}>Approve week</PrimaryButton>
+          {pendingShiftCount > 0 ? <Text style={styles.readinessText}>{pendingShiftCount} pending {pendingShiftCount === 1 ? "shift needs" : "shifts need"} review before approval.</Text> : null}
+        </View>
       )}
       <Sheet
         closeLabel={`Cancel ${action} week`}
@@ -139,5 +143,13 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
     fontSize: typeScale.subhead,
     lineHeight: 22,
+  },
+  readiness: {
+    gap: spacing.xs,
+  },
+  readinessText: {
+    color: theme.mutedHighContrast,
+    fontSize: typeScale.caption,
+    lineHeight: 18,
   },
 });

@@ -13,6 +13,7 @@ describe("onboardingStep", () => {
       activeSiteCount: 2,
       activeContractorCount: 2,
       activeAssignmentCount: 2,
+      scheduledAssignmentCount: 0,
     })).toBe("business");
   });
 
@@ -22,6 +23,7 @@ describe("onboardingStep", () => {
       activeSiteCount: 0,
       activeContractorCount: 0,
       activeAssignmentCount: 0,
+      scheduledAssignmentCount: 0,
     })).toBeNull();
   });
 
@@ -31,6 +33,7 @@ describe("onboardingStep", () => {
       activeSiteCount: 0,
       activeContractorCount: 1,
       activeAssignmentCount: 1,
+      scheduledAssignmentCount: 0,
     })).toBe("site");
   });
 
@@ -40,6 +43,7 @@ describe("onboardingStep", () => {
       activeSiteCount: 2,
       activeContractorCount: 0,
       activeAssignmentCount: 0,
+      scheduledAssignmentCount: 0,
     })).toBe("contractor");
   });
 
@@ -49,6 +53,7 @@ describe("onboardingStep", () => {
       activeSiteCount: 1,
       activeContractorCount: 1,
       activeAssignmentCount: 0,
+      scheduledAssignmentCount: 0,
     })).toBe("assignment");
   });
 
@@ -58,7 +63,18 @@ describe("onboardingStep", () => {
       activeSiteCount: 1,
       activeContractorCount: 1,
       activeAssignmentCount: 1,
+      scheduledAssignmentCount: 0,
     })).toBe("schedule");
+  });
+
+  it("offers a clear finish state once a repeating schedule exists", () => {
+    expect(onboardingStep({
+      business: openBusiness,
+      activeSiteCount: 1,
+      activeContractorCount: 1,
+      activeAssignmentCount: 1,
+      scheduledAssignmentCount: 1,
+    })).toBe("finish");
   });
 });
 

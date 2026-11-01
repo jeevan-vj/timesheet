@@ -17,4 +17,11 @@ describe("contractor web portal", () => {
     expect(portal).not.toContain("/api/contractors/");
     expect(portal).not.toContain("contractorId");
   });
+
+  it("exposes payment detail state and specific directions labels", () => {
+    expect(portal).toContain('aria-expanded={selectedWeek === week.weekStart}');
+    expect(portal).toContain('aria-label={`Directions to ${shift.siteName}`');
+    expect(portal).toContain('aria-busy={loadingWeek === week.weekStart}');
+    expect(portal).toContain('Close pay details');
+  });
 });
