@@ -8,6 +8,7 @@ export type OwnerWeekApprovalInput =
 
 export type OwnerWeekApprovalCode =
   | "stale_week"
+  | "pending_shifts"
   | "week_locked"
   | "week_not_approved"
   | "unauthorized"
@@ -34,6 +35,7 @@ export type OwnerWeekApprovalSend = (
 
 export const OWNER_WEEK_APPROVAL_MESSAGES = {
   staleWeek: "Totals changed. Review the refreshed week and approve again.",
+  pendingShifts: "Resolve every pending shift before approving this week.",
   weekLocked: "This week is already approved and locked.",
   weekNotApproved: "This week is no longer approved. Refresh and review it again.",
   unauthorized: "Your session ended. Sign in again.",
@@ -54,6 +56,9 @@ function approvalError(status: number, body: unknown): OwnerWeekApprovalError {
   }
   if (status === 409 && code === "stale_week") {
     return { code: "stale_week", message: OWNER_WEEK_APPROVAL_MESSAGES.staleWeek };
+  }
+  if (status === 409 && code === "pending_shifts") {
+    return { code: "pending_shifts", message: OWNER_WEEK_APPROVAL_MESSAGES.pendingShifts };
   }
   if (status === 409 && code === "week_locked") {
     return { code: "week_locked", message: OWNER_WEEK_APPROVAL_MESSAGES.weekLocked };

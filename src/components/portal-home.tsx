@@ -18,7 +18,7 @@ import {
   type PortalPayments,
   type PortalUpcoming,
 } from "@cleantrack/core/portal";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RoleSwitcher } from "@/components/role-switcher";
 import { authClient } from "@/lib/auth-client";
 import { asViewerShape, type ViewerShape } from "@/lib/viewer-path";
@@ -30,7 +30,10 @@ export function PortalHome() {
   const [data, setData] = useState<PortalData | null>(null);
   const [detail, setDetail] = useState<PortalPaymentDetail | null>(null);
   const [detailFailed, setDetailFailed] = useState(false);
+  const [selectedWeek, setSelectedWeek] = useState<string | null>(null);
+  const [loadingWeek, setLoadingWeek] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const detailRequest = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -45,20 +48,35 @@ export function PortalHome() {
   }, []);
 
   async function openRemittance(weekStart: string) {
+    if (selectedWeek === weekStart && detail) {
+      detailRequest.current += 1;
+      setSelectedWeek(null);
+      setLoadingWeek(null);
+      setDetail(null);
+      setDetailFailed(false);
+      return;
+    }
+    const request = detailRequest.current + 1;
+    detailRequest.current = request;
+    setSelectedWeek(weekStart);
+    setLoadingWeek(weekStart);
     setDetail(null);
     setDetailFailed(false);
     try {
       const response = await fetch(`/api/portal/payments/${weekStart}`, { cache: "no-store" });
       if (!response.ok) throw new Error("payment_unavailable");
-      setDetail(portalPaymentDetailSchema.parse(await response.json()));
+      const next = portalPaymentDetailSchema.parse(await response.json());
+      if (detailRequest.current === request) setDetail(next);
     } catch {
-      setDetailFailed(true);
+      if (detailRequest.current === request) setDetailFailed(true);
+    } finally {
+      if (detailRequest.current === request) setLoadingWeek(null);
     }
   }
 
   let portalContent = <output className="loading-card" aria-live="polite">Loading your work…</output>;
   if (viewer && data) {
-    portalContent = <PortalBody data={data} detail={detail} detailFailed={detailFailed} onOpenRemittance={openRemittance} viewer={viewer} />;
+    portalContent = <PortalBody data={data} detail={detail} detailFailed={detailFailed} loadingWeek={loadingWeek} selectedWeek={selectedWeek} onOpenRemittance={openRemittance} viewer={viewer} />;
   } else if (failed) {
     portalContent = <></>;
   }
@@ -104,12 +122,14 @@ async function loadPortal(): Promise<{ viewer: ViewerShape; data: PortalData } |
 }
 
 function PortalBody({
-  viewer, data, detail, detailFailed, onOpenRemittance,
+  viewer, data, detail, detailFailed, loadingWeek, selectedWeek, onOpenRemittance,
 }: Readonly<{
   viewer: ViewerShape;
   data: PortalData;
   detail: PortalPaymentDetail | null;
   detailFailed: boolean;
+  loadingWeek: string | null;
+  selectedWeek: string | null;
   onOpenRemittance: (weekStart: string) => Promise<void>;
 }>) {
   const shifts = data.upcoming.days.flatMap((day) => day.shifts);
@@ -125,22 +145,22 @@ function PortalBody({
             const directions = directionsUrl(shift.address, "web");
             return <article className="portal-row" key={`${shift.businessId}:${shift.id}`}>
               <div><strong>{shift.siteName}</strong><span>{shift.businessName} · {formatShiftTime(shift)} · {shiftStatusLabel(shift.occurrenceKind)}</span>{shift.address ? <span>{shift.address}</span> : null}</div>
-              {directions ? <a href={directions} rel="noreferrer" target="_blank">Directions</a> : null}
+              {directions ? <a className="portal-directions" href={directions} rel="noreferrer" target="_blank" aria-label={`Directions to ${shift.siteName}`}>Directions</a> : null}
             </article>;
           })}
         </div>)}
       </section>
       <section className="panel portal-section" aria-labelledby="remittance-heading">
-        <div><p className="eyebrow">Approved pay</p><h2 id="remittance-heading">Remittance</h2></div>
-        <div className="portal-summary"><span>This week</span><strong>{formatNzd(data.payments.headline.payCents)}</strong><span>{formatMinutes(data.payments.headline.paidMinutes)}{data.payments.headline.estimated ? " · estimated" : " · approved"}</span></div>
+        <div><p className="eyebrow">Approved pay</p><h2 id="remittance-heading">Pay details</h2></div>
+        <div className="portal-summary"><span>Latest approved week</span><strong>{formatNzd(data.payments.headline.payCents)}</strong><span>{formatMinutes(data.payments.headline.paidMinutes)}{data.payments.headline.estimated ? " · estimated" : " · approved"}</span></div>
         {data.payments.weeks.length === 0 ? <p className="muted">Approved remittance details will appear after the business approves a week.</p> : <div className="portal-remittances">
-          {data.payments.weeks.map((week) => <button className="portal-row portal-row-button" key={week.weekStart} onClick={() => void onOpenRemittance(week.weekStart)}>
-            <span><strong>{formatWeekRange(week.weekStart, week.weekEnd)}</strong><span>{formatMinutes(week.paidMinutes)}</span></span><strong>{formatNzd(week.payCents)}</strong>
+          {data.payments.weeks.map((week) => <button className={`portal-row portal-row-button${selectedWeek === week.weekStart ? " is-expanded" : ""}`} key={week.weekStart} aria-expanded={selectedWeek === week.weekStart} aria-busy={loadingWeek === week.weekStart} onClick={() => void onOpenRemittance(week.weekStart)}>
+            <span><strong>{formatWeekRange(week.weekStart, week.weekEnd)}</strong><span>{formatMinutes(week.paidMinutes)} · {loadingWeek === week.weekStart ? "Loading…" : selectedWeek === week.weekStart ? "Hide details" : "View details"}</span></span><span className="portal-row-pay"><strong>{formatNzd(week.payCents)}</strong><span aria-hidden="true">{selectedWeek === week.weekStart ? "⌃" : "⌄"}</span></span>
           </button>)}
         </div>}
         {detailFailed ? <p className="alert" role="alert">Could not open that remittance. Try again.</p> : null}
         {detail ? <div className="portal-detail" aria-live="polite">
-          <h3>{formatWeekRange(detail.weekStart, detail.weekEnd)}</h3>
+          <div className="portal-detail-heading"><h3>{formatWeekRange(detail.weekStart, detail.weekEnd)}</h3><button type="button" className="link-button portal-detail-close" onClick={() => void onOpenRemittance(detail.weekStart)}>Close pay details</button></div>
           <p><strong>{formatNzd(detail.payCents)}</strong> · {formatMinutes(detail.paidMinutes)}</p>
           {detail.lines.map((line) => <div className="portal-detail-line" key={line.id}><span>{formatDayHeading(line.workDate)} · {line.siteName}<small>{line.businessName} · {formatMinutes(line.paidMinutes)}</small></span><strong>{formatNzd(line.payCents)}</strong></div>)}
         </div> : null}

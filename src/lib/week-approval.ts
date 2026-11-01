@@ -40,8 +40,8 @@ export function weekApprovalBadgeLabel(status: WeekApprovalStatus): "Open" | "Ap
   return "Open";
 }
 
-export function canApproveWeek(status: WeekApprovalStatus): boolean {
-  return status === "open" || status === "reopened";
+export function canApproveWeek(status: WeekApprovalStatus, pendingShiftCount = 0): boolean {
+  return (status === "open" || status === "reopened") && pendingShiftCount === 0;
 }
 
 export function canReopenWeek(status: WeekApprovalStatus): boolean {
@@ -91,6 +91,7 @@ export function weekReopenPrompt(input: { weekRangeLabel: string }) {
 export function weekApprovalErrorMessage(code: string): string {
   if (code === "week_locked") return "This week is approved and locked. Reopen it before changing shifts.";
   if (code === "stale_week") return "This week's hours or pay changed. Reload and review again.";
+  if (code === "pending_shifts") return "Resolve every pending shift before approving this week.";
   if (code === "week_not_approved") return "This week is not approved yet.";
   return "That could not be saved. Check for a duplicate or missing assignment.";
 }

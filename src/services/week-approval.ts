@@ -61,6 +61,7 @@ async function currentWeekTotals(database: Database, ownerUserId: string, busine
     .select({
       paidMinutes: timeEntries.paidMinutes,
       rateCents: timeEntries.rateCents,
+      occurrenceKind: timeEntries.occurrenceKind,
     })
     .from(timeEntries)
     .where(and(
@@ -69,7 +70,10 @@ async function currentWeekTotals(database: Database, ownerUserId: string, busine
       gte(timeEntries.workDate, weekStart),
       lte(timeEntries.workDate, end),
     ));
-  return weekPayrollTotals(entries);
+  return {
+    ...weekPayrollTotals(entries),
+    pendingShiftCount: entries.filter((entry) => entry.occurrenceKind === "scheduled").length,
+  };
 }
 
 export async function assertUnlockedWeek(database: Database, ownerUserId: string, workDate: string, businessId: string) {
@@ -91,6 +95,7 @@ export async function approveWeek(
 
   const existing = await findWeekApproval(database, ownerUserId, input.weekStart, businessId);
   if (existing?.status === "approved") return toWeekApprovalResource(existing);
+  if (totals.pendingShiftCount > 0) throw new Error("pending_shifts");
 
   const approvedAt = now();
   if (existing?.status === "reopened") {

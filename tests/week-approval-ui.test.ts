@@ -25,10 +25,11 @@ describe("week approval badge and gates", () => {
     expect(weekApprovalBadgeLabel("reopened")).toBe("Reopened");
   });
 
-  it("allows approve on open and reopened, and reopen only when approved", () => {
-    expect(canApproveWeek("open")).toBe(true);
-    expect(canApproveWeek("reopened")).toBe(true);
-    expect(canApproveWeek("approved")).toBe(false);
+  it("allows approve only when the week is open or reopened and has no pending shifts", () => {
+    expect(canApproveWeek("open", 0)).toBe(true);
+    expect(canApproveWeek("reopened", 0)).toBe(true);
+    expect(canApproveWeek("open", 2)).toBe(false);
+    expect(canApproveWeek("approved", 0)).toBe(false);
     expect(canReopenWeek("approved")).toBe(true);
     expect(canReopenWeek("open")).toBe(false);
     expect(canReopenWeek("reopened")).toBe(false);
@@ -84,12 +85,15 @@ describe("week approval prompts and payloads", () => {
     expect(JSON.stringify(reopen)).not.toMatch(/owner_user_id|ownerUserId/);
   });
 
-  it("maps lock, stale, and not-approved failures to recoverable copy", () => {
+  it("maps lock, stale, pending, and not-approved failures to recoverable copy", () => {
     expect(weekApprovalErrorMessage("week_locked")).toBe(
       "This week is approved and locked. Reopen it before changing shifts.",
     );
     expect(weekApprovalErrorMessage("stale_week")).toBe(
       "This week's hours or pay changed. Reload and review again.",
+    );
+    expect(weekApprovalErrorMessage("pending_shifts")).toBe(
+      "Resolve every pending shift before approving this week.",
     );
     expect(weekApprovalErrorMessage("week_not_approved")).toBe("This week is not approved yet.");
   });
@@ -178,7 +182,7 @@ describe("dashboard week approval wiring", () => {
     expect(dashboard).toContain("weekApprovalBadgeLabel");
     expect(dashboard).toContain("canApproveWeek");
     expect(dashboard).toContain("canReopenWeek");
-    expect(dashboard).toMatch(/canApproveWeek\([^)]*\)\s*\?/);
+    expect(dashboard).toContain("disabled={!canApproveWeek(status, pendingShiftCount)}");
     expect(dashboard).toMatch(/canReopenWeek\([^)]*\)\s*\?/);
     expect(dashboard).toContain("/api/weeks/approve");
     expect(dashboard).toContain("/api/weeks/reopen");
@@ -186,6 +190,8 @@ describe("dashboard week approval wiring", () => {
     expect(dashboard).toContain("Week approved.");
     expect(dashboard).toContain("Week reopened.");
     expect(dashboard).toContain("weekApprovalErrorMessage");
+    expect(dashboard).toContain("pendingShiftCount");
+    expect(dashboard).toContain("Resolve pending shifts before approval");
   });
 
   it("keeps approval controls out of timesheet cells and omits grid actions when locked", () => {

@@ -19,6 +19,7 @@ const expectedErrors: Record<string, { status: number; error: string }> = {
   duplicate_entry: { status: 409, error: "duplicate_entry" },
   week_locked: { status: 409, error: "week_locked" },
   stale_week: { status: 409, error: "stale_week" },
+  pending_shifts: { status: 409, error: "pending_shifts" },
   week_not_approved: { status: 409, error: "week_not_approved" },
   schedule_exists: { status: 409, error: "schedule_exists" },
   no_schedule: { status: 409, error: "no_schedule" },

@@ -1,4 +1,4 @@
-export type OnboardingStep = "business" | "site" | "contractor" | "assignment" | "schedule";
+export type OnboardingStep = "business" | "site" | "contractor" | "assignment" | "schedule" | "finish";
 
 const STEPS_THAT_ALREADY_EXIST = new Set([
   "duplicate_site",
@@ -12,12 +12,14 @@ export function onboardingStep(input: {
   activeSiteCount: number;
   activeContractorCount: number;
   activeAssignmentCount: number;
+  scheduledAssignmentCount: number;
 }): OnboardingStep | null {
   if (input.business === null) return "business";
   if (input.business.onboardingCompletedAt !== null) return null;
   if (input.activeSiteCount < 1) return "site";
   if (input.activeContractorCount < 1) return "contractor";
   if (input.activeAssignmentCount < 1) return "assignment";
+  if (input.scheduledAssignmentCount > 0) return "finish";
   return "schedule";
 }
 

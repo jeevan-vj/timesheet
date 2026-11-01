@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { chromium } from "playwright";
 
-const baseUrl = process.env.E2E_BASE_URL ?? "http://127.0.0.1:3000";
+const baseUrl = process.env.E2E_BASE_URL ?? "http://localhost:3000";
 const mailpitUrl = process.env.MAILPIT_URL ?? "http://127.0.0.1:8025";
 const outDir = process.env.E2E_ARTIFACTS ?? "/opt/cursor/artifacts/invite-accept";
 const stamp = Date.now().toString(36);
@@ -46,26 +46,6 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function api(page, pathname, body, method = "POST") {
-  return page.evaluate(async ({ pathname, body, method }) => {
-    const response = await fetch(pathname, {
-      method,
-      headers: body === undefined ? undefined : { "content-type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(`${method} ${pathname}:${response.status}:${data.error ?? "request_failed"}`);
-    return data;
-  }, { pathname, body, method });
-}
-
-function mondayIso(now = new Date()) {
-  const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const weekday = date.getUTCDay() || 7;
-  date.setUTCDate(date.getUTCDate() - (weekday - 1));
-  return date.toISOString().slice(0, 10);
-}
-
 async function signUpOwner(page) {
   await page.goto(`${baseUrl}/sign-up`, { waitUntil: "networkidle" });
   await page.getByLabel("Your name").fill("Owner Invite");
@@ -95,18 +75,37 @@ async function addContractor(page) {
   await shot(page, "03-contractor-added");
 }
 
+async function addSite(page) {
+  await page.getByRole("link", { name: "Add a site" }).click();
+  await page.getByText("+ Add site", { exact: true }).click();
+  await page.getByLabel("Site name", { exact: true }).fill("Queen Street Office");
+  await page.getByLabel("Site address").fill("12 Queen Street, Auckland");
+  await page.getByRole("button", { name: "Save site" }).click();
+  await page.locator(".site-row strong", { hasText: "Queen Street Office" }).waitFor();
+  await page.getByRole("heading", { name: "Add a contractor" }).waitFor();
+  await shot(page, "02b-site-added");
+}
+
 async function addAssignedWork(page) {
-  const listed = await api(page, "/api/contractors", undefined, "GET");
-  const contractor = listed.contractors?.find((item) => item.email === cleanerEmail);
-  if (!contractor) throw new Error("created contractor was not listed");
-  const site = await api(page, "/api/sites", { name: "Queen Street Office", address: "12 Queen Street, Auckland" });
-  const assignment = await api(page, "/api/assignments", { contractorId: contractor.id, siteId: site.id, rateCents: null });
-  const weekStart = mondayIso();
-  await api(page, `/api/assignments/${assignment.id}/schedule`, {
-    weekdays: [1, 2, 3, 4, 5], paidMinutes: 120, weekStart, fromDate: weekStart, mode: "create",
-  }, "PUT");
-  await api(page, "/api/weeks/approve", { weekStart, expectedPaidMinutes: 600, expectedPayCents: 32_000 });
-  await page.reload({ waitUntil: "networkidle" });
+  await page.getByText("+ Assign to site", { exact: true }).click();
+  const assignmentForm = page.locator("form").filter({ has: page.getByRole("button", { name: "Save assignment" }) });
+  await assignmentForm.locator('select[name="contractorId"]').selectOption({ label: "Aroha North" });
+  await assignmentForm.locator('select[name="siteId"]').selectOption({ label: "Queen Street Office" });
+  await assignmentForm.getByRole("button", { name: "Save assignment" }).click();
+  await page.getByRole("button", { name: "Add repeating schedule" }).first().click();
+  await page.getByRole("dialog").getByRole("button", { name: "Continue" }).click();
+  const schedule = page.getByRole("dialog", { name: "Add repeating schedule" });
+  await schedule.getByLabel("Hours").fill("2");
+  await schedule.getByLabel("Minutes").selectOption("0");
+  await schedule.getByRole("button", { name: "Save schedule" }).click();
+  await page.getByRole("heading", { name: "Your workspace is ready" }).waitFor();
+  await page.getByRole("button", { name: "Finish setup" }).click();
+  await page.getByText("Resolve pending shifts before approval").waitFor();
+  await shot(page, "03b-assigned-work-pending");
+  await page.getByRole("button", { name: /Mark all pending days worked/ }).click();
+  await page.getByRole("button", { name: "Approve week" }).click();
+  await page.getByRole("dialog", { name: "Approve this week?" }).getByRole("button", { name: "Approve week" }).click();
+  await page.getByText("Approved & locked").waitFor();
   await shot(page, "03b-assigned-work-approved");
 }
 
@@ -128,7 +127,7 @@ async function acceptInvite(page, link) {
   await page.getByRole("heading", { name: "My work" }).waitFor();
   await page.getByText("My work at Northwind Cleaning").waitFor();
   await page.getByRole("heading", { name: "Assigned work" }).waitFor();
-  await page.getByRole("heading", { name: "Remittance" }).waitFor();
+  await page.getByRole("heading", { name: "Pay details" }).waitFor();
   await page.getByText("Queen Street Office").first().waitFor();
   await page.getByText("$320.00").first().waitFor();
   await shot(page, "06-portal-signed-in");
@@ -147,7 +146,7 @@ async function signInAgain(page) {
   await page.getByRole("button", { name: "Sign in" }).click();
   await page.getByRole("heading", { name: "My work" }).waitFor();
   await page.getByText("My work at Northwind Cleaning").waitFor();
-  await page.getByRole("heading", { name: "Remittance" }).waitFor();
+  await page.getByRole("heading", { name: "Pay details" }).waitFor();
   await shot(page, "08-portal-signed-in-again");
 }
 
@@ -155,20 +154,26 @@ async function main() {
   fs.mkdirSync(outDir, { recursive: true });
   const channel = process.env.PLAYWRIGHT_CHANNEL || undefined;
   const browser = await chromium.launch({ channel, headless: process.env.E2E_HEADLESS !== "0" });
-  const ownerContext = await browser.newContext({ viewport: { width: 1280, height: 900 }, recordVideo: { dir: path.join(outDir, "video") } });
+  const video = process.env.E2E_RECORD_VIDEO === "1" ? { recordVideo: { dir: path.join(outDir, "video") } } : {};
+  const ownerContext = await browser.newContext({ viewport: { width: 1280, height: 900 }, ...video });
   const owner = await ownerContext.newPage();
   await signUpOwner(owner);
   await saveBusiness(owner);
+  await addSite(owner);
   await addContractor(owner);
   await addAssignedWork(owner);
   await sendInvite(owner);
   const link = await inviteLinkFromInbox();
-  const contractorContext = await browser.newContext({ viewport: { width: 1280, height: 900 }, recordVideo: { dir: path.join(outDir, "video") } });
+  const contractorContext = await browser.newContext({ viewport: { width: 1280, height: 900 }, ...video });
   const contractor = await contractorContext.newPage();
   await acceptInvite(contractor, link);
   await owner.reload();
   await owner.getByText("Active (portal)").waitFor();
   await shot(owner, "09-owner-active-portal");
+  await owner.setViewportSize({ width: 390, height: 844 });
+  await shot(owner, "09b-owner-mobile");
+  await contractor.setViewportSize({ width: 390, height: 844 });
+  await shot(contractor, "09c-portal-mobile");
   await signInAgain(contractor);
   await contractorContext.close();
   await ownerContext.close();

@@ -157,6 +157,20 @@ describe("week approval service", () => {
     expect(await database.select().from(weekApprovals)).toHaveLength(0);
   });
 
+  it("rejects approval while scheduled shifts are still unresolved", async () => {
+    const { sqlite, database } = await openMemoryDb();
+    const owner = await seedOwner(database, sqlite, "owner-a");
+    const entry = await createTimeEntry(database, "owner-a", paidHours(owner.contractor.id, owner.harbour.id, MONDAY, 120));
+    await database.update(timeEntries).set({ occurrenceKind: "scheduled" }).where(eq(timeEntries.id, entry.id));
+
+    await expect(approveWeek(database, "owner-a", {
+      weekStart: MONDAY,
+      expectedPaidMinutes: 120,
+      expectedPayCents: calculateEntryPayCents(120, entry.rateCents),
+    })).rejects.toThrow("pending_shifts");
+    expect(await findWeekApproval(database, "owner-a", MONDAY, businessIdForUser("owner-a"))).toBeNull();
+  });
+
   it("locks create, update, and delete on an approved week without writing", async () => {
     const { sqlite, database } = await openMemoryDb();
     const owner = await seedOwner(database, sqlite, "owner-a");

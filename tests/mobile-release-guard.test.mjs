@@ -23,7 +23,7 @@ const NOTES_OID = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
 function git(results, hashObject) {
   const run = vi.fn(async (args) => {
-    if (args[0] === "hash-object") {
+    if (args.includes("hash-object")) {
       if (hashObject) return hashObject(args);
       const result = results["hash-object"];
       if (!result) throw new Error(`unexpected git ${args.join(" ")}`);
@@ -88,7 +88,7 @@ describe("mobile production release guard", () => {
       "rev-parse --is-inside-work-tree",
       "rev-parse --show-toplevel",
       "ls-tree -r -z --full-tree HEAD",
-      `hash-object -- /repo/README.md`,
+      `-c core.autocrlf=false hash-object --no-filters -- /repo/README.md`,
       "fetch origin main",
       "rev-parse --is-shallow-repository",
       "merge-base --is-ancestor HEAD origin/main",
@@ -136,7 +136,7 @@ describe("mobile production release guard", () => {
       "ls-tree -r -z --full-tree HEAD": { code: 0, stdout: `120000 blob ${README_OID}\tlink\0` },
     });
     await expect(assertTrackedContentMatchesHead(symlink)).rejects.toThrow("link: unsupported");
-    expect(symlink.mock.calls.some((call) => call[0][0] === "hash-object")).toBe(false);
+    expect(symlink.mock.calls.some((call) => call[0].includes("hash-object"))).toBe(false);
 
     const unreadable = git(clean, () => ({ code: 128, stdout: "", stderr: "fatal: could not open 'README.md' for reading: Permission denied\n" }));
     await expect(assertTrackedContentMatchesHead(unreadable)).rejects.toThrow("README.md: unreadable");
@@ -202,7 +202,7 @@ describe("mobile production release guard", () => {
       "rev-parse --is-inside-work-tree",
       "rev-parse --show-toplevel",
       "ls-tree -r -z --full-tree HEAD",
-      "hash-object -- /repo/README.md",
+      "-c core.autocrlf=false hash-object --no-filters -- /repo/README.md",
       "rev-parse HEAD",
     ]);
 

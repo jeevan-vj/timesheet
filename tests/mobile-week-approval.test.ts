@@ -68,6 +68,18 @@ describe("mobile owner week approval", () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
+  it("maps unresolved scheduled shifts to actionable copy", async () => {
+    await expect(runOwnerWeekApproval({
+      action: "approve",
+      weekStart: "2026-10-26",
+      expectedPaidMinutes: 480,
+      expectedPayCents: 24_000,
+    }, async () => ({ status: 409, body: { error: "pending_shifts" } }))).resolves.toEqual({
+      ok: false,
+      error: { code: "pending_shifts", message: OWNER_WEEK_APPROVAL_MESSAGES.pendingShifts },
+    });
+  });
+
   it("maps locked, not-approved, signed-out, malformed, and offline failures", async () => {
     for (const [status, code, expected] of [
       [409, "week_locked", "week_locked"],
