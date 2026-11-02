@@ -11,13 +11,14 @@ import {
   type OwnerEntry,
 } from "@cleantrack/core";
 import { useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { router } from "expo-router";
+import { StyleSheet, Text, View } from "react-native";
 import { Figure, FinishSetup, OwnerGate, ScheduleNote, latestDataUpdatedAt } from "@/components/owner-feedback";
 import { OwnerShiftRow } from "@/components/owner-shift-row";
 import { OwnerShiftSheet } from "@/components/owner-shift-sheet";
 import { WorkspaceSwitchButton } from "@/components/workspace-switcher";
 import { useOwnerDashboard } from "@/owner-client";
-import { EmptyState, ListRow, Screen, SectionHeader, spacing } from "@/ui";
+import { Card, EmptyState, ListRow, PrimaryButton, Screen, SectionHeader, spacing, theme, typeScale } from "@/ui";
 
 export { ErrorBoundary } from "@/components/route-error-boundary";
 
@@ -61,6 +62,11 @@ function TodayBody({ data, today }: { data: OwnerDashboard; today: string }) {
   return (
     <>
       <ScheduleNote dashboard={data} />
+      <Card>
+        <Text style={styles.assistantTitle}>Ask CleanTrack</Text>
+        <Text style={styles.assistantDetail}>Create team records, assign sites, or verify a remittance in a conversation.</Text>
+        <PrimaryButton accessibilityLabel="Open owner assistant" onPress={() => router.push("/(owner)/assistant")}>Open assistant</PrimaryButton>
+      </Card>
       <Figure label={formatDayHeading(today)} value={formatMinutes(sumPaidMinutes(shifts))} />
       {tasks.length > 0 ? (
         <View style={styles.group}>
@@ -104,4 +110,6 @@ const styles = StyleSheet.create({
   shifts: {
     gap: spacing.xs,
   },
+  assistantTitle: { color: theme.text, fontSize: typeScale.body, fontWeight: "700" },
+  assistantDetail: { color: theme.mutedHighContrast, fontSize: typeScale.subhead, lineHeight: 21 },
 });

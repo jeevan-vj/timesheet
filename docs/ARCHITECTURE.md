@@ -120,6 +120,12 @@ Contractor and time-entry writes, and wage reads, take `ownerUserId` and resolve
 
 ## Decisions
 
+### Owner assistant boundary
+
+`POST /api/owner-assistant/turn` sends bounded recent conversation text to the `AI` binding and accepts only the shared Zod/JSON-schema intent union. The model is deliberately outside the trust boundary: `src/services/owner-assistant.ts` resolves names, checks ambiguity and duplicates, loads the session business, and builds remittance from the same server services as the normal UI. It returns either a message, a read-only remittance, or a signed preview.
+
+`POST /api/owner-assistant/confirm` verifies that preview against the current session, consumes its digest once in D1, and calls the existing contractor, site, or assignment service. The web and Expo clients share the response contracts in `@cleantrack/core`; conversation state remains in memory. This keeps AI model changes independent of domain authorization, migration, payroll, and native runtime behavior.
+
 - Monday is the first day of a payroll week.
 - NZD is the MVP default, stored as `NZD` plus integer cents.
 - An overnight shift is out of scope; finish must be later on the same date, and paid-hours entries must stay under 24 hours.

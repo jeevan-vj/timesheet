@@ -15,6 +15,7 @@ export default function OwnerLayout() {
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.background } }}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="contractors/[id]" />
+        <Stack.Screen name="assistant" options={{ headerShown: true, title: "Ask CleanTrack", headerBackTitle: "Today" }} />
       </Stack>
     </ScreenErrorBoundary>
   );

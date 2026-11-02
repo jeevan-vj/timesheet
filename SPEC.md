@@ -170,6 +170,14 @@ Google sign-in is available alongside email/password on web and mobile. It creat
 
 The owner Team tab can create and edit a contractor's name, email, phone, and integer-cent default hourly rate; show archived contractors; archive and restore without deleting history; and manage portal invitations. Invitation create, resend, and revoke use the existing owner-scoped routes and are never retried automatically. A `link_only` or `email_failed` response exposes its one-time link only to the native Share sheet; the link is not logged, rendered as text, or persisted in the query cache or device storage. Failed saves keep the form draft and show safe retry guidance.
 
+### CT-019 Owner assistant
+
+Authenticated owners can use Ask CleanTrack on web or mobile to request a contractor, site, assignment, or one contractor's weekly remittance in natural language. Workers AI produces only a validated intent; it never receives or chooses an owner id and never writes the database. CleanTrack resolves every name inside the session owner's active business and uses the existing domain services.
+
+Contractor, site, and assignment writes return an exact preview and require a separate confirm action. The five-minute HMAC token binds the session owner to the exact action, and its digest is recorded once in the append-only `owner_assistant_confirmation` table before execution. Reuse, expiry, tampering, ambiguity, duplicates, and cross-owner confirmation fail closed. Conversations are in component memory only and are not persisted or logged.
+
+Remittance is read-only and comes from canonical snapshotted entries and integer-cent payroll math. It is `verified` only when the week is approved and has no pending scheduled occurrence, `incomplete` when a scheduled occurrence remains pending, and otherwise `provisional`. Web links to the existing authenticated PDF. Mobile renders the verified line and total data without adding it to persisted query storage. Unsupported operations, including time-entry or approval changes, return clarification and never execute.
+
 ## Non-goals
 
 - tax, holiday pay, GST, expenses, invoicing, or bank payments;

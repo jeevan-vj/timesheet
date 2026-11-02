@@ -1,0 +1,62 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const state = vi.hoisted(() => ({
+  user: { id: "owner-a", email: "owner@example.test", name: "Owner" } as { id: string; email: string; name: string } | null,
+}));
+const plan = vi.hoisted(() => vi.fn());
+const prepare = vi.hoisted(() => vi.fn());
+const confirm = vi.hoisted(() => vi.fn());
+
+vi.mock("cloudflare:workers", () => ({ env: { AI: { run: vi.fn() }, BETTER_AUTH_SECRET: "test-secret", BETTER_AUTH_URL: "https://app.example.test", AUTH_TRUSTED_ORIGINS: "" } }));
+vi.mock("@/db/client", () => ({ db: {} }));
+vi.mock("@/lib/request-session", () => ({ requireSessionUser: async () => state.user }));
+vi.mock("@/lib/owner-assistant-ai", () => ({ planOwnerAssistantTurn: plan }));
+vi.mock("@/services/owner-assistant", () => ({ prepareOwnerAssistantResponse: prepare, confirmOwnerAssistantAction: confirm }));
+
+import { POST as confirmAction } from "../src/app/api/owner-assistant/confirm/route";
+import { POST as turn } from "../src/app/api/owner-assistant/turn/route";
+
+function request(path: string, body: unknown) {
+  const payload = JSON.stringify(body);
+  return new Request(`https://app.example.test${path}`, { method: "POST", headers: { "content-type": "application/json", "content-length": String(payload.length), origin: "https://app.example.test" }, body: payload });
+}
+
+describe("owner assistant routes", () => {
+  beforeEach(() => {
+    state.user = { id: "owner-a", email: "owner@example.test", name: "Owner" };
+    plan.mockReset(); prepare.mockReset(); confirm.mockReset();
+  });
+
+  it("requires an authenticated owner session", async () => {
+    state.user = null;
+    const response = await turn(request("/api/owner-assistant/turn", { message: "Create a site", history: [] }));
+    expect(response.status).toBe(401);
+    expect(plan).not.toHaveBeenCalled();
+  });
+
+  it("passes bounded input and the session user to the planner and verifier", async () => {
+    plan.mockResolvedValue({ intent: "clarify", reply: "Which site?" });
+    prepare.mockResolvedValue({ kind: "message", message: "Which site?" });
+    const response = await turn(request("/api/owner-assistant/turn", { message: "Create a site", history: [] }));
+    expect(response.status).toBe(200);
+    expect(plan).toHaveBeenCalledTimes(1);
+    expect(prepare).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: "owner-a" }), expect.objectContaining({ intent: "clarify" }), "test-secret");
+    expect(response.headers.get("cache-control")).toContain("no-store");
+  });
+
+  it("rejects invalid input before invoking AI", async () => {
+    const response = await turn(request("/api/owner-assistant/turn", { message: "x".repeat(501), history: [] }));
+    expect(response.status).toBe(400);
+    expect(plan).not.toHaveBeenCalled();
+  });
+
+  it("confirms using the authenticated owner, never a client-supplied owner id", async () => {
+    confirm.mockResolvedValue({ kind: "receipt", message: "Site created.", action: "create_site", targetId: "site-a" });
+    const response = await confirmAction(request("/api/owner-assistant/confirm", { token: "signed-token", ownerUserId: "owner-b" }));
+    expect(response.status).toBe(400);
+    expect(confirm).not.toHaveBeenCalled();
+    const allowed = await confirmAction(request("/api/owner-assistant/confirm", { token: "signed-token" }));
+    expect(allowed.status).toBe(200);
+    expect(confirm).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: "owner-a" }), "signed-token", "test-secret");
+  });
+});

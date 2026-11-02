@@ -85,6 +85,10 @@ Contractor identity/contact data, site locations, rates, work notes, time record
 | Signed-in user accepts someone else's invite | A session email that differs from the invited email returns `account_mismatch` and writes nothing. An existing credential password is not replaced |
 | Dev mail transport runs in production | `MAIL_TRANSPORT=smtp-dev` talks only to a loopback SMTP port. `NODE_ENV=production`, a non-loopback host, or a bad port refuses the send and does not fall back to Resend. The committed Worker var is empty |
 | Open redirect after sign-in | `returnTo` is limited to `/invite`, `/portal`, and `/dashboard`. Absolute and protocol-relative values are ignored |
+| Prompt injection makes the model read or mutate another owner | The model receives no owner id and has no database/tool access. The server validates one allowlisted intent and derives owner and business only from the authenticated session; every relation lookup is owner- and business-scoped |
+| Model invents a contractor, site, rate, week, or pay total | Names must resolve exactly and unambiguously in the session business. Rates and Monday weeks use shared validation. Remittance lines and totals are ignored from the model and rebuilt from snapshotted entries with canonical integer math |
+| Assistant silently performs a write or replays approval | Writes return an exact preview. Confirmation is a five-minute HMAC token bound to owner and payload; its digest is inserted once into an append-only table before the existing service runs. Expired, altered, foreign, and reused tokens fail closed |
+| Prompt or model response leaks confidential data through logs or storage | Request bodies, history, model output, tokens, contact details, rates, and pay are not logged. Server-generated previews, receipts, remittance lines, and pay totals are excluded from later model history. Web and mobile keep the conversation in component memory; owner pay queries remain outside persisted mobile cache |
 
 ## Residual risks
 
