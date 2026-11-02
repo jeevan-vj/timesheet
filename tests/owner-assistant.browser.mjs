@@ -35,6 +35,24 @@ const emptyRemittance = {
   kind: "message",
   message: "Akila has no recorded shifts for 26 Oct – 1 Nov, so CleanTrack cannot calculate a remittance yet. Open Week and record the completed shifts. If you use a repeating schedule, apply it for that week first and confirm each shift is correct. Then ask me to check the remittance again.",
 };
+const assignmentInput = {
+  kind: "input",
+  message: "Choose the contractor and site, then review the assignment before saving.",
+  input: {
+    operation: "assign_site",
+    contractors: [{ label: "Aroha Demo", value: "Aroha Demo" }, { label: "Akila", value: "Akila" }],
+    sites: [{ label: "Whitford", value: "Whitford" }, { label: "Albany Offices", value: "Albany Offices" }],
+  },
+};
+const remittanceInput = {
+  kind: "input",
+  message: "Choose the contractor and week you want me to verify.",
+  input: {
+    operation: "get_remittance",
+    contractors: [{ label: "Aroha Demo", value: "Aroha Demo" }, { label: "Akila", value: "Akila" }],
+    weekStart: "2026-10-26",
+  },
+};
 
 const virtual = {
   "test-entry": `
@@ -52,7 +70,13 @@ const virtual = {
   `,
   "test-mobile-client": `
     window.__histories = [];
-    export async function sendOwnerAssistantTurn(message, history) { window.__histories.push(history); return message.includes('Akila') ? ${JSON.stringify(emptyRemittance)} : message.includes('remittance') ? ${JSON.stringify(remittance)} : ${JSON.stringify(preview)}; }
+    window.__forms = [];
+    export async function sendOwnerAssistantTurn(message, history, form) {
+      window.__histories.push(history); window.__forms.push(form);
+      if (form?.operation === 'get_remittance') return ${JSON.stringify(remittance)};
+      if (message.includes('Help me check')) return ${JSON.stringify(remittanceInput)};
+      return message.includes('Akila') ? ${JSON.stringify(emptyRemittance)} : message.includes('remittance') ? ${JSON.stringify(remittance)} : ${JSON.stringify(preview)};
+    }
     export async function confirmOwnerAssistantChange(token) {
       window.__confirmed = token;
       return { kind: 'receipt', message: 'Aroha Demo is now assigned to Whitford.', action: 'assign_site', targetId: 'assignment-1' };
@@ -100,7 +124,9 @@ try {
     webCalls.push(call);
     const body = call.url.endsWith("/confirm")
       ? { kind: "receipt", message: "Aroha Demo is now assigned to Whitford.", action: "assign_site", targetId: "assignment-1" }
-      : call.body.message?.includes("Akila") ? emptyRemittance : preview;
+      : call.body.form?.operation === "assign_site" ? preview
+        : call.body.message?.includes("Help me assign") ? assignmentInput
+          : call.body.message?.includes("Akila") ? emptyRemittance : preview;
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
   });
   await web.goto(`http://127.0.0.1:${port}/web`);
@@ -112,24 +138,40 @@ try {
   await web.getByRole("button", { name: "Confirm & save" }).click();
   await web.getByText("Aroha Demo is now assigned to Whitford.").waitFor();
   assert.equal(webCalls[1].body.token, "synthetic-signed-token");
+  await web.getByLabel("Message").fill("Help me assign a contractor to a site");
+  await web.getByRole("button", { name: "Send" }).click();
+  const callsBeforeIncompleteForm = webCalls.length;
+  await web.getByRole("button", { name: "Review details" }).click();
+  assert.equal(webCalls.length, callsBeforeIncompleteForm);
+  await web.getByLabel("Contractor").selectOption("Aroha Demo");
+  await web.getByLabel("Site").selectOption("Whitford");
+  await web.locator(".assistant-input").screenshot({ path: path.join(output, "web-guided-assignment-input.png") });
+  await web.getByRole("button", { name: "Review details" }).click();
+  await web.getByText("Review assignment details", { exact: true }).waitFor();
+  assert.deepEqual(webCalls.at(-1).body.form, { operation: "assign_site", contractorName: "Aroha Demo", siteName: "Whitford", rateCents: null });
+  await web.screenshot({ path: path.join(output, "web-guided-assignment.png"), fullPage: true });
   await web.getByLabel("Message").fill("Show Akila's remittance for last week");
   await web.getByRole("button", { name: "Send" }).click();
   await web.getByText(emptyRemittance.message).waitFor();
-  await web.screenshot({ path: path.join(output, "web-empty-remittance-guidance.png"), fullPage: true });
   await web.close();
 
   const native = await browser.newPage({ viewport: { width: 390, height: 844 } });
   native.on("pageerror", (error) => errors.push(`mobile:${error.message}`));
   await native.goto(`http://127.0.0.1:${port}/mobile`);
-  await native.getByLabel("Message CleanTrack assistant").fill("Show Aroha's remittance for last week");
+  await native.getByLabel("Message CleanTrack assistant").fill("Help me check a remittance");
   await native.getByRole("button", { name: "Send message" }).click();
+  await native.getByRole("button", { name: "Check remittance" }).click();
+  await native.getByText("Choose a contractor to continue.").waitFor();
+  await native.getByLabel("Contractor: Aroha Demo").click();
+  await native.screenshot({ path: path.join(output, "mobile-guided-remittance-input.png"), fullPage: true });
+  await native.getByRole("button", { name: "Check remittance" }).click();
   await native.getByText("Verified remittance", { exact: true }).waitFor();
   await native.getByText("$113.75", { exact: false }).waitFor();
-  await native.screenshot({ path: path.join(output, "mobile-verified-remittance.png"), fullPage: true });
+  assert.deepEqual(await native.evaluate(() => window.__forms.at(-1)), { operation: "get_remittance", contractorName: "Aroha Demo", weekStart: "2026-10-26" });
+  await native.screenshot({ path: path.join(output, "mobile-guided-remittance.png"), fullPage: true });
   await native.getByLabel("Message CleanTrack assistant").fill("Show Akila's remittance for last week");
   await native.getByRole("button", { name: "Send message" }).click();
   await native.getByText(emptyRemittance.message).waitFor();
-  await native.screenshot({ path: path.join(output, "mobile-empty-remittance-guidance.png"), fullPage: true });
   await native.getByLabel("Message CleanTrack assistant").fill("Thanks");
   await native.getByRole("button", { name: "Send message" }).click();
   await native.getByText("Assign Aroha Demo to Whitford", { exact: true }).waitFor();
@@ -138,7 +180,7 @@ try {
   assert.equal(JSON.stringify(lastHistory).includes("approved week"), false);
   await native.close();
   assert.deepEqual(errors, []);
-  process.stdout.write("PASS owner assistant web preview/confirm and mobile verified remittance\n");
+  process.stdout.write("PASS owner assistant guided web assignment and mobile remittance\n");
 } finally {
   await browser.close();
   await server.close();

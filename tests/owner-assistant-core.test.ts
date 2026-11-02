@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { ownerAssistantPlanSchema, ownerAssistantTurnInputSchema, ownerAssistantTurnResponseSchema } from "@cleantrack/core/owner-assistant";
+import {
+  ownerAssistantFormSubmissionSchema,
+  ownerAssistantPlanSchema,
+  ownerAssistantTurnInputSchema,
+  ownerAssistantTurnResponseSchema,
+} from "@cleantrack/core/owner-assistant";
 
 describe("owner assistant contracts", () => {
   it("accepts bounded chat history and the supported operations", () => {
@@ -16,6 +21,49 @@ describe("owner assistant contracts", () => {
     expect(ownerAssistantTurnInputSchema.safeParse({ message: "x".repeat(501) }).success).toBe(false);
     expect(ownerAssistantPlanSchema.safeParse({ intent: "create_contractor", reply: "Ready", name: "Ana", defaultRateCents: 12 }).success).toBe(false);
     expect(ownerAssistantPlanSchema.safeParse({ intent: "get_remittance", reply: "Ready", contractorName: "Ana", weekStart: "2026-11-03" }).success).toBe(false);
+  });
+
+  it("allows the AI to request only a trusted guided operation", () => {
+    expect(ownerAssistantPlanSchema.parse({
+      intent: "clarify",
+      reply: "Choose a contractor and week.",
+      operation: "get_remittance",
+      weekStart: "2026-10-26",
+    })).toMatchObject({ operation: "get_remittance", weekStart: "2026-10-26" });
+    expect(ownerAssistantPlanSchema.safeParse({
+      intent: "clarify",
+      reply: "Choose records.",
+      operation: "delete_entries",
+    }).success).toBe(false);
+  });
+
+  it("validates guided form submissions without accepting owner identity", () => {
+    const form = {
+      operation: "assign_site",
+      contractorName: "Ana Sample",
+      siteName: "Demo Site",
+      rateCents: null,
+    };
+    expect(ownerAssistantFormSubmissionSchema.parse(form)).toEqual(form);
+    expect(ownerAssistantTurnInputSchema.safeParse({ message: "Review assignment", history: [], form }).success).toBe(true);
+    expect(ownerAssistantFormSubmissionSchema.safeParse({ ...form, ownerUserId: "owner-b" }).success).toBe(false);
+  });
+
+  it("accepts owner-scoped guided input cards and rejects arbitrary controls", () => {
+    const response = {
+      kind: "input",
+      message: "Choose who and where.",
+      input: {
+        operation: "assign_site",
+        contractors: [{ label: "Ana Sample", value: "Ana Sample" }],
+        sites: [{ label: "Demo Site", value: "Demo Site" }],
+      },
+    };
+    expect(ownerAssistantTurnResponseSchema.safeParse(response).success).toBe(true);
+    expect(ownerAssistantTurnResponseSchema.safeParse({
+      ...response,
+      input: { operation: "sql", fields: [{ type: "textarea", name: "query" }] },
+    }).success).toBe(false);
   });
 
   it("requires canonical remittance totals in a response", () => {

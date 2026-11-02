@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assignmentInput, assignmentRateInput, contractorInput, invalidRequestFromZod, occurrenceExceptionInput, parseIncludeArchived, scheduleDeleteInput, schedulePutInput, siteInput, timeEntryInput, timeEntryUpdateInput, weekApplyScheduleInput, weekApproveInput, weekReopenInput } from "../src/lib/validation";
+import { assignmentInput, assignmentRateInput, contractorInput, invalidRequestFromZod, occurrenceExceptionInput, parseIncludeArchived, rateCentsFromNzdText, scheduleDeleteInput, schedulePutInput, siteInput, timeEntryInput, timeEntryUpdateInput, weekApplyScheduleInput, weekApproveInput, weekReopenInput } from "../src/lib/validation";
 
 describe("API validation", () => {
   it("accepts an integer-cent contractor rate", () => {
@@ -9,6 +9,13 @@ describe("API validation", () => {
   it("rejects fractional or implausible rates", () => {
     expect(contractorInput.safeParse({ name: "A", email: "", defaultRateCents: 30.5 }).success).toBe(false);
     expect(contractorInput.safeParse({ name: "A", email: "", defaultRateCents: 100 }).success).toBe(false);
+  });
+
+  it("parses bounded NZD rate text into integer cents", () => {
+    expect(rateCentsFromNzdText("32.50")).toBe(3_250);
+    expect(rateCentsFromNzdText("15")).toBe(1_500);
+    expect(rateCentsFromNzdText("14.99")).toBeNull();
+    expect(rateCentsFromNzdText("32.999")).toBeNull();
   });
 
   it("strips ownership and lifecycle fields from contractor input", () => {
