@@ -1,6 +1,7 @@
 import {
   ownerAssistantConfirmResponseSchema,
   ownerAssistantTurnResponseSchema,
+  type OwnerAssistantFormSubmission,
   type OwnerAssistantHistoryMessage,
 } from "@cleantrack/core";
 import { mobileFetch } from "@/api";
@@ -12,8 +13,12 @@ async function post(path: string, body: unknown): Promise<unknown> {
   return data;
 }
 
-export async function sendOwnerAssistantTurn(message: string, history: OwnerAssistantHistoryMessage[]) {
-  return ownerAssistantTurnResponseSchema.parse(await post("/api/owner-assistant/turn", { message, history }));
+export async function sendOwnerAssistantTurn(
+  message: string,
+  history: OwnerAssistantHistoryMessage[],
+  form?: OwnerAssistantFormSubmission,
+) {
+  return ownerAssistantTurnResponseSchema.parse(await post("/api/owner-assistant/turn", { message, history, form }));
 }
 
 export async function confirmOwnerAssistantChange(token: string) {

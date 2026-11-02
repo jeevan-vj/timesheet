@@ -32,6 +32,8 @@ export async function planOwnerAssistantTurn(ai: Ai, input: OwnerAssistantTurnIn
     "Choose exactly one supported intent. Never calculate pay, invent records, or request an owner id.",
     "Supported intents: create_contractor, create_site, assign_site, get_remittance, clarify.",
     "Writes are only previews; the server asks the owner to confirm. Ask a concise question with clarify when required information is missing.",
+    "Always return operation. When clarify is for a supported operation, set it to that exact supported operation so CleanTrack can show trusted input controls. Otherwise set operation to null.",
+    "For a remittance clarification, include a Monday weekStart when the requested week is already known.",
     "Contractor creation requires a name and hourly rate. Convert NZ dollar hourly rates to integer cents.",
     "Assignment requires exact contractor and site names. Use null rateCents to inherit the contractor default unless an override is explicit.",
     "Remittance requires an exact contractor name and a Monday weekStart. Resolve relative dates using Pacific/Auckland.",

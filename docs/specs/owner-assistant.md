@@ -14,6 +14,7 @@ Let an authenticated owner use natural language to create a contractor, create a
 6. Remittance uses canonical snapshotted entry math. It declares verified, provisional, or incomplete with a reason and includes line and total data.
 7. Unsupported operations do not run. Chat and pay data are not logged or durably stored.
 8. Automated contracts, authorization, confirmation, migration, and payroll tests pass; browser proof covers web and mobile using synthetic records.
+9. An incomplete supported request can render one trusted inline form selected by operation. CleanTrack defines every control, loads contractor/site options with session owner scope, and validates structured submissions without asking AI to reinterpret them.
 
 ## Non-goals
 

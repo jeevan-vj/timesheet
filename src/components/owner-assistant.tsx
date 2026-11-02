@@ -3,12 +3,21 @@
 import {
   ownerAssistantConfirmResponseSchema,
   ownerAssistantTurnResponseSchema,
+  type OwnerAssistantFormSubmission,
   type OwnerAssistantHistoryMessage,
   type OwnerAssistantTurnResponse,
 } from "@cleantrack/core";
 import { FormEvent, useState } from "react";
+import { OwnerAssistantInput } from "./owner-assistant-input";
 
 type ChatItem = { id: string; role: "user" | "assistant"; text: string; modelHistory: boolean; result?: OwnerAssistantTurnResponse };
+
+function formSummary(form: OwnerAssistantFormSubmission): string {
+  if (form.operation === "create_contractor") return "Review contractor details";
+  if (form.operation === "create_site") return "Review site details";
+  if (form.operation === "assign_site") return "Review assignment details";
+  return "Check remittance details";
+}
 
 async function post(path: string, body: unknown) {
   const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -41,6 +50,24 @@ export function OwnerAssistant({ onChanged }: Readonly<{ onChanged: () => void }
     } finally { setBusy(false); }
   }
 
+  async function submitInput(itemId: string, form: OwnerAssistantFormSubmission): Promise<boolean> {
+    if (busy) return false;
+    const message = formSummary(form);
+    const history: OwnerAssistantHistoryMessage[] = items.filter((item) => item.modelHistory).slice(-8).map((item) => ({ role: item.role, content: item.text }));
+    setItems((current) => [...current, { id: crypto.randomUUID(), role: "user", modelHistory: false, text: message }]);
+    setBusy(true);
+    try {
+      const result = ownerAssistantTurnResponseSchema.parse(await post("/api/owner-assistant/turn", { message, history, form }));
+      setItems((current) => current
+        .map((item) => item.id === itemId ? { ...item, result: undefined } : item)
+        .concat({ id: crypto.randomUUID(), role: "assistant", modelHistory: result.kind === "message", text: result.message, result }));
+      return true;
+    } catch (error) {
+      setItems((current) => [...current, { id: crypto.randomUUID(), role: "assistant", modelHistory: false, text: error instanceof Error ? error.message : "The assistant is unavailable." }]);
+      return false;
+    } finally { setBusy(false); }
+  }
+
   async function confirm(token: string, itemId: string) {
     setBusy(true);
     try {
@@ -57,6 +84,7 @@ export function OwnerAssistant({ onChanged }: Readonly<{ onChanged: () => void }
     <div className="assistant-transcript" aria-live="polite">
       {items.map((item) => <div className={`assistant-message ${item.role}`} key={item.id}>
         <p>{item.text}</p>
+        {item.result?.kind === "input" ? <OwnerAssistantInput busy={busy} input={item.result.input} onSubmit={(form) => submitInput(item.id, form)} /> : null}
         {item.result?.kind === "preview" ? <div className="assistant-result">
           <strong>{item.result.confirmation.title}</strong>
           <dl>{item.result.confirmation.details.map((detail) => <div key={detail.label}><dt>{detail.label}</dt><dd>{detail.value}</dd></div>)}</dl>
