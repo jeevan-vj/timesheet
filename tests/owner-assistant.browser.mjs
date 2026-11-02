@@ -31,6 +31,10 @@ const preview = {
     details: [{ label: "Contractor", value: "Aroha Demo" }, { label: "Site", value: "Whitford" }, { label: "Rate", value: "Default rate (NZ$32.50/hour)" }],
   },
 };
+const emptyRemittance = {
+  kind: "message",
+  message: "Akila has no recorded shifts for 26 Oct – 1 Nov, so CleanTrack cannot calculate a remittance yet. Open Week and record the completed shifts. If you use a repeating schedule, apply it for that week first and confirm each shift is correct. Then ask me to check the remittance again.",
+};
 
 const virtual = {
   "test-entry": `
@@ -48,7 +52,7 @@ const virtual = {
   `,
   "test-mobile-client": `
     window.__histories = [];
-    export async function sendOwnerAssistantTurn(message, history) { window.__histories.push(history); return message.includes('remittance') ? ${JSON.stringify(remittance)} : ${JSON.stringify(preview)}; }
+    export async function sendOwnerAssistantTurn(message, history) { window.__histories.push(history); return message.includes('Akila') ? ${JSON.stringify(emptyRemittance)} : message.includes('remittance') ? ${JSON.stringify(remittance)} : ${JSON.stringify(preview)}; }
     export async function confirmOwnerAssistantChange(token) {
       window.__confirmed = token;
       return { kind: 'receipt', message: 'Aroha Demo is now assigned to Whitford.', action: 'assign_site', targetId: 'assignment-1' };
@@ -94,7 +98,9 @@ try {
   await web.route("**/api/owner-assistant/**", async (route) => {
     const call = { url: route.request().url(), body: route.request().postDataJSON() };
     webCalls.push(call);
-    const body = call.url.endsWith("/confirm") ? { kind: "receipt", message: "Aroha Demo is now assigned to Whitford.", action: "assign_site", targetId: "assignment-1" } : preview;
+    const body = call.url.endsWith("/confirm")
+      ? { kind: "receipt", message: "Aroha Demo is now assigned to Whitford.", action: "assign_site", targetId: "assignment-1" }
+      : call.body.message?.includes("Akila") ? emptyRemittance : preview;
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
   });
   await web.goto(`http://127.0.0.1:${port}/web`);
@@ -106,6 +112,10 @@ try {
   await web.getByRole("button", { name: "Confirm & save" }).click();
   await web.getByText("Aroha Demo is now assigned to Whitford.").waitFor();
   assert.equal(webCalls[1].body.token, "synthetic-signed-token");
+  await web.getByLabel("Message").fill("Show Akila's remittance for last week");
+  await web.getByRole("button", { name: "Send" }).click();
+  await web.getByText(emptyRemittance.message).waitFor();
+  await web.screenshot({ path: path.join(output, "web-empty-remittance-guidance.png"), fullPage: true });
   await web.close();
 
   const native = await browser.newPage({ viewport: { width: 390, height: 844 } });
@@ -116,6 +126,10 @@ try {
   await native.getByText("Verified remittance", { exact: true }).waitFor();
   await native.getByText("$113.75", { exact: false }).waitFor();
   await native.screenshot({ path: path.join(output, "mobile-verified-remittance.png"), fullPage: true });
+  await native.getByLabel("Message CleanTrack assistant").fill("Show Akila's remittance for last week");
+  await native.getByRole("button", { name: "Send message" }).click();
+  await native.getByText(emptyRemittance.message).waitFor();
+  await native.screenshot({ path: path.join(output, "mobile-empty-remittance-guidance.png"), fullPage: true });
   await native.getByLabel("Message CleanTrack assistant").fill("Thanks");
   await native.getByRole("button", { name: "Send message" }).click();
   await native.getByText("Assign Aroha Demo to Whitford", { exact: true }).waitFor();

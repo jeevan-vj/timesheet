@@ -1,5 +1,5 @@
 import { ownerAssistantPlanSchema, type OwnerAssistantPlan as AssistantPlan, type OwnerAssistantTurnResponse } from "@cleantrack/core/owner-assistant";
-import { formatMinutes, formatNzd } from "@cleantrack/core";
+import { formatMinutes, formatNzd, formatWeekRange, weekEnd } from "@cleantrack/core";
 import type { db } from "@/db/client";
 import { ownerAssistantConfirmations } from "@/db/schema";
 import { requireOwnerBusinessId } from "@/lib/business";
@@ -122,7 +122,16 @@ export async function prepareOwnerAssistantResponse(
   const remitterName = user.name?.trim() ?? "";
   const remitterEmail = user.email?.trim() ?? "";
   if (!remitterName || !remitterEmail) return message("Complete the owner name and email before requesting a remittance.");
-  const data = await getContractorWeekRemittance(database, user.id, contractor.id, plan.weekStart);
+  let data: Awaited<ReturnType<typeof getContractorWeekRemittance>>;
+  try {
+    data = await getContractorWeekRemittance(database, user.id, contractor.id, plan.weekStart);
+  } catch (error) {
+    if (error instanceof Error && error.message === "no_entries") {
+      const range = formatWeekRange(plan.weekStart, weekEnd(plan.weekStart));
+      return message(`${contractor.name} has no recorded shifts for ${range}, so CleanTrack cannot calculate a remittance yet. Open Week and record the completed shifts. If you use a repeating schedule, apply it for that week first and confirm each shift is correct. Then ask me to check the remittance again.`);
+    }
+    throw error;
+  }
   const model = buildRemittanceModel({
     contractorId: data.contractor.id, contractorName: data.contractor.name,
     weekStart: data.weekStart, weekEnd: data.weekEnd, remitterName, remitterEmail, entries: data.entries,

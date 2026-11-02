@@ -1,6 +1,7 @@
 import type { Database as SqlJsDatabase } from "sql.js";
 import { beforeEach, describe, expect, it } from "vitest";
 import { confirmOwnerAssistantAction, prepareOwnerAssistantResponse } from "../src/services/owner-assistant";
+import { createContractor } from "../src/services/timesheet";
 import { seedOwnerWorkspace } from "./owner-workspace";
 import { openPortalSqlite, portalDatabase, sqlRows } from "./portal-db";
 
@@ -33,5 +34,30 @@ describe("owner assistant service", () => {
     expect(sqlRows(sqlite, "SELECT owner_user_id, business_id, name, address FROM site")).toEqual([["owner-a", "biz_owner-a", "Whitford", "1 Demo Road"]]);
     expect(sqlRows(sqlite, "SELECT owner_user_id, action FROM owner_assistant_confirmation")).toEqual([["owner-a", "create_site"]]);
     await expect(confirmOwnerAssistantAction(database, { id: "owner-a" }, response.confirmation.token, SECRET)).rejects.toThrow("confirm_used");
+  });
+
+  it("explains an empty remittance week and guides the owner to the next action", async () => {
+    await createContractor(database, "owner-a", {
+      name: "Akila",
+      email: "",
+      phone: "",
+      defaultRateCents: 3_200,
+    });
+
+    const response = await prepareOwnerAssistantResponse(database, {
+      id: "owner-a",
+      name: "Owner A",
+      email: "owner-a@example.test",
+    }, {
+      intent: "get_remittance",
+      reply: "I will check Akila's remittance.",
+      contractorName: "Akila",
+      weekStart: "2026-10-26",
+    }, SECRET);
+
+    expect(response).toEqual({
+      kind: "message",
+      message: "Akila has no recorded shifts for 26 Oct – 1 Nov, so CleanTrack cannot calculate a remittance yet. Open Week and record the completed shifts. If you use a repeating schedule, apply it for that week first and confirm each shift is correct. Then ask me to check the remittance again.",
+    });
   });
 });
