@@ -19,6 +19,7 @@ import { createAssignment, createContractor, listContractors } from "@/services/
 
 type Database = typeof db;
 type SessionUser = { id: string; name?: string | null; email?: string | null };
+type Contractor = Awaited<ReturnType<typeof listContractors>>[number];
 
 function sameName(left: string, right: string): boolean {
   return left.trim().localeCompare(right.trim(), "en-NZ", { sensitivity: "base" }) === 0;
@@ -141,45 +142,39 @@ function remittanceVerification(pending: number, approved: boolean) {
   return { status: "provisional" as const, detail: "Every line reconciles to the total, but this week is not approved and can still change." };
 }
 
-export async function prepareOwnerAssistantResponse(
+async function prepareAssignmentPreview(
   database: Database,
   user: SessionUser,
-  rawPlan: unknown,
+  plan: Extract<AssistantPlan, { intent: "assign_site" }>,
+  contractor: Contractor,
   secret: string,
 ): Promise<OwnerAssistantTurnResponse> {
-  const plan = ownerAssistantPlanSchema.parse(rawPlan);
-  await requireOwnerBusinessId(database, user.id);
-  if (plan.intent === "clarify") {
-    return plan.operation ? prepareGuidedInput(database, user, { ...plan, operation: plan.operation }) : message(plan.reply);
-  }
-  if (plan.intent === "create_contractor") return prepareContractorPreview(database, user, plan, secret);
-  if (plan.intent === "create_site") return prepareSitePreview(database, user, plan, secret);
+  const site = findOne(await listSites(database, user.id), plan.siteName);
+  if (!site) return message(`I could not find one active site named ${plan.siteName}. Check the name and try again.`);
+  const signed = await signOwnerAssistantConfirmation(user.id, {
+    kind: "assign_site", contractorId: contractor.id, siteId: site.id,
+    contractorName: contractor.name, siteName: site.name, rateCents: plan.rateCents,
+  }, secret);
+  return {
+    kind: "preview", message: plan.reply,
+    confirmation: {
+      action: "assign_site", token: signed.token, expiresAt: signed.expiresAt,
+      title: `Assign ${contractor.name} to ${site.name}?`,
+      details: [
+        { label: "Contractor", value: contractor.name },
+        { label: "Site", value: site.name },
+        { label: "Rate", value: plan.rateCents == null ? `Inherit ${formatNzd(contractor.defaultRateCents)}/hr` : `${formatNzd(plan.rateCents)}/hr override` },
+      ],
+    },
+  };
+}
 
-  const contractors = await listContractors(database, user.id, false);
-  const contractor = findOne(contractors.filter((row) => row.active), plan.contractorName);
-  if (!contractor) return message(`I could not find one active contractor named ${plan.contractorName}. Check the name and try again.`);
-
-  if (plan.intent === "assign_site") {
-    const site = findOne(await listSites(database, user.id), plan.siteName);
-    if (!site) return message(`I could not find one active site named ${plan.siteName}. Check the name and try again.`);
-    const signed = await signOwnerAssistantConfirmation(user.id, {
-      kind: "assign_site", contractorId: contractor.id, siteId: site.id,
-      contractorName: contractor.name, siteName: site.name, rateCents: plan.rateCents,
-    }, secret);
-    return {
-      kind: "preview", message: plan.reply,
-      confirmation: {
-        action: "assign_site", token: signed.token, expiresAt: signed.expiresAt,
-        title: `Assign ${contractor.name} to ${site.name}?`,
-        details: [
-          { label: "Contractor", value: contractor.name },
-          { label: "Site", value: site.name },
-          { label: "Rate", value: plan.rateCents == null ? `Inherit ${formatNzd(contractor.defaultRateCents)}/hr` : `${formatNzd(plan.rateCents)}/hr override` },
-        ],
-      },
-    };
-  }
-
+async function prepareRemittanceResponse(
+  database: Database,
+  user: SessionUser,
+  plan: Extract<AssistantPlan, { intent: "get_remittance" }>,
+  contractor: Contractor,
+): Promise<OwnerAssistantTurnResponse> {
   const remitterName = user.name?.trim() ?? "";
   const remitterEmail = user.email?.trim() ?? "";
   if (!remitterName || !remitterEmail) return message("Complete the owner name and email before requesting a remittance.");
@@ -207,6 +202,30 @@ export async function prepareOwnerAssistantResponse(
     verification,
     remittance: model,
   };
+}
+
+export async function prepareOwnerAssistantResponse(
+  database: Database,
+  user: SessionUser,
+  rawPlan: unknown,
+  secret: string,
+): Promise<OwnerAssistantTurnResponse> {
+  const plan = ownerAssistantPlanSchema.parse(rawPlan);
+  await requireOwnerBusinessId(database, user.id);
+  if (plan.intent === "clarify") {
+    return plan.operation ? prepareGuidedInput(database, user, { ...plan, operation: plan.operation }) : message(plan.reply);
+  }
+  if (plan.intent === "create_contractor") return prepareContractorPreview(database, user, plan, secret);
+  if (plan.intent === "create_site") return prepareSitePreview(database, user, plan, secret);
+
+  const contractors = await listContractors(database, user.id, false);
+  const contractor = findOne(contractors.filter((row) => row.active), plan.contractorName);
+  if (!contractor) return message(`I could not find one active contractor named ${plan.contractorName}. Check the name and try again.`);
+
+  if (plan.intent === "assign_site") {
+    return prepareAssignmentPreview(database, user, plan, contractor, secret);
+  }
+  return prepareRemittanceResponse(database, user, plan, contractor);
 }
 
 export async function confirmOwnerAssistantAction(

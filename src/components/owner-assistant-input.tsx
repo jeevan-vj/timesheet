@@ -21,19 +21,31 @@ function validationMessage(path: PropertyKey | undefined): string {
   return "Complete the required details before continuing.";
 }
 
-function Options({ options }: { options: Array<{ label: string; value: string }> }) {
+function Options({ options }: Readonly<{ options: ReadonlyArray<{ label: string; value: string }> }>) {
   return <>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</>;
+}
+
+function inputTitle(operation: OwnerAssistantGuidedInput["operation"]): string {
+  if (operation === "create_contractor") return "Contractor details";
+  if (operation === "create_site") return "Site details";
+  if (operation === "assign_site") return "Assignment details";
+  return "Remittance details";
+}
+
+function submitLabel(busy: boolean, operation: OwnerAssistantGuidedInput["operation"]): string {
+  if (busy) return "Checking…";
+  return operation === "get_remittance" ? "Check remittance" : "Review details";
 }
 
 export function OwnerAssistantInput({
   busy,
   input,
   onSubmit,
-}: {
+}: Readonly<{
   busy: boolean;
   input: OwnerAssistantGuidedInput;
   onSubmit: (form: OwnerAssistantFormSubmission) => Promise<boolean>;
-}) {
+}>) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -68,7 +80,7 @@ export function OwnerAssistantInput({
   }
 
   return <form className="assistant-input" onSubmit={(event) => void submit(event)}>
-    <strong>{input.operation === "create_contractor" ? "Contractor details" : input.operation === "create_site" ? "Site details" : input.operation === "assign_site" ? "Assignment details" : "Remittance details"}</strong>
+    <strong>{inputTitle(input.operation)}</strong>
     {input.operation === "create_contractor" ? <>
       <label>Name<input maxLength={100} required value={name} onChange={(event) => setName(event.target.value)} /></label>
       <label>Email <small>optional</small><input autoComplete="email" maxLength={254} type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
@@ -89,6 +101,6 @@ export function OwnerAssistantInput({
       <fieldset className="assistant-week"><legend>Week</legend><button className="link-button" type="button" onClick={() => setWeekStart(shiftWeek(weekStart, -1))}>Previous</button><strong>{formatWeekRange(weekStart, weekEnd(weekStart))}</strong><button className="link-button" type="button" onClick={() => setWeekStart(shiftWeek(weekStart, 1))}>Next</button></fieldset>
     </> : null}
     {error ? <p className="alert" role="alert">{error}</p> : null}
-    <button className="button" disabled={busy} type="submit">{busy ? "Checking…" : input.operation === "get_remittance" ? "Check remittance" : "Review details"}</button>
+    <button className="button" disabled={busy} type="submit">{submitLabel(busy, input.operation)}</button>
   </form>;
 }
