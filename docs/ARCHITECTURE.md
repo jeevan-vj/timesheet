@@ -124,6 +124,8 @@ Contractor and time-entry writes, and wage reads, take `ownerUserId` and resolve
 
 `POST /api/owner-assistant/turn` sends bounded recent conversation text to the `AI` binding and accepts only the shared Zod/JSON-schema intent union. The model is deliberately outside the trust boundary: `src/services/owner-assistant.ts` resolves names, checks ambiguity and duplicates, loads the session business, and builds remittance from the same server services as the normal UI. It returns either a message, a read-only remittance, or a signed preview.
 
+For an incomplete supported operation, the validated `clarify` intent may name one allowlisted operation. The service then returns a shared `input` response. Create forms contain only their fixed fields; assignment and remittance choices are populated from owner-scoped active contractor/site queries. Web and mobile submit the selected values as the shared structured form union. The turn route maps that union directly to the existing server plan and skips Workers AI, so the model cannot reinterpret chosen records, invent controls, or receive the completed form values. Writes still stop at the signed preview.
+
 `POST /api/owner-assistant/confirm` verifies that preview against the current session, consumes its digest once in D1, and calls the existing contractor, site, or assignment service. The web and Expo clients share the response contracts in `@cleantrack/core`; conversation state remains in memory. This keeps AI model changes independent of domain authorization, migration, payroll, and native runtime behavior.
 
 - Monday is the first day of a payroll week.

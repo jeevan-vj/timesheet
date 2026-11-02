@@ -1,11 +1,25 @@
-import { formatMinutes, formatNzd, type OwnerAssistantHistoryMessage, type OwnerAssistantTurnResponse } from "@cleantrack/core";
+import {
+  formatMinutes,
+  formatNzd,
+  type OwnerAssistantFormSubmission,
+  type OwnerAssistantHistoryMessage,
+  type OwnerAssistantTurnResponse,
+} from "@cleantrack/core";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { StyleSheet, Text, TextInput, View } from "react-native";
 import { confirmOwnerAssistantChange, sendOwnerAssistantTurn } from "@/owner-assistant-client";
+import { OwnerAssistantInput } from "@/components/owner-assistant-input";
 import { Card, PrimaryButton, SecondaryButton, spacing, statusColors, theme, typeScale } from "@/ui";
 
 type ChatItem = { id: string; role: "user" | "assistant"; text: string; modelHistory: boolean; result?: OwnerAssistantTurnResponse };
+
+function formSummary(form: OwnerAssistantFormSubmission): string {
+  if (form.operation === "create_contractor") return "Review contractor details";
+  if (form.operation === "create_site") return "Review site details";
+  if (form.operation === "assign_site") return "Review assignment details";
+  return "Check remittance details";
+}
 
 export function OwnerAssistantChat() {
   const queryClient = useQueryClient();
@@ -29,6 +43,24 @@ export function OwnerAssistantChat() {
     } finally { setBusy(false); }
   }
 
+  async function submitInput(itemId: string, form: OwnerAssistantFormSubmission): Promise<boolean> {
+    if (busy) return false;
+    const message = formSummary(form);
+    const history: OwnerAssistantHistoryMessage[] = items.filter((item) => item.modelHistory).slice(-8).map((item) => ({ role: item.role, content: item.text }));
+    setItems((current) => [...current, { id: nextId(), role: "user", modelHistory: false, text: message }]);
+    setBusy(true);
+    try {
+      const result = await sendOwnerAssistantTurn(message, history, form);
+      setItems((current) => current
+        .map((item) => item.id === itemId ? { ...item, result: undefined } : item)
+        .concat({ id: nextId(), role: "assistant", modelHistory: result.kind === "message", text: result.message, result }));
+      return true;
+    } catch (error) {
+      setItems((current) => [...current, { id: nextId(), role: "assistant", modelHistory: false, text: error instanceof Error ? error.message : "The assistant is unavailable." }]);
+      return false;
+    } finally { setBusy(false); }
+  }
+
   async function confirm(token: string, itemId: string) {
     setBusy(true);
     try {
@@ -44,6 +76,7 @@ export function OwnerAssistantChat() {
     <Text style={styles.intro}>AI prepares the request; CleanTrack checks owner access, records and pay totals.</Text>
     {items.map((item) => <View key={item.id} style={[styles.message, item.role === "user" ? styles.userMessage : styles.assistantMessage]}>
       <Text style={[styles.messageText, item.role === "user" && styles.userText]}>{item.text}</Text>
+      {item.result?.kind === "input" ? <OwnerAssistantInput busy={busy} input={item.result.input} onSubmit={(form) => submitInput(item.id, form)} /> : null}
       {item.result?.kind === "preview" ? <Card style={styles.result}>
         <Text style={styles.resultTitle}>{item.result.confirmation.title}</Text>
         {item.result.confirmation.details.map((detail) => <View key={detail.label} style={styles.detail}><Text style={styles.detailLabel}>{detail.label}</Text><Text style={styles.detailValue}>{detail.value}</Text></View>)}

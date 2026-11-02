@@ -176,6 +176,8 @@ Authenticated owners can use Ask CleanTrack on web or mobile to request a contra
 
 Contractor, site, and assignment writes return an exact preview and require a separate confirm action. The five-minute HMAC token binds the session owner to the exact action, and its digest is recorded once in the append-only `owner_assistant_confirmation` table before execution. Reuse, expiry, tampering, ambiguity, duplicates, and cross-owner confirmation fail closed. Conversations are in component memory only and are not persisted or logged.
 
+When a supported request is missing required details, the model may select only the matching allowlisted operation. CleanTrack—not the model—builds the inline web/mobile input card. Contractor and site choices come from owner-scoped active records, and week/rate inputs use shared validation. Submitting a guided card is structured input: the server validates it, does not ask the model to reinterpret it, and then uses the same read or preview/confirm path as a complete natural-language request. Arbitrary controls, owner ids, autonomous writes, and model-supplied option lists are rejected.
+
 Remittance is read-only and comes from canonical snapshotted entries and integer-cent payroll math. It is `verified` only when the week is approved and has no pending scheduled occurrence, `incomplete` when a scheduled occurrence remains pending, and otherwise `provisional`. Web links to the existing authenticated PDF. Mobile renders the verified line and total data without adding it to persisted query storage. Unsupported operations, including time-entry or approval changes, return clarification and never execute.
 
 ## Non-goals

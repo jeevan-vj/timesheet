@@ -6,6 +6,15 @@ const trimmed = (max: number) => z.string().trim().min(1).max(max);
 const optionalTrimmed = (max: number) => z.string().trim().max(max).default("");
 const rateCents = z.number().int().min(1_500).max(25_000);
 
+export function rateCentsFromNzdText(value: string): number | null {
+  const match = /^(\d{1,3})(?:\.(\d{1,2}))?$/.exec(value.trim());
+  if (!match) return null;
+  const dollars = Number(match[1]);
+  const cents = Number((match[2] ?? "").padEnd(2, "0"));
+  const total = dollars * 100 + cents;
+  return total >= 1_500 && total <= 25_000 ? total : null;
+}
+
 export const siteInput = z.object({
   name: trimmed(100),
   address: optionalTrimmed(240),
