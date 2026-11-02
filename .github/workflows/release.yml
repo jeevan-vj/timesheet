@@ -56,6 +56,16 @@ jobs:
           node-version: 22
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm build
+      - name: Require GOOGLE_CLIENT_ID for the release
+        env:
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID || secrets.GOOGLE_CLIENT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${GOOGLE_CLIENT_ID:-}" ]; then
+            echo "::error title=GOOGLE_CLIENT_ID is not set::GOOGLE_CLIENT_ID is required by wrangler.jsonc secrets.required. Add it as a GitHub Actions variable or secret (repository or the production environment) before releasing."
+            exit 1
+          fi
       - name: Record the D1 bookmark and pre-deploy Worker version
         run: node .github/scripts/record-recovery-point.mjs --out release-recovery.json
       - name: Upload the pre-deploy recovery point
@@ -73,15 +83,19 @@ jobs:
         run: pnpm exec wrangler d1 migrations apply cleantrack-timesheet --remote --config wrangler.jsonc
       - name: Deploy production release
         env:
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID || secrets.GOOGLE_CLIENT_ID }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
         shell: bash
         run: |
           set -euo pipefail
-          secrets_file=""
+          if [ -z "${GOOGLE_CLIENT_ID:-}" ]; then
+            echo "::error title=GOOGLE_CLIENT_ID is not set::GOOGLE_CLIENT_ID is required by wrangler.jsonc secrets.required. Add it as a GitHub Actions variable or secret (repository or the production environment) before releasing."
+            exit 1
+          fi
+          echo "::add-mask::${GOOGLE_CLIENT_ID}"
+          secrets_file="${RUNNER_TEMP}/release-worker-secrets.json"
           cleanup() {
-            if [ -n "${secrets_file}" ]; then
-              rm -f -- "${secrets_file}"
-            fi
+            rm -f -- "${secrets_file}"
           }
           trap cleanup EXIT
           deploy_args=(
@@ -95,16 +109,14 @@ jobs:
           )
           if [ -z "${RESEND_API_KEY:-}" ]; then
             echo "RESEND_API_KEY is unset; continuing without provisioning the Worker secret."
-          else
-            secrets_file="${RUNNER_TEMP}/resend-api-key.json"
-            previous_umask="$(umask)"
-            umask 077
-            rm -f -- "${secrets_file}"
-            node -e 'const fs=require("node:fs"); fs.writeFileSync(process.argv[1], JSON.stringify({RESEND_API_KEY:process.env.RESEND_API_KEY}), {mode:0o600});' "${secrets_file}"
-            chmod 600 "${secrets_file}"
-            umask "${previous_umask}"
-            deploy_args+=(--secrets-file "${secrets_file}")
           fi
+          previous_umask="$(umask)"
+          umask 077
+          rm -f -- "${secrets_file}"
+          node .github/scripts/write-release-secrets.mjs "${secrets_file}"
+          chmod 600 "${secrets_file}"
+          umask "${previous_umask}"
+          deploy_args+=(--secrets-file "${secrets_file}")
           pnpm exec wrangler "${deploy_args[@]}"
       - name: Verify active release identity
         id: identity
