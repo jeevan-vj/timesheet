@@ -21,7 +21,7 @@ function money(cents: number) {
   return new Intl.NumberFormat("en-NZ", { style: "currency", currency: "NZD" }).format(cents / 100);
 }
 
-export function OwnerAssistant({ onChanged }: { onChanged: () => void }) {
+export function OwnerAssistant({ onChanged }: Readonly<{ onChanged: () => void }>) {
   const [items, setItems] = useState<ChatItem[]>([{ id: "welcome", role: "assistant", modelHistory: true, text: "I can prepare contractors, sites and assignments, or verify a weekly remittance. I’ll always show changes before saving." }]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -68,7 +68,7 @@ export function OwnerAssistant({ onChanged }: { onChanged: () => void }) {
           <a className="button" href={`/api/contractors/${encodeURIComponent(item.result.remittance.contractorId)}/remittance?week=${item.result.remittance.weekStart}`}>Download PDF</a>
         </div> : null}
       </div>)}
-      {busy ? <p className="assistant-thinking" role="status">Checking CleanTrack…</p> : null}
+      {busy ? <output className="assistant-thinking">Checking CleanTrack…</output> : null}
     </div>
     <form className="assistant-composer" onSubmit={(event) => void submit(event)}><label className="sr-only" htmlFor="assistant-message">Message</label><input id="assistant-message" maxLength={500} placeholder="e.g. Show Ana’s remittance for last week" value={draft} onChange={(event) => setDraft(event.target.value)} /><button className="button" disabled={busy || !draft.trim()} type="submit">Send</button></form>
   </section>;

@@ -245,12 +245,17 @@ export function Dashboard() {
     <RoleSwitcher viewer={gate.viewer} current="dashboard" />
     <section className="dashboard-heading"><div><p className="eyebrow">Weekly workspace</p><h1>Hours & contractor pay</h1><p className="muted">Gross contractor payments before tax, GST, expenses, or adjustments.</p></div><div className="week-heading-tools"><WeekPicker week={week} onChange={setWeek} />{!loading && data ? <WeekApprovalBar status={data.approval.status} pendingShiftCount={pendingShiftCount} onApprove={() => approvalFlow.requestApprove()} onReopen={() => approvalFlow.requestReopen()} /> : null}</div></section>
     {message ? <p className="notice" role="status">{message}</p> : null}
-    {!loading && data?.business ? <OwnerAssistant onChanged={() => void load(true)} /> : null}
+    <OwnerAssistantWhenReady data={data} loading={loading} onChanged={() => void load(true)} />
     {loading ? <section className="loading-card" role="status">Loading your week…</section> : loadFailed || !data ? <section className="loading-card" role="alert"><p>Could not refresh this week. Any confirmed changes are saved.</p><button type="button" className="button" onClick={() => void load()}>Try again</button></section> : <LoadedWeek data={data} onboarding={onboarding} weekLocked={weekLocked} editing={editing} onReload={() => load(true)} onAnnounce={setMessage} onCopyWeekBrief={() => void copyWeekBrief()} onEdit={setEditing} onDelete={(target) => deleteFlow.request(target)} onRemittance={(target) => remittanceFlow.request(target)} />}
     <DeleteShiftDialog session={deleteSession} onCancel={() => deleteFlow.cancel()} onConfirm={() => void deleteFlow.confirm()} />
     <WeekApprovalDialog session={approvalSession} prompt={approvalPrompt} onCancel={() => approvalFlow.cancel()} onConfirm={() => { if (!data) return; void approvalFlow.confirm({ weekStart: data.weekStart, ...expectedWeekTotals(data.summary) }); }} />
     <RemittanceDownloadDialog session={remittanceSession} onCancel={() => remittanceFlow.cancel()} onConfirm={() => void remittanceFlow.confirm()} />
   </main>;
+}
+
+function OwnerAssistantWhenReady({ data, loading, onChanged }: Readonly<{ data: DashboardData | null; loading: boolean; onChanged: () => void }>) {
+  if (loading || !data?.business) return null;
+  return <OwnerAssistant onChanged={onChanged} />;
 }
 
 function noun(count: number, singular: string, plural: string) {

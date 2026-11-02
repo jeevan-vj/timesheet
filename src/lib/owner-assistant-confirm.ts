@@ -35,16 +35,23 @@ function bytes(value: string): Uint8Array<ArrayBuffer> {
 function encode(value: Uint8Array | string): string {
   const data = typeof value === "string" ? bytes(value) : value;
   let binary = "";
-  for (const byte of data) binary += String.fromCharCode(byte);
+  for (const byte of data) binary += String.fromCodePoint(byte);
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
 }
 
+function isBase64Url(value: string): boolean {
+  return value.length > 0 && [...value].every((character) => {
+    const point = character.codePointAt(0) ?? -1;
+    return (point >= 48 && point <= 57) || (point >= 65 && point <= 90) || (point >= 97 && point <= 122) || character === "_" || character === "-";
+  });
+}
+
 function decode(value: string): Uint8Array<ArrayBuffer> | null {
-  if (!/^[A-Za-z0-9_-]+$/u.test(value)) return null;
+  if (!isBase64Url(value)) return null;
   try {
     const padded = value + "=".repeat((4 - value.length % 4) % 4);
     const binary = atob(padded.replaceAll("-", "+").replaceAll("_", "/"));
-    const decoded = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    const decoded = Uint8Array.from(binary, (character) => character.codePointAt(0) ?? 0);
     const copy = new Uint8Array(decoded.byteLength);
     copy.set(decoded);
     return copy;

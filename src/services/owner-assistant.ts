@@ -1,4 +1,4 @@
-import { ownerAssistantPlanSchema, type OwnerAssistantPlan, type OwnerAssistantTurnResponse } from "@cleantrack/core/owner-assistant";
+import { ownerAssistantPlanSchema, type OwnerAssistantPlan as AssistantPlan, type OwnerAssistantTurnResponse } from "@cleantrack/core/owner-assistant";
 import { formatMinutes, formatNzd } from "@cleantrack/core";
 import type { db } from "@/db/client";
 import { ownerAssistantConfirmations } from "@/db/schema";
@@ -28,6 +28,60 @@ function message(value: string): OwnerAssistantTurnResponse {
   return { kind: "message", message: value };
 }
 
+async function prepareContractorPreview(
+  database: Database,
+  user: SessionUser,
+  plan: Extract<AssistantPlan, { intent: "create_contractor" }>,
+  secret: string,
+): Promise<OwnerAssistantTurnResponse> {
+  const existing = findOne(await listContractors(database, user.id, true), plan.name);
+  if (existing) return message(`${existing.name} already exists. I did not create a duplicate contractor.`);
+  const signed = await signOwnerAssistantConfirmation(user.id, {
+    kind: "create_contractor", name: plan.name, email: plan.email,
+    phone: plan.phone, defaultRateCents: plan.defaultRateCents,
+  }, secret);
+  return {
+    kind: "preview", message: plan.reply,
+    confirmation: {
+      action: "create_contractor", token: signed.token, expiresAt: signed.expiresAt,
+      title: `Create contractor ${plan.name}?`,
+      details: [
+        { label: "Name", value: plan.name },
+        { label: "Default rate", value: `${formatNzd(plan.defaultRateCents)}/hr` },
+        { label: "Status", value: "Active" },
+      ],
+    },
+  };
+}
+
+async function prepareSitePreview(
+  database: Database,
+  user: SessionUser,
+  plan: Extract<AssistantPlan, { intent: "create_site" }>,
+  secret: string,
+): Promise<OwnerAssistantTurnResponse> {
+  const existing = findOne(await listSites(database, user.id, true), plan.name);
+  if (existing) return message(`${existing.name} already exists. I did not create a duplicate site.`);
+  const signed = await signOwnerAssistantConfirmation(user.id, { kind: "create_site", name: plan.name, address: plan.address }, secret);
+  return {
+    kind: "preview", message: plan.reply,
+    confirmation: {
+      action: "create_site", token: signed.token, expiresAt: signed.expiresAt,
+      title: `Create site ${plan.name}?`,
+      details: [
+        { label: "Name", value: plan.name },
+        { label: "Address", value: plan.address || "Not supplied" },
+      ],
+    },
+  };
+}
+
+function remittanceVerification(pending: number, approved: boolean) {
+  if (pending > 0) return { status: "incomplete" as const, detail: `${pending} scheduled ${pending === 1 ? "shift is" : "shifts are"} still pending.` };
+  if (approved) return { status: "verified" as const, detail: "The week is approved and locked, every line reconciles to the total, and no scheduled shifts are pending." };
+  return { status: "provisional" as const, detail: "Every line reconciles to the total, but this week is not approved and can still change." };
+}
+
 export async function prepareOwnerAssistantResponse(
   database: Database,
   user: SessionUser,
@@ -37,46 +91,8 @@ export async function prepareOwnerAssistantResponse(
   const plan = ownerAssistantPlanSchema.parse(rawPlan);
   await requireOwnerBusinessId(database, user.id);
   if (plan.intent === "clarify") return message(plan.reply);
-
-  if (plan.intent === "create_contractor") {
-    const existing = findOne(await listContractors(database, user.id, true), plan.name);
-    if (existing) return message(`${existing.name} already exists. I did not create a duplicate contractor.`);
-    const signed = await signOwnerAssistantConfirmation(user.id, {
-      kind: "create_contractor", name: plan.name, email: plan.email,
-      phone: plan.phone, defaultRateCents: plan.defaultRateCents,
-    }, secret);
-    return {
-      kind: "preview", message: plan.reply,
-      confirmation: {
-        action: "create_contractor", token: signed.token, expiresAt: signed.expiresAt,
-        title: `Create contractor ${plan.name}?`,
-        details: [
-          { label: "Name", value: plan.name },
-          { label: "Default rate", value: `${formatNzd(plan.defaultRateCents)}/hr` },
-          { label: "Status", value: "Active" },
-        ],
-      },
-    };
-  }
-
-  if (plan.intent === "create_site") {
-    const existing = findOne(await listSites(database, user.id, true), plan.name);
-    if (existing) return message(`${existing.name} already exists. I did not create a duplicate site.`);
-    const signed = await signOwnerAssistantConfirmation(user.id, {
-      kind: "create_site", name: plan.name, address: plan.address,
-    }, secret);
-    return {
-      kind: "preview", message: plan.reply,
-      confirmation: {
-        action: "create_site", token: signed.token, expiresAt: signed.expiresAt,
-        title: `Create site ${plan.name}?`,
-        details: [
-          { label: "Name", value: plan.name },
-          { label: "Address", value: plan.address || "Not supplied" },
-        ],
-      },
-    };
-  }
+  if (plan.intent === "create_contractor") return prepareContractorPreview(database, user, plan, secret);
+  if (plan.intent === "create_site") return prepareSitePreview(database, user, plan, secret);
 
   const contractors = await listContractors(database, user.id, false);
   const contractor = findOne(contractors.filter((row) => row.active), plan.contractorName);
@@ -114,11 +130,7 @@ export async function prepareOwnerAssistantResponse(
   const businessId = await requireOwnerBusinessId(database, user.id);
   const approval = await findWeekApproval(database, user.id, plan.weekStart, businessId);
   const pending = data.entries.filter((entry) => entry.occurrenceKind === "scheduled").length;
-  const verification = pending > 0
-    ? { status: "incomplete" as const, detail: `${pending} scheduled ${pending === 1 ? "shift is" : "shifts are"} still pending.` }
-    : approval?.status === "approved"
-      ? { status: "verified" as const, detail: "The week is approved and locked, every line reconciles to the total, and no scheduled shifts are pending." }
-      : { status: "provisional" as const, detail: "Every line reconciles to the total, but this week is not approved and can still change." };
+  const verification = remittanceVerification(pending, approval?.status === "approved");
   return {
     kind: "remittance",
     message: `${contractor.name} has ${formatMinutes(model.paidMinutes)} and ${formatNzd(model.payCents)} gross pay for ${model.weekStart} to ${model.weekEnd}.`,
@@ -166,4 +178,4 @@ export async function confirmOwnerAssistantAction(
   };
 }
 
-export type { OwnerAssistantPlan };
+export type { OwnerAssistantPlan } from "@cleantrack/core/owner-assistant";
