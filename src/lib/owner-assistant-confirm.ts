@@ -36,7 +36,9 @@ function encode(value: Uint8Array | string): string {
   const data = typeof value === "string" ? bytes(value) : value;
   let binary = "";
   for (const byte of data) binary += String.fromCodePoint(byte);
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
+  let encoded = btoa(binary).replaceAll("+", "-").replaceAll("/", "_");
+  while (encoded.endsWith("=")) encoded = encoded.slice(0, -1);
+  return encoded;
 }
 
 function isBase64Url(value: string): boolean {
