@@ -191,6 +191,14 @@ export const ownerTimeEntryAudit = sqliteTable("owner_time_entry_audit", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 }, (t) => [index("owner_time_entry_audit_scope_idx").on(t.ownerUserId, t.businessId, t.entryId, t.createdAt)]);
 
+export const ownerAssistantConfirmations = sqliteTable("owner_assistant_confirmation", {
+  id: text("id").primaryKey(),
+  ownerUserId: text("owner_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  businessId: text("business_id").notNull().references(() => business.id, { onDelete: "restrict" }),
+  action: text("action").notNull().$type<"create_contractor" | "create_site" | "assign_site">(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+}, (t) => [index("owner_assistant_confirmation_scope_idx").on(t.ownerUserId, t.businessId, t.createdAt)]);
+
 export const contractorInvitation = sqliteTable("contractor_invitation", {
   id: text("id").primaryKey(),
   businessId: text("business_id").notNull().references(() => business.id, { onDelete: "restrict" }),

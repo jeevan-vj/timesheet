@@ -340,3 +340,18 @@ dialog.shift-sheet { width:min(520px,100%); max-height:min(100dvh,100vh); paddin
 }
 .password-line { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; align-items:center; }
 .password-toggle { border:1px solid #d7d9d4; background:#fff; border-radius:10px; padding:0 12px; font-weight:700; font-size:.78rem; cursor:pointer; }
+.assistant-panel { background: var(--surface, #fff); border: 1px solid var(--border, #d9e2df); border-radius: 24px; margin: 1rem 0 1.5rem; padding: 1.25rem; display: grid; gap: 1rem; }
+.assistant-transcript { background: #f5f8f7; border-radius: 16px; display: grid; gap: .75rem; max-height: 32rem; overflow: auto; padding: 1rem; }
+.assistant-message { border-radius: 14px; max-width: 85%; padding: .75rem 1rem; }
+.assistant-message p { margin: 0; }
+.assistant-message.assistant { background: #fff; justify-self: start; }
+.assistant-message.user { background: #163f36; color: #fff; justify-self: end; }
+.assistant-result { border-top: 1px solid #d9e2df; display: grid; gap: .75rem; margin-top: .75rem; padding-top: .75rem; }
+.assistant-result dl { display: grid; gap: .5rem; margin: 0; }
+.assistant-result dl div { display: flex; gap: 1rem; justify-content: space-between; }
+.assistant-result dt { color: #53645f; }
+.assistant-result dd { font-weight: 700; margin: 0; text-align: right; }
+.assistant-actions, .assistant-composer { display: flex; gap: .75rem; }
+.assistant-composer input { border: 1px solid #aebbb7; border-radius: 999px; flex: 1; min-width: 0; padding: .8rem 1rem; }
+.assistant-thinking { color: #53645f; margin: 0; }
+@media (max-width: 640px) { .assistant-message { max-width: 94%; } .assistant-actions { align-items: stretch; flex-direction: column; } }

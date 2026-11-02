@@ -35,6 +35,7 @@ export async function getContractorWeekRemittance(
       rateCents: timeEntries.rateCents,
       contractorId: timeEntries.contractorId,
       contractorName: contractors.name,
+      occurrenceKind: timeEntries.occurrenceKind,
     })
     .from(timeEntries)
     .innerJoin(contractors, and(

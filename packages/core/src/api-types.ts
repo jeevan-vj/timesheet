@@ -2,8 +2,12 @@ import type { EngagementStatus } from "./engagement";
 
 export const API_ERROR_CODES = [
   "already_linked",
+  "assistant_unavailable",
   "business_required",
   "contractor_email_required",
+  "confirm_expired",
+  "confirm_mismatch",
+  "confirm_used",
   "duplicate_assignment",
   "duplicate_contractor",
   "duplicate_entry",

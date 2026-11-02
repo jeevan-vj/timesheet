@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./api-types": "./src/api-types.ts",
     "./engagement": "./src/engagement.ts",
+    "./owner-assistant": "./src/owner-assistant.ts",
     "./payroll": "./src/payroll.ts",
     "./portal": "./src/portal.ts",
     "./validation": "./src/validation.ts",

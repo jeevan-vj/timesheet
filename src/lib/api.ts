@@ -30,6 +30,10 @@ const expectedErrors: Record<string, { status: number; error: string }> = {
   invitation_conflict: { status: 409, error: "invitation_conflict" },
   resend_too_soon: { status: 429, error: "resend_too_soon" },
   already_linked: { status: 409, error: "already_linked" },
+  confirm_mismatch: { status: 400, error: "confirm_mismatch" },
+  confirm_expired: { status: 409, error: "confirm_expired" },
+  confirm_used: { status: 409, error: "confirm_used" },
+  assistant_unavailable: { status: 503, error: "assistant_unavailable" },
 };
 
 export async function authorize(request: Request, mutation = false): Promise<{ user: SessionUser } | { response: Response }> {
