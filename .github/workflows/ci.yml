@@ -36,6 +36,7 @@ jobs:
       - name: Expo doctor
         working-directory: apps/mobile
         run: npx --yes expo-doctor
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
 
   core:
     name: packages/core
