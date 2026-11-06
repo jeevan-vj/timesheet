@@ -1,5 +1,5 @@
 import { PDFDocument, PageSizes, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
-import { calculateEntryPayCents, summarizeWeek, weekEnd } from "@/lib/payroll";
+import { snapshotShiftPay, summarizeWeek, weekEnd } from "@/lib/payroll";
 
 export const REMITTANCE_GROSS_DISCLAIMER = "Gross contractor payments before tax, GST, expenses, or adjustments.";
 
@@ -11,6 +11,11 @@ export type RemittanceEntryInput = {
   rateCents: number;
   contractorId: string;
   contractorName: string;
+  payMode?: "hourly" | "fixed";
+  fixedPayCents?: number | null;
+  holidayLoadingCents?: number;
+  weekendLoadingCents?: number;
+  overnightLoadingCents?: number;
 };
 
 export type RemittanceLine = {
@@ -19,6 +24,11 @@ export type RemittanceLine = {
   paidMinutes: number;
   rateCents: number;
   payCents: number;
+  baseCents: number;
+  holidayLoadingCents: number;
+  weekendLoadingCents: number;
+  overnightLoadingCents: number;
+  fixedCents: number;
 };
 
 export type RemittanceModel = {
@@ -110,17 +120,30 @@ export function buildRemittanceModel(input: RemittanceModelInput): RemittanceMod
     contractorName: entry.contractorName,
     paidMinutes: entry.paidMinutes,
     rateCents: entry.rateCents,
+    payMode: entry.payMode,
+    fixedPayCents: entry.fixedPayCents,
+    holidayLoadingCents: entry.holidayLoadingCents,
+    weekendLoadingCents: entry.weekendLoadingCents,
+    overnightLoadingCents: entry.overnightLoadingCents,
   })));
   if (groups.length !== 1) throw new Error("invalid_request");
   const summary = groups[0];
   if (!summary) throw new Error("invalid_request");
-  const lines = ordered.map((entry) => ({
-    workDate: entry.workDate,
-    siteName: entry.siteName,
-    paidMinutes: entry.paidMinutes,
-    rateCents: entry.rateCents,
-    payCents: entry.paidMinutes > 0 ? calculateEntryPayCents(entry.paidMinutes, entry.rateCents) : 0,
-  }));
+  const lines = ordered.map((entry) => {
+    const pay = snapshotShiftPay(entry);
+    return {
+      workDate: entry.workDate,
+      siteName: entry.siteName,
+      paidMinutes: entry.paidMinutes,
+      rateCents: entry.rateCents,
+      payCents: pay.totalCents,
+      baseCents: pay.baseCents,
+      holidayLoadingCents: pay.holidayLoadingCents,
+      weekendLoadingCents: pay.weekendLoadingCents,
+      overnightLoadingCents: pay.overnightLoadingCents,
+      fixedCents: pay.fixedCents,
+    };
+  });
   const model: RemittanceModel = {
     reference: remittanceReference(input.contractorId, input.weekStart),
     filename: remittanceFilename(input.contractorName, input.weekEnd),
@@ -272,7 +295,16 @@ export async function renderRemittancePdf(model: RemittanceModel): Promise<Uint8
     const paidText = remittanceDuration(line.paidMinutes);
     const rateText = `${remittanceMoney(line.rateCents)}/hr`;
     const payText = remittanceMoney(line.payCents);
-    const rowHeight = Math.max(siteLines.length, 1) * lineHeight + 4;
+    const breakdown = [
+      ["Base", line.baseCents],
+      ["Public holiday loading", line.holidayLoadingCents],
+      ["Weekend loading", line.weekendLoadingCents],
+      ["Overnight loading", line.overnightLoadingCents],
+      ["Fixed", line.fixedCents],
+    ] as const;
+    const visibleBreakdown = breakdown.filter(([, cents]) => cents !== 0);
+    const showBreakdown = line.fixedCents !== 0 || line.holidayLoadingCents !== 0 || line.weekendLoadingCents !== 0 || line.overnightLoadingCents !== 0;
+    const rowHeight = Math.max(siteLines.length, 1) * lineHeight + 4 + (showBreakdown ? visibleBreakdown.length * lineHeight : 0);
     ensure(rowHeight, true);
     drawText(page, font, dateText, cols.date.x, y, smallSize);
     drawRight(page, font, paidText, cols.paid.right, y, smallSize);
@@ -282,6 +314,14 @@ export async function renderRemittancePdf(model: RemittanceModel): Promise<Uint8
     for (const siteLine of siteLines) {
       drawText(page, font, siteLine, cols.site.x, siteY, smallSize);
       siteY -= lineHeight;
+    }
+    if (showBreakdown) {
+      let breakdownY = y - Math.max(siteLines.length, 1) * lineHeight;
+      for (const [label, cents] of visibleBreakdown) {
+        drawText(page, font, label, cols.site.x, breakdownY, smallSize, muted);
+        drawRight(page, font, remittanceMoney(cents), cols.pay.right, breakdownY, smallSize, muted);
+        breakdownY -= lineHeight;
+      }
     }
     y -= rowHeight;
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assignmentInput, assignmentRateInput, contractorInput, invalidRequestFromZod, occurrenceExceptionInput, parseIncludeArchived, rateCentsFromNzdText, scheduleDeleteInput, schedulePutInput, siteInput, timeEntryInput, timeEntryUpdateInput, weekApplyScheduleInput, weekApproveInput, weekReopenInput } from "../src/lib/validation";
+import { assignmentInput, assignmentRateInput, businessHolidayInput, contractorInput, invalidRequestFromZod, occurrenceExceptionInput, parseIncludeArchived, payRulesInput, rateCentsFromNzdText, scheduleDeleteInput, schedulePutInput, siteInput, timeEntryInput, timeEntryUpdateInput, weekApplyScheduleInput, weekApproveInput, weekReopenInput } from "../src/lib/validation";
 
 describe("API validation", () => {
   it("accepts an integer-cent contractor rate", () => {
@@ -416,5 +416,41 @@ describe("recurring schedule validation", () => {
       paidMinutes: 1,
       occurrenceKind: "scheduled",
     })).not.toHaveProperty("occurrenceKind");
+  });
+
+  it("validates fixed pay and optional pay-rule groups", () => {
+    expect(assignmentInput.safeParse({ contractorId: "c", siteId: "s", payMode: "fixed", fixedPayCents: 12_345 }).success).toBe(true);
+    expect(assignmentInput.safeParse({ contractorId: "c", siteId: "s", payMode: "fixed", fixedPayCents: null }).success).toBe(false);
+    expect(payRulesInput.safeParse({
+      holidayMode: "multiplier",
+      holidayMultiplierBps: 15_000,
+      useNzPublicHolidays: true,
+      weekendSaturdayMultiplierBps: null,
+      weekendSundayMultiplierBps: null,
+      overnightStartMinutes: 1_320,
+      overnightEndMinutes: 360,
+      overnightMultiplierBps: 15_000,
+    }).success).toBe(true);
+    expect(payRulesInput.safeParse({
+      holidayMode: "multiplier",
+      holidayMultiplierBps: 9_999,
+      useNzPublicHolidays: false,
+      weekendSaturdayMultiplierBps: null,
+      weekendSundayMultiplierBps: null,
+      overnightStartMinutes: null,
+      overnightEndMinutes: null,
+      overnightMultiplierBps: null,
+    }).success).toBe(false);
+    expect(payRulesInput.safeParse({
+      holidayMode: "off",
+      holidayMultiplierBps: null,
+      useNzPublicHolidays: false,
+      weekendSaturdayMultiplierBps: null,
+      weekendSundayMultiplierBps: null,
+      overnightStartMinutes: 1_320,
+      overnightEndMinutes: null,
+      overnightMultiplierBps: 15_000,
+    }).success).toBe(false);
+    expect(businessHolidayInput.safeParse({ holidayDate: "2026/02/28", name: "Wrong format" }).success).toBe(false);
   });
 });

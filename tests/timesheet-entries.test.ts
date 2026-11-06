@@ -26,6 +26,7 @@ async function openMemoryDb() {
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0002_week_approval.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0003_recurring_schedules.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0004_business_workspace.sql"), "utf8"));
+  sqlite.exec(fs.readFileSync(path.resolve("drizzle/0011_pay_rules.sql"), "utf8"));
   execContractorEngagementMigration(sqlite);
   const database = drizzle(sqlite) as unknown as TimesheetDb;
   return { sqlite, database };
@@ -59,6 +60,52 @@ async function seedOwner(database: TimesheetDb, sqlite: SqlJsDatabase, ownerUser
 }
 
 describe("time entry service isolation and snapshots", () => {
+  it("snapshots holiday loadings and assignment fixed prices without rewriting existing entries", async () => {
+    const { sqlite, database } = await openMemoryDb();
+    const owner = await seedOwner(database, sqlite, "owner-a");
+    sqlite.run(
+      `INSERT INTO business_pay_rule
+       (business_id, owner_user_id, holiday_mode, holiday_multiplier_bps, use_nz_public_holidays, created_at, updated_at)
+       VALUES ('biz_owner-a', 'owner-a', 'multiplier', 15000, 1, 1, 1)`,
+    );
+    const holiday = await createTimeEntry(database, "owner-a", {
+      entryMode: "clock",
+      contractorId: owner.contractor.id,
+      siteId: owner.harbour.id,
+      workDate: "2026-10-26",
+      startMinutes: 480,
+      endMinutes: 720,
+      breakMinutes: 0,
+      notes: "",
+    });
+    expect(holiday).toMatchObject({ payMode: "hourly", rateCents: 3_200, paidMinutes: 240, holidayLoadingCents: 6_400, weekendLoadingCents: 0, overnightLoadingCents: 0 });
+
+    sqlite.run("UPDATE business_pay_rule SET holiday_mode = 'off', holiday_multiplier_bps = NULL WHERE business_id = 'biz_owner-a'");
+    expect((await getTimeEntry(database, "owner-a", holiday.id))?.holidayLoadingCents).toBe(6_400);
+    const refreshed = await updateTimeEntry(database, "owner-a", holiday.id, {
+      entryMode: "clock",
+      contractorId: owner.contractor.id,
+      siteId: owner.harbour.id,
+      workDate: "2026-10-26",
+      startMinutes: 480,
+      endMinutes: 720,
+      breakMinutes: 0,
+      notes: "",
+    });
+    expect(refreshed.holidayLoadingCents).toBe(0);
+
+    await database.update(assignments).set({ payMode: "fixed", fixedPayCents: 17_500 }).where(eq(assignments.id, owner.warehouseAssignment.id));
+    const fixed = await createTimeEntry(database, "owner-a", {
+      entryMode: "paid_hours",
+      contractorId: owner.contractor.id,
+      siteId: owner.warehouse.id,
+      workDate: "2026-10-27",
+      paidMinutes: 90,
+      notes: "",
+    });
+    expect(fixed).toMatchObject({ payMode: "fixed", fixedPayCents: 17_500, holidayLoadingCents: 0, weekendLoadingCents: 0, overnightLoadingCents: 0 });
+  });
+
   it("reads an owner entry with same-owner contractor and site names, and hides another owner's id", async () => {
     const { sqlite, database } = await openMemoryDb();
     const owner = await seedOwner(database, sqlite, "owner-a");

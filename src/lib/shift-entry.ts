@@ -19,6 +19,8 @@ export type ShiftEntryDraft = {
   assigningSite: boolean;
   newSiteId: string;
   newSiteRate: string;
+  payMode: "hourly" | "fixed";
+  fixedPay: string;
 };
 
 type SiteOption = { id: string; name: string };
@@ -39,9 +41,11 @@ export type RecordedTimeEntry = {
   rateCents: number;
   notes: string;
   entryMode: EntryMode;
+  payMode?: "hourly" | "fixed";
+  fixedPayCents?: number | null;
 };
 
-export function initialShiftDraft(input: { weekStart: string; contractorId: string; siteId: string }): ShiftEntryDraft {
+export function initialShiftDraft(input: { weekStart: string; contractorId: string; siteId: string; payMode?: "hourly" | "fixed"; fixedPayCents?: number | null }): ShiftEntryDraft {
   return {
     contractorId: input.contractorId,
     siteId: input.siteId,
@@ -56,6 +60,8 @@ export function initialShiftDraft(input: { weekStart: string; contractorId: stri
     assigningSite: !input.siteId,
     newSiteId: "",
     newSiteRate: "",
+    payMode: input.payMode ?? "hourly",
+    fixedPay: input.fixedPayCents == null ? "" : (input.fixedPayCents / 100).toFixed(2),
   };
 }
 
@@ -112,6 +118,8 @@ export function paidMinutePartOptions(minutePart: number): number[] {
 
 export function draftFromTimeEntry(entry: RecordedTimeEntry): ShiftEntryDraft {
   const clockDefaults = initialShiftDraft({ weekStart: entry.workDate, contractorId: entry.contractorId, siteId: entry.siteId });
+  clockDefaults.payMode = entry.payMode ?? "hourly";
+  clockDefaults.fixedPay = entry.fixedPayCents == null ? "" : (entry.fixedPayCents / 100).toFixed(2);
   if (entry.entryMode === "paid_hours") {
     return {
       ...clockDefaults,
@@ -213,6 +221,15 @@ export function parseRateDollars(value: string): number | null | "invalid" {
   return cents;
 }
 
+export function parseFixedPayDollars(value: string): number | null | "invalid" {
+  if (value.trim() === "") return null;
+  const dollars = Number(value);
+  if (!Number.isFinite(dollars)) return "invalid";
+  const cents = Math.round(dollars * 100);
+  if (cents < 1 || cents > 100_000_000) return "invalid";
+  return cents;
+}
+
 export function toMinutes(value: string): number {
   const [hours, minutes] = value.split(":").map(Number);
   return hours * 60 + minutes;
@@ -230,6 +247,10 @@ export function shiftEntryPayload(draft: ShiftEntryDraft) {
   const notes = draft.notes.trim();
   const parsedRate = parseRateDollars(draft.newSiteRate);
   const assignSite = assigning ? { assignSite: { rateCents: parsedRate === "invalid" ? null : parsedRate } } : {};
+  const parsedFixed = parseFixedPayDollars(draft.fixedPay);
+  const pay = draft.payMode === "fixed"
+    ? { payMode: "fixed" as const, fixedPayCents: parsedFixed === "invalid" ? null : parsedFixed }
+    : { payMode: "hourly" as const, fixedPayCents: null };
   if (draft.mode === "paid_hours") {
     return {
       entryMode: "paid_hours" as const,
@@ -239,6 +260,7 @@ export function shiftEntryPayload(draft: ShiftEntryDraft) {
       paidMinutes: paidMinutesFromParts(draft.paidHours, draft.paidMinutePart),
       notes,
       ...assignSite,
+      ...pay,
     };
   }
   return {
@@ -251,6 +273,7 @@ export function shiftEntryPayload(draft: ShiftEntryDraft) {
     breakMinutes: draft.breakMinutes,
     notes,
     ...assignSite,
+    ...pay,
   };
 }
 
@@ -320,6 +343,8 @@ export function draftSaveError(draft: ShiftEntryDraft, options?: { allowAssignSi
     return "Choose a site.";
   }
   if (!draft.workDate) return "Choose a date.";
+  if (draft.payMode === "fixed" && parseFixedPayDollars(draft.fixedPay) == null) return "Enter a fixed price greater than zero.";
+  if (draft.payMode === "fixed" && parseFixedPayDollars(draft.fixedPay) === "invalid") return "Enter a valid fixed price.";
   return draftDurationError(draft);
 }
 

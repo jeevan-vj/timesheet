@@ -61,6 +61,11 @@ async function currentWeekTotals(database: Database, ownerUserId: string, busine
     .select({
       paidMinutes: timeEntries.paidMinutes,
       rateCents: timeEntries.rateCents,
+      payMode: timeEntries.payMode,
+      fixedPayCents: timeEntries.fixedPayCents,
+      holidayLoadingCents: timeEntries.holidayLoadingCents,
+      weekendLoadingCents: timeEntries.weekendLoadingCents,
+      overnightLoadingCents: timeEntries.overnightLoadingCents,
       occurrenceKind: timeEntries.occurrenceKind,
     })
     .from(timeEntries)

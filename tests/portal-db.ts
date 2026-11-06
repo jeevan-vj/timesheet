@@ -15,6 +15,7 @@ const MIGRATIONS = [
   "0008_account_provider_key.sql",
   "0009_owner_time_entry_audit.sql",
   "0010_owner_assistant_confirmation.sql",
+  "0011_pay_rules.sql",
 ] as const;
 
 export async function openPortalSqlite(): Promise<SqlJsDatabase> {

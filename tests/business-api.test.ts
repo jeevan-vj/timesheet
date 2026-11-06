@@ -118,6 +118,7 @@ async function openMemoryDb() {
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0003_recurring_schedules.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0004_business_workspace.sql"), "utf8"));
   execContractorEngagementMigration(sqlite);
+  sqlite.exec(fs.readFileSync(path.resolve("drizzle/0011_pay_rules.sql"), "utf8"));
   handle.sqlite = sqlite;
   handle.database = drizzle(sqlite);
   return sqlite;
@@ -266,6 +267,8 @@ describe("business workspace API", () => {
       entries: [],
       summary: summarizeWeek([]),
       approval: toDashboardApproval(null),
+      payRules: null,
+      holidayDates: [],
       business: null,
     });
     expect(count(sqlite, "site")).toBe(0);

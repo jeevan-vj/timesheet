@@ -168,6 +168,8 @@ describe("save payload and errors", () => {
       workDate: "2026-08-31",
       paidMinutes: 480,
       notes: "",
+      payMode: "hourly",
+      fixedPayCents: null,
     });
   });
 
@@ -388,6 +390,8 @@ describe("edit save payload and errors", () => {
       workDate: "2026-08-31",
       paidMinutes: 480,
       notes: "Keys returned",
+      payMode: "hourly",
+      fixedPayCents: null,
     });
     expect(shiftUpdatePayload(clockDraft)).toEqual({
       entryMode: "clock",
@@ -398,6 +402,8 @@ describe("edit save payload and errors", () => {
       endMinutes: 16 * 60 + 30,
       breakMinutes: 30,
       notes: "Keys returned",
+      payMode: "hourly",
+      fixedPayCents: null,
     });
     const ignoredAssign = shiftUpdatePayload({
       ...paidDraft,

@@ -23,11 +23,12 @@ import {
 } from "@/lib/contractor-lifecycle";
 import { ownerBusinessIdOrNull, requireOwnerBusinessId } from "@/lib/business";
 import { isUniqueConstraintError } from "@/lib/db-errors";
-import { summarizeWeek, weekEnd } from "@/lib/payroll";
+import { calculateShiftPay, summarizeWeek, weekEnd } from "@/lib/payroll";
 import { decodeWeekdays } from "@/lib/schedule";
 import { clockFieldsForWrite, hasDuplicateTimeEntry, rateCentsForUpdate, shouldResnapshotRate } from "@/lib/time-entry-write";
 import { findWeekApproval } from "@/lib/week-approval-query";
 import { assertUnlockedWeek, toDashboardApproval } from "@/services/week-approval";
+import { payRuleSnapshot } from "@/services/pay-rules";
 import type { z } from "zod";
 import type { assignmentInput, assignmentRateInput, contractorInput, timeEntryInput, timeEntryUpdateInput } from "@/lib/validation";
 
@@ -54,6 +55,8 @@ const assignmentRecordColumns = {
   contractorId: assignments.contractorId,
   siteId: assignments.siteId,
   rateCents: assignments.rateCents,
+  payMode: assignments.payMode,
+  fixedPayCents: assignments.fixedPayCents,
   active: assignments.active,
   createdAt: assignments.createdAt,
   updatedAt: assignments.updatedAt,
@@ -69,6 +72,8 @@ const assignmentViewColumns = {
   siteName: sites.name,
   siteActive: sites.active,
   rateCents: assignments.rateCents,
+  payMode: assignments.payMode,
+  fixedPayCents: assignments.fixedPayCents,
   active: assignments.active,
   createdAt: assignments.createdAt,
   updatedAt: assignments.updatedAt,
@@ -124,9 +129,11 @@ function assignmentRepo(database: Database, businessId: string): AssignmentRepos
       await database.insert(assignments).values({ ...row, businessId });
     },
     async updateAssignment(ownerUserId, assignmentId, patch: AssignmentPatch) {
-      const set: { updatedAt: Date; active?: boolean; rateCents?: number | null } = { updatedAt: patch.updatedAt };
+      const set: { updatedAt: Date; active?: boolean; rateCents?: number | null; payMode?: "hourly" | "fixed"; fixedPayCents?: number | null } = { updatedAt: patch.updatedAt };
       if (patch.active !== undefined) set.active = patch.active;
       if (Object.prototype.hasOwnProperty.call(patch, "rateCents")) set.rateCents = patch.rateCents;
+      if (patch.payMode !== undefined) set.payMode = patch.payMode;
+      if (Object.prototype.hasOwnProperty.call(patch, "fixedPayCents")) set.fixedPayCents = patch.fixedPayCents;
       await database.update(assignments).set(set).where(and(
         eq(assignments.id, assignmentId),
         eq(assignments.ownerUserId, ownerUserId),
@@ -381,7 +388,7 @@ export async function getAssignment(database: Database, ownerUserId: string, ass
 
 export async function updateAssignmentRate(database: Database, ownerUserId: string, assignmentId: string, input: AssignmentRateInput) {
   const businessId = await requireOwnerBusinessId(database, ownerUserId);
-  return runUpdateAssignmentRate(assignmentRepo(database, businessId), ownerUserId, assignmentId, input.rateCents, assignmentClock);
+  return runUpdateAssignmentRate(assignmentRepo(database, businessId), ownerUserId, assignmentId, input, assignmentClock);
 }
 
 export async function unassignAssignment(database: Database, ownerUserId: string, assignmentId: string) {
@@ -423,7 +430,12 @@ export async function createTimeEntry(
   });
 
   const [match] = await database
-    .select({ assignmentRate: assignments.rateCents, defaultRate: contractors.defaultRateCents })
+    .select({
+      assignmentRate: assignments.rateCents,
+      defaultRate: contractors.defaultRateCents,
+      payMode: assignments.payMode,
+      fixedPayCents: assignments.fixedPayCents,
+    })
     .from(assignments)
     .innerJoin(contractors, and(
       eq(contractors.id, assignments.contractorId),
@@ -447,6 +459,19 @@ export async function createTimeEntry(
     .limit(1);
   if (!match) throw new Error("not_found");
 
+  const rateCents = match.assignmentRate ?? match.defaultRate;
+  const payMode = input.payMode ?? match.payMode;
+  const fixedPayCents = payMode === "fixed" ? input.fixedPayCents ?? match.fixedPayCents : null;
+  const snapshot = await payRuleSnapshot(database, ownerUserId, businessId, input.workDate);
+  const pay = calculateShiftPay({
+    workDate: input.workDate,
+    paidMinutes: clock.paidMinutes,
+    rateCents,
+    startMinutes: clock.entryMode === "clock" ? clock.startMinutes : 0,
+    endMinutes: clock.entryMode === "clock" ? clock.endMinutes : 0,
+    payMode,
+    fixedPayCents,
+  }, snapshot.rules, snapshot.holidayDates);
   const row = {
     id: id(),
     ownerUserId,
@@ -456,7 +481,12 @@ export async function createTimeEntry(
     workDate: input.workDate,
     notes: input.notes,
     ...clock,
-    rateCents: match.assignmentRate ?? match.defaultRate,
+    rateCents,
+    payMode,
+    fixedPayCents,
+    holidayLoadingCents: pay.holidayLoadingCents,
+    weekendLoadingCents: pay.weekendLoadingCents,
+    overnightLoadingCents: pay.overnightLoadingCents,
     occurrenceKind: "manual" as const,
     scheduleVersionId: null,
     createdAt: now(),
@@ -480,6 +510,10 @@ export async function getTimeEntry(database: Database, ownerUserId: string, entr
     startMinutes: timeEntries.startMinutes, endMinutes: timeEntries.endMinutes,
     breakMinutes: timeEntries.breakMinutes, paidMinutes: timeEntries.paidMinutes,
     rateCents: timeEntries.rateCents, notes: timeEntries.notes, entryMode: timeEntries.entryMode,
+    payMode: timeEntries.payMode, fixedPayCents: timeEntries.fixedPayCents,
+    holidayLoadingCents: timeEntries.holidayLoadingCents,
+    weekendLoadingCents: timeEntries.weekendLoadingCents,
+    overnightLoadingCents: timeEntries.overnightLoadingCents,
     occurrenceKind: timeEntries.occurrenceKind, scheduleVersionId: timeEntries.scheduleVersionId,
   }).from(timeEntries)
     .innerJoin(contractors, and(
@@ -569,6 +603,18 @@ export async function updateTimeEntry(
       ? "hours_override" as const
       : existing.occurrenceKind;
   const scheduleVersionId = resnapshot ? null : existing.scheduleVersionId;
+  const payMode = input.payMode ?? existing.payMode;
+  const fixedPayCents = payMode === "fixed" ? input.fixedPayCents ?? existing.fixedPayCents : null;
+  const snapshot = await payRuleSnapshot(database, ownerUserId, businessId, input.workDate);
+  const pay = calculateShiftPay({
+    workDate: input.workDate,
+    paidMinutes: clock.paidMinutes,
+    rateCents,
+    startMinutes: clock.entryMode === "clock" ? clock.startMinutes : 0,
+    endMinutes: clock.entryMode === "clock" ? clock.endMinutes : 0,
+    payMode,
+    fixedPayCents,
+  }, snapshot.rules, snapshot.holidayDates);
 
   const [duplicate] = await database
     .select({ id: timeEntries.id })
@@ -595,6 +641,11 @@ export async function updateTimeEntry(
         notes: input.notes,
         ...clock,
         rateCents,
+        payMode,
+        fixedPayCents,
+        holidayLoadingCents: pay.holidayLoadingCents,
+        weekendLoadingCents: pay.weekendLoadingCents,
+        overnightLoadingCents: pay.overnightLoadingCents,
         occurrenceKind,
         scheduleVersionId,
         updatedAt,
@@ -656,7 +707,14 @@ export async function getDashboard(database: Database, ownerUserId: string, week
       eq(contractors.businessId, businessId),
       eq(contractors.active, true),
     )).orderBy(asc(contractors.name)),
-    database.select({ id: assignments.id, contractorId: assignments.contractorId, siteId: assignments.siteId, rateCents: assignments.rateCents }).from(assignments)
+    database.select({
+      id: assignments.id,
+      contractorId: assignments.contractorId,
+      siteId: assignments.siteId,
+      rateCents: assignments.rateCents,
+      payMode: assignments.payMode,
+      fixedPayCents: assignments.fixedPayCents,
+    }).from(assignments)
       .innerJoin(contractors, and(
         eq(contractors.id, assignments.contractorId),
         eq(contractors.ownerUserId, ownerUserId),
@@ -680,6 +738,10 @@ export async function getDashboard(database: Database, ownerUserId: string, week
       startMinutes: timeEntries.startMinutes, endMinutes: timeEntries.endMinutes,
       breakMinutes: timeEntries.breakMinutes, paidMinutes: timeEntries.paidMinutes,
       rateCents: timeEntries.rateCents, notes: timeEntries.notes, entryMode: timeEntries.entryMode,
+      payMode: timeEntries.payMode, fixedPayCents: timeEntries.fixedPayCents,
+      holidayLoadingCents: timeEntries.holidayLoadingCents,
+      weekendLoadingCents: timeEntries.weekendLoadingCents,
+      overnightLoadingCents: timeEntries.overnightLoadingCents,
       occurrenceKind: timeEntries.occurrenceKind, scheduleVersionId: timeEntries.scheduleVersionId,
     }).from(timeEntries)
       .innerJoin(contractors, and(
@@ -713,11 +775,27 @@ export async function getDashboard(database: Database, ownerUserId: string, week
     if (row.effectiveTo != null) continue;
     openSchedules.set(row.assignmentId, toCurrentScheduleView(row));
   }
+  const [startPay, endPay] = await Promise.all([
+    payRuleSnapshot(database, ownerUserId, businessId, weekStart),
+    payRuleSnapshot(database, ownerUserId, businessId, end),
+  ]);
   return {
     weekStart, weekEnd: end, sites: siteRows, contractors: contractorRows,
     assignments: assignmentRows.map((row) => ({ ...row, schedule: openSchedules.get(row.id) ?? null })),
     entries: entryRows,
-    summary: summarizeWeek(entryRows.map((entry) => ({ contractorId: entry.contractorId, contractorName: entry.contractorName, paidMinutes: entry.paidMinutes, rateCents: entry.rateCents }))),
+    summary: summarizeWeek(entryRows.map((entry) => ({
+      contractorId: entry.contractorId,
+      contractorName: entry.contractorName,
+      paidMinutes: entry.paidMinutes,
+      rateCents: entry.rateCents,
+      payMode: entry.payMode,
+      fixedPayCents: entry.fixedPayCents,
+      holidayLoadingCents: entry.holidayLoadingCents,
+      weekendLoadingCents: entry.weekendLoadingCents,
+      overnightLoadingCents: entry.overnightLoadingCents,
+    }))),
     approval: toDashboardApproval(approvalRow),
+    payRules: startPay.rules,
+    holidayDates: [...new Set([...startPay.holidayDates, ...endPay.holidayDates])].sort(),
   };
 }

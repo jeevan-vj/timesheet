@@ -180,9 +180,15 @@ When a supported request is missing required details, the model may select only 
 
 Remittance is read-only and comes from canonical snapshotted entries and integer-cent payroll math. It is `verified` only when the week is approved and has no pending scheduled occurrence, `incomplete` when a scheduled occurrence remains pending, and otherwise `provisional`. Web links to the existing authenticated PDF. Mobile renders the verified line and total data without adding it to persisted query storage. Unsupported operations, including time-entry or approval changes, return clarification and never execute.
 
+### CT-020 Optional pay rules
+
+An owner may configure optional public-holiday, weekend, and same-day overnight loading multipliers, maintain owner holiday dates, and set a fixed price on an assignment or shift. Multipliers are integer basis points of 1.0x. Missing or all-off settings keep hourly pay on the unchanged `calculateEntryPayCents` path. Fixed positive-minute shifts bypass hourly base and loadings. Holiday suppresses weekend loading; overnight loading remains additive. Each loading component is rounded independently and snapshotted on the time entry when an unlocked entry is created or updated. Changing rules does not rewrite existing entries.
+
+The built-in NZ holiday calendar covers 2024–2030 and includes both gazetted and transferred dates for Mondayised holidays. Owner dates are unioned with it. This optional calendar is not legal advice. Remittance lines expose base, holiday, weekend, overnight, fixed, and total cents; clients omit the extra breakdown for an ordinary hourly line.
+
 ## Non-goals
 
-- tax, holiday pay, GST, expenses, invoicing, or bank payments;
+- tax, statutory employment entitlements, GST on pay, expenses, invoicing, or bank payments;
 - contractor time submission and clock-in geolocation;
 - manager membership and an owner switching between businesses;
 - overlapping/multi-shift days;

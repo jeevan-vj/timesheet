@@ -5,6 +5,7 @@ import { endSession } from "@/api";
 import { authClient } from "@/auth-client";
 import { Figure, FinishSetup, OwnerFailure, OwnerLoading, RefreshWarning, latestDataUpdatedAt } from "@/components/owner-feedback";
 import { WorkspaceSwitchSection } from "@/components/workspace-switcher";
+import { OwnerPayRules } from "@/components/owner-pay-rules";
 import { useOwnerMe, useOwnerSites } from "@/owner-client";
 import { Card, EmptyState, ListRow, Screen, SecondaryButton, SectionHeader, spacing, theme, typeScale } from "@/ui";
 
@@ -56,6 +57,7 @@ export default function OwnerAccountScreen() {
             <>
               <Profile business={me.data.owner} email={email} name={name} />
               <SitesSection sites={sites} />
+              <OwnerPayRules />
             </>
           )}
         </>

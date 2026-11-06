@@ -136,6 +136,28 @@ describe("remittance model", () => {
     expect(modelFrom()).toEqual(modelFrom([...twoRateEntries].reverse()));
   });
 
+  it("keeps breakdown components additive and preserves the default hourly shape", async () => {
+    const defaultModel = modelFrom();
+    expect(defaultModel.lines[0]).toMatchObject({
+      baseCents: defaultModel.lines[0]?.payCents,
+      holidayLoadingCents: 0,
+      weekendLoadingCents: 0,
+      overnightLoadingCents: 0,
+      fixedCents: 0,
+    });
+    const model = modelFrom([
+      { ...twoRateEntries[0]!, holidayLoadingCents: 2_100 },
+      { ...twoRateEntries[1]!, payMode: "fixed", fixedPayCents: 20_000 },
+    ]);
+    for (const line of model.lines) {
+      expect(line.baseCents + line.holidayLoadingCents + line.weekendLoadingCents + line.overnightLoadingCents + line.fixedCents).toBe(line.payCents);
+    }
+    expect(model.payCents).toBe(model.lines.reduce((sum, line) => sum + line.payCents, 0));
+    const visible = await extractVisiblePdfText(await renderRemittancePdf(model));
+    expect(visible).toContain("Public holiday loading");
+    expect(visible).toContain("Fixed");
+  });
+
   it("refuses to render when line totals do not match the weekly summary", async () => {
     const tampered = { ...modelFrom(), payCents: 1 };
     expect(() => assertRemittanceTotals(tampered)).toThrow("invalid_request");

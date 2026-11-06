@@ -162,7 +162,7 @@ function PortalBody({
         {detail ? <div className="portal-detail" aria-live="polite">
           <div className="portal-detail-heading"><h3>{formatWeekRange(detail.weekStart, detail.weekEnd)}</h3><button type="button" className="link-button portal-detail-close" onClick={() => void onOpenRemittance(detail.weekStart)}>Close pay details</button></div>
           <p><strong>{formatNzd(detail.payCents)}</strong> · {formatMinutes(detail.paidMinutes)}</p>
-          {detail.lines.map((line) => <div className="portal-detail-line" key={line.id}><span>{formatDayHeading(line.workDate)} · {line.siteName}<small>{line.businessName} · {formatMinutes(line.paidMinutes)}</small></span><strong>{formatNzd(line.payCents)}</strong></div>)}
+          {detail.lines.map((line) => <div className="portal-detail-line" key={line.id}><span>{formatDayHeading(line.workDate)} · {line.siteName}<small>{line.businessName} · {formatMinutes(line.paidMinutes)}</small>{line.fixedCents || line.holidayLoadingCents || line.weekendLoadingCents || line.overnightLoadingCents ? <small>{[["Base", line.baseCents], ["Public holiday loading", line.holidayLoadingCents], ["Weekend loading", line.weekendLoadingCents], ["Overnight loading", line.overnightLoadingCents], ["Fixed", line.fixedCents]].filter(([, cents]) => cents !== 0).map(([label, cents]) => `${label} ${formatNzd(Number(cents))}`).join(" · ")}</small> : null}</span><strong>{formatNzd(line.payCents)}</strong></div>)}
         </div> : null}
       </section>
     </div>}

@@ -69,6 +69,11 @@ export const portalPaymentLineSchema = z.object({
   businessName: z.string(),
   paidMinutes: z.number().int().min(1),
   payCents: z.number().int().min(0),
+  baseCents: z.number().int().min(0).default(0),
+  holidayLoadingCents: z.number().int().default(0),
+  weekendLoadingCents: z.number().int().default(0),
+  overnightLoadingCents: z.number().int().default(0),
+  fixedCents: z.number().int().min(0).default(0),
 }).strict();
 
 export const portalRemittanceTargetSchema = z.object({
