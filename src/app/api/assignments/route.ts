@@ -1,11 +1,11 @@
 import { db } from "@/db/client";
-import { apiError, authorize, readJson } from "@/lib/api";
+import { apiError, readJson, requireOwner } from "@/lib/api";
 import { noStoreJson } from "@/lib/accounts-config";
 import { assignmentInput } from "@/lib/validation";
 import { createAssignment, listAssignments } from "@/services/timesheet";
 
 export async function GET(request: Request) {
-  const access = await authorize(request);
+  const access = await requireOwner(request);
   if ("response" in access) return access.response;
   try {
     return noStoreJson({ assignments: await listAssignments(db, access.user.id) });
@@ -15,7 +15,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const access = await authorize(request, true);
+  const access = await requireOwner(request, true);
   if ("response" in access) return access.response;
   try {
     const input = assignmentInput.parse(await readJson(request));

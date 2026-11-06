@@ -36,6 +36,9 @@ vi.mock("@/lib/request-session", () => ({
     return { id: "owner-1", email: "owner@example.test", name: "Owner" };
   },
 }));
+vi.mock("@/lib/viewer", () => ({
+  resolveViewer: async () => ({ owner: { id: "biz_owner-1" }, contractorOf: [] }),
+}));
 vi.mock("@/lib/runtime-env", () => ({
   getTrustedOrigins: () => ["https://app.example.test"],
   getSecureCookies: () => true,

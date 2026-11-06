@@ -1,4 +1,4 @@
-import { apiError, authorize } from "@/lib/api";
+import { apiError, requireOwner } from "@/lib/api";
 import { noStoreJson } from "@/lib/accounts-config";
 import { summarizeWeek, weekEnd } from "@/lib/payroll";
 import { weekStartInput } from "@/lib/validation";
@@ -8,7 +8,7 @@ import { toDashboardApproval } from "@/services/week-approval";
 import { db } from "@/db/client";
 
 export async function GET(request: Request) {
-  const access = await authorize(request);
+  const access = await requireOwner(request);
   if ("response" in access) return access.response;
   const week = new URL(request.url).searchParams.get("week") ?? "";
   const parsed = weekStartInput.safeParse(week);

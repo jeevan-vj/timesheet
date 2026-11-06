@@ -1,12 +1,12 @@
 import { db } from "@/db/client";
-import { apiError, authorize, readItemError, readJson } from "@/lib/api";
+import { apiError, readItemError, readJson, requireOwner } from "@/lib/api";
 import { noStoreJson } from "@/lib/accounts-config";
 import { isValidContractorId } from "@/lib/contractor-lifecycle";
 import { contractorInput, invalidRequestFromZod } from "@/lib/validation";
 import { getContractor, updateContractor } from "@/services/timesheet";
 
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
-  const access = await authorize(request);
+  const access = await requireOwner(request);
   if ("response" in access) return access.response;
   const { id } = await context.params;
   if (!isValidContractorId(id)) return noStoreJson({ error: "invalid_request" }, 400);
@@ -18,7 +18,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
 }
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
-  const access = await authorize(request, true);
+  const access = await requireOwner(request, true);
   if ("response" in access) return access.response;
   const { id } = await context.params;
   if (!isValidContractorId(id)) return noStoreJson({ error: "invalid_request" }, 400);
