@@ -58,6 +58,32 @@ const sendOwnerTeamMutation: OwnerTeamMutationSend = async (path, init) => {
   }
 };
 
+
+export async function saveOwnerShiftFixedPrice(input: {
+  entryId: string;
+  contractorId: string;
+  siteId: string;
+  workDate: string;
+  notes: string;
+  clock: { entryMode: "clock"; startMinutes: number; endMinutes: number; breakMinutes: number } | { entryMode: "paid_hours"; paidMinutes: number };
+  fixedPayCents: number;
+}): Promise<void> {
+  const response = await mobileFetch(`/api/time-entries/${input.entryId}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      contractorId: input.contractorId,
+      siteId: input.siteId,
+      workDate: input.workDate,
+      notes: input.notes,
+      ...input.clock,
+      payMode: "fixed",
+      fixedPayCents: input.fixedPayCents,
+    }),
+  });
+  if (!response.ok) throw new Error("Could not save the fixed price.");
+}
+
 function actionContractorId(action: OwnerTeamAction, body: OwnerTeamMutationBody): string | null {
   if (action.kind !== "create") return action.contractorId;
   return "contractor" in body ? body.contractor.id : null;

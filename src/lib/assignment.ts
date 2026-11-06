@@ -28,6 +28,8 @@ export type AssignmentRecord = {
   contractorId: string;
   siteId: string;
   rateCents: number | null;
+  payMode?: "hourly" | "fixed";
+  fixedPayCents?: number | null;
   active: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -37,6 +39,8 @@ export type AssignmentPatch = {
   updatedAt: Date;
   active?: boolean;
   rateCents?: number | null;
+  payMode?: "hourly" | "fixed";
+  fixedPayCents?: number | null;
 };
 
 export type JoinedAssignment = {
@@ -49,6 +53,8 @@ export type JoinedAssignment = {
   siteName: string;
   siteActive: boolean;
   rateCents: number | null;
+  payMode?: "hourly" | "fixed";
+  fixedPayCents?: number | null;
   active: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -61,6 +67,8 @@ export type AssignmentView = {
   siteId: string;
   siteName: string;
   rateCents: number | null;
+  payMode: "hourly" | "fixed";
+  fixedPayCents: number | null;
   effectiveRateCents: number;
   rateInherited: boolean;
   active: boolean;
@@ -149,6 +157,8 @@ export function toAssignmentView(row: JoinedAssignment): AssignmentView {
     siteId: row.siteId,
     siteName: row.siteName,
     rateCents: row.rateCents,
+    payMode: row.payMode ?? "hourly",
+    fixedPayCents: row.fixedPayCents ?? null,
     effectiveRateCents: row.rateCents ?? row.contractorDefaultRateCents,
     rateInherited: row.rateCents === null,
     active: row.active,
@@ -186,7 +196,7 @@ export async function runListAssignments(repo: AssignmentRepository, ownerUserId
 export async function runCreateAssignment(
   repo: AssignmentRepository,
   ownerUserId: string,
-  input: { contractorId: string; siteId: string; rateCents: number | null },
+  input: { contractorId: string; siteId: string; rateCents: number | null; payMode?: "hourly" | "fixed"; fixedPayCents?: number | null },
   clock: AssignmentClock,
 ): Promise<CreatedAssignment> {
   const contractor = await repo.getContractor(ownerUserId, input.contractorId);
@@ -207,6 +217,8 @@ export async function runCreateAssignment(
     await repo.updateAssignment(ownerUserId, assignmentId, {
       active: true,
       rateCents: input.rateCents,
+      payMode: input.payMode ?? "hourly",
+      fixedPayCents: input.payMode === "fixed" ? input.fixedPayCents ?? null : null,
       updatedAt: timestamp,
     });
   } else {
@@ -218,6 +230,8 @@ export async function runCreateAssignment(
         contractorId: input.contractorId,
         siteId: input.siteId,
         rateCents: input.rateCents,
+        payMode: input.payMode ?? "hourly",
+        fixedPayCents: input.payMode === "fixed" ? input.fixedPayCents ?? null : null,
         active: true,
         createdAt: timestamp,
         updatedAt: timestamp,
@@ -235,12 +249,20 @@ export async function runUpdateAssignmentRate(
   repo: AssignmentRepository,
   ownerUserId: string,
   assignmentId: string,
-  rateCents: number | null,
+  input: number | null | { rateCents: number | null; payMode?: "hourly" | "fixed"; fixedPayCents?: number | null },
   clock: AssignmentClock,
 ): Promise<AssignmentView> {
   const existing = await repo.getAssignmentById(ownerUserId, assignmentId);
   if (!existing) throw new Error("not_found");
-  await repo.updateAssignment(ownerUserId, assignmentId, { rateCents, updatedAt: clock.now() });
+  const patch = typeof input === "object" && input !== null ? input : { rateCents: input };
+  await repo.updateAssignment(ownerUserId, assignmentId, {
+    rateCents: patch.rateCents,
+    ...(patch.payMode === undefined ? {} : {
+      payMode: patch.payMode,
+      fixedPayCents: patch.payMode === "fixed" ? patch.fixedPayCents ?? null : null,
+    }),
+    updatedAt: clock.now(),
+  });
   return runGetAssignment(repo, ownerUserId, assignmentId);
 }
 

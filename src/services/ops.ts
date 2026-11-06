@@ -246,6 +246,11 @@ export async function opsWages(
     siteName: sites.name,
     paidMinutes: timeEntries.paidMinutes,
     rateCents: timeEntries.rateCents,
+    payMode: timeEntries.payMode,
+    fixedPayCents: timeEntries.fixedPayCents,
+    holidayLoadingCents: timeEntries.holidayLoadingCents,
+    weekendLoadingCents: timeEntries.weekendLoadingCents,
+    overnightLoadingCents: timeEntries.overnightLoadingCents,
   }).from(timeEntries)
     .innerJoin(contractors, and(
       eq(contractors.id, timeEntries.contractorId),

@@ -1,10 +1,15 @@
-import { calculateEntryPayCents } from "./payroll";
+import { snapshotShiftPay } from "./payroll";
 
 export type SiteRollupEntry = {
   siteId: string;
   siteName: string;
   paidMinutes: number;
   rateCents: number;
+  payMode?: "hourly" | "fixed";
+  fixedPayCents?: number | null;
+  holidayLoadingCents?: number;
+  weekendLoadingCents?: number;
+  overnightLoadingCents?: number;
 };
 
 export type SiteWeek = {
@@ -31,7 +36,7 @@ export function summarizeWeekBySite(entries: SiteRollupEntry[]): SiteWeek[] {
     };
     current.paidMinutes += entry.paidMinutes;
     if (entry.paidMinutes > 0) {
-      current.payCents += calculateEntryPayCents(entry.paidMinutes, entry.rateCents);
+      current.payCents += snapshotShiftPay(entry).totalCents;
     }
     totals.set(entry.siteId, current);
   }

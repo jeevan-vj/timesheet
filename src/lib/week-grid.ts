@@ -45,6 +45,11 @@ export type WeekGridEntry = {
   workDate: string;
   paidMinutes: number;
   rateCents: number;
+  payMode?: "hourly" | "fixed";
+  fixedPayCents?: number | null;
+  holidayLoadingCents?: number;
+  weekendLoadingCents?: number;
+  overnightLoadingCents?: number;
   notes: string;
   entryMode: "clock" | "paid_hours" | "absent";
   occurrenceKind: OccurrenceKind;

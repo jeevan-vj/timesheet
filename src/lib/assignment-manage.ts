@@ -16,6 +16,8 @@ export type AssignmentItemDTO = {
   siteId: string;
   siteName: string;
   rateCents: number | null;
+  payMode?: "hourly" | "fixed";
+  fixedPayCents?: number | null;
   effectiveRateCents: number;
   rateInherited: boolean;
   active: boolean;
@@ -141,7 +143,7 @@ export function presentAssignment(item: AssignmentItemDTO) {
     rateLabel: assignmentRateLabel(item),
     statusLabel: assignmentStatusLabel(item.active),
     scheduleSummary: summaryLines[1] ?? null,
-    detail: summaryLines[1] ?? `${assignmentRateLabel(item)} · ${assignmentStatusLabel(item.active)}`,
+    detail: summaryLines[1] ?? `${item.payMode === "fixed" && item.fixedPayCents ? `${formatNzd(item.fixedPayCents)} fixed` : assignmentRateLabel(item)} · ${assignmentStatusLabel(item.active)}`,
     archived: !item.active,
     unassignLabel: `Unassign ${item.contractorName} from ${item.siteName}`,
     restoreLabel: `Restore ${item.contractorName} at ${item.siteName}`,

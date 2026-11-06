@@ -36,6 +36,11 @@ export function displayWeekTotals(entries: WeekGridEntry[]) {
     contractorName: entry.contractorName,
     paidMinutes: entry.paidMinutes,
     rateCents: entry.rateCents,
+    payMode: entry.payMode,
+    fixedPayCents: entry.fixedPayCents,
+    holidayLoadingCents: entry.holidayLoadingCents,
+    weekendLoadingCents: entry.weekendLoadingCents,
+    overnightLoadingCents: entry.overnightLoadingCents,
   })));
   const sites = summarizeWeekBySite(entries);
   return {

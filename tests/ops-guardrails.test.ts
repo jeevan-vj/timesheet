@@ -32,6 +32,7 @@ const MIGRATIONS = [
   "drizzle/0003_recurring_schedules.sql",
   "drizzle/0004_business_workspace.sql",
   "drizzle/0005_ops_audit.sql",
+  "drizzle/0011_pay_rules.sql",
 ];
 
 async function openMemoryDb() {

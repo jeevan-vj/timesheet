@@ -136,14 +136,16 @@ export default function PayScreen() {
               />
             ) : (
               detail.data.lines.map((line) => (
-                <ListRow
+                <View key={line.id}>
+                  <ListRow
                   accessibilityLabel={`${line.siteName}, ${line.businessName}, ${formatMinutes(line.paidMinutes)}, ${spokenNzd(line.payCents)}`}
                   icon={{ ios: "mappin.and.ellipse", android: "location_on", web: "location_on" }}
-                  key={line.id}
                   subtitle={`${line.businessName} · ${formatMinutes(line.paidMinutes)}`}
                   title={line.siteName}
                   trailing={<Text style={styles.amount}>{formatNzd(line.payCents)}</Text>}
-                />
+                  />
+                  <PaymentBreakdown line={line} />
+                </View>
               ))
             )}
             {PORTAL_REMITTANCE_AVAILABLE ? (
@@ -161,6 +163,21 @@ export default function PayScreen() {
       </Sheet>
     </>
   );
+}
+
+function PaymentBreakdown({ line }: { line: NonNullable<ReturnType<typeof usePortalPaymentDetail>["data"]>["lines"][number] }) {
+  const rows = [
+    ["Base", line.baseCents],
+    ["Public holiday loading", line.holidayLoadingCents],
+    ["Weekend loading", line.weekendLoadingCents],
+    ["Overnight loading", line.overnightLoadingCents],
+    ["Fixed", line.fixedCents],
+  ] as const;
+  const extra = line.fixedCents !== 0 || line.holidayLoadingCents !== 0 || line.weekendLoadingCents !== 0 || line.overnightLoadingCents !== 0;
+  if (!extra) return null;
+  return <View style={styles.breakdown}>{rows.filter(([, cents]) => cents !== 0).map(([label, cents]) => (
+    <View key={label} style={styles.breakdownRow}><Text style={styles.note}>{label}</Text><Text style={styles.note}>{formatNzd(cents)}</Text></View>
+  ))}</View>;
 }
 
 const styles = StyleSheet.create({
@@ -182,6 +199,8 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontVariant: ["tabular-nums"],
   },
+  breakdown: { gap: spacing.xxs, paddingHorizontal: spacing.md, paddingBottom: spacing.sm },
+  breakdownRow: { flexDirection: "row", justifyContent: "space-between", gap: spacing.sm },
   refreshError: {
     color: theme.mutedHighContrast,
     backgroundColor: theme.surfaceRaised,
