@@ -49,7 +49,7 @@ async function api(url: string, init?: RequestInit) {
   return response.json();
 }
 
-export function PayRulesSettings() {
+export function PayRulesSettings({ onSaved }: { onSaved?: () => void | Promise<void> } = {}) {
   const [rules, setRules] = useState<PayRules>(defaults);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [message, setMessage] = useState("");
@@ -89,6 +89,7 @@ export function PayRulesSettings() {
     try {
       setRules(await api("/api/business/pay-rules", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(next) }) as PayRules);
       setMessage("Pay rules saved. Existing shifts were not changed.");
+      await onSaved?.();
     } catch {
       setMessage("Check multipliers are whole basis points from 10000 to 30000 and complete the overnight window.");
     } finally {
@@ -107,6 +108,7 @@ export function PayRulesSettings() {
       form.reset();
       await load();
       setMessage("Holiday added.");
+      await onSaved?.();
     } catch {
       setMessage("That holiday could not be added. Check the date is not already listed.");
     } finally {
@@ -121,6 +123,7 @@ export function PayRulesSettings() {
       await api(`/api/business/holidays/${encodeURIComponent(id)}`, { method: "DELETE" });
       await load();
       setMessage("Holiday removed.");
+      await onSaved?.();
     } catch {
       setMessage("That holiday could not be removed.");
     } finally {
