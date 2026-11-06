@@ -8,7 +8,7 @@ Create one Google OAuth client of type **Web application**. Configure these exac
 - `https://cleantrack-timesheet-preview.jeevan90wijerathna.workers.dev/api/auth/callback/google`
 - `https://cleantrack-timesheet.jeevan90wijerathna.workers.dev/api/auth/callback/google`
 
-If an environment moves to a custom domain, add that domain's exact `/api/auth/callback/google` URL before changing `BETTER_AUTH_URL`; do not add wildcards. Store `GOOGLE_CLIENT_ID` as a Worker variable and `GOOGLE_CLIENT_SECRET` as an encrypted Worker secret on both the production and preview environments. The client id is not confidential, but it remains server-side rather than entering the native bundle. Never put the client secret in GitHub variables, `EXPO_PUBLIC_*`, app config, or repository files. Existing email/password sign-in remains available if Google is temporarily unavailable. Device Google sign-in adds `expo-web-browser`, which changes the runtime fingerprint and needs a new native build; it cannot reach older binaries through OTA alone.
+If an environment moves to a custom domain, add that domain's exact `/api/auth/callback/google` URL before changing `BETTER_AUTH_URL`; do not add wildcards. `wrangler.jsonc` lists both `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `secrets.required`, so both are Worker secrets on production (`cleantrack-timesheet`) and preview (`cleantrack-timesheet-preview`). Set each one on the target Worker with `wrangler secret put <NAME> --name <worker>`. The release and preview workflows do not read either value from GitHub, and no GitHub variable or secret with these names is needed. If either secret is missing on the target Worker, the deploy fails with `required secrets have not been set`. The client id is not confidential, but it is still a required Worker secret and stays server-side rather than entering the native bundle. Never put either value in GitHub variables or secrets, `EXPO_PUBLIC_*`, app config, or repository files. Existing email/password sign-in remains available if Google is temporarily unavailable. Device Google sign-in adds `expo-web-browser`, which changes the runtime fingerprint and needs a new native build; it cannot reach older binaries through OTA alone.
 
 ## Production resources
 
@@ -39,7 +39,7 @@ The owner assistant requires additive migration `0010_owner_assistant_confirmati
 `0009_owner_time_entry_audit.sql` is included in this release. Apply it with the Worker; it is additive, performs no backfill, and leaves historical rates and paid minutes unchanged.
 `0010_owner_assistant_confirmation.sql` is included in this release. Apply it before the assistant routes serve traffic; it is additive and stores only token digests, owner/business ids, action names, and timestamps.
 
-3. Deploy the generated Worker with `pnpm exec wrangler deploy --config dist/server/wrangler.json`, supplying the exact HTTPS `BETTER_AUTH_URL`, an empty or explicitly approved `AUTH_TRUSTED_ORIGINS`, and a safe `RELEASE_SHA` variable. Before the first Google-enabled deploy, provision `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` on that Worker.
+3. Deploy the generated Worker with `pnpm exec wrangler deploy --config dist/server/wrangler.json`, supplying the exact HTTPS `BETTER_AUTH_URL`, an empty or explicitly approved `AUTH_TRUSTED_ORIGINS`, and a safe `RELEASE_SHA` variable. Before the deploy, `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` must already be Worker secrets on that Worker (see Google sign-in above); the deploy fails with `required secrets have not been set` if either is missing.
 4. Verify `/api/health` reports D1 health and the expected release, then verify sign-up/sign-in, owner isolation, mutation origin checks, a rate override, and a weekly total using synthetic data only.
 
 Rollback of weekly approval: leave the `week_approval` table in place. Do not `DROP` it without a backup. A Worker rollback that no longer writes the table is safe; existing Open weeks remain Open.
@@ -70,7 +70,7 @@ The workflow then applies D1 migrations and deploys with the merge SHA as both t
 pnpm exec wrangler d1 time-travel restore cleantrack-timesheet --bookmark=<bookmark>
 ```
 
-The protected GitHub `production` environment contains `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, the optional `RESEND_API_KEY` secret, and the non-secret `PRODUCTION_URL` variable. The Cloudflare token must be dedicated to this deployment and scoped to the resolved account's Workers Scripts and D1 edit permissions. Keep `RESEND_API_KEY` on the production environment rather than as a repository secret, and leave it unset until the sending-only key exists. The release still succeeds when it is unset. The tagged `wrangler deploy --secrets-file` above is how the key reaches the Worker.
+The protected GitHub `production` environment contains `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, the optional `RESEND_API_KEY` secret, and the non-secret `PRODUCTION_URL` variable. It does not hold `GOOGLE_CLIENT_ID` or `GOOGLE_CLIENT_SECRET`; the release workflow does not read them, and they must already be Worker secrets on `cleantrack-timesheet`. The Cloudflare token must be dedicated to this deployment and scoped to the resolved account's Workers Scripts and D1 edit permissions. Keep `RESEND_API_KEY` on the production environment rather than as a repository secret, and leave it unset until the sending-only key exists. The release still succeeds when it is unset. The tagged `wrangler deploy --secrets-file` above is how the key reaches the Worker.
 
 ## Preview
 
@@ -95,8 +95,8 @@ Cloudflare, not GitHub:
 | Name | Where | Purpose |
 | --- | --- | --- |
 | `BETTER_AUTH_SECRET` | Worker secret on `cleantrack-timesheet-preview` | Auth signing secret. Set with `wrangler secret put BETTER_AUTH_SECRET`. Do not copy it into GitHub or Cursor |
-| `GOOGLE_CLIENT_ID` | Worker variable on `cleantrack-timesheet-preview` | Google Web application OAuth client id. This value is public but remains server-side |
-| `GOOGLE_CLIENT_SECRET` | Worker secret on `cleantrack-timesheet-preview` | Google OAuth client secret. Set with `wrangler secret put GOOGLE_CLIENT_SECRET`. Do not copy it into GitHub or Cursor |
+| `GOOGLE_CLIENT_ID` | Worker secret on `cleantrack-timesheet-preview` | Google Web application OAuth client id. Required by `secrets.required`. Set with `wrangler secret put GOOGLE_CLIENT_ID --name cleantrack-timesheet-preview`. Not confidential, but not a Worker variable. Do not copy it into GitHub or Cursor |
+| `GOOGLE_CLIENT_SECRET` | Worker secret on `cleantrack-timesheet-preview` | Google OAuth client secret. Required by `secrets.required`. Set with `wrangler secret put GOOGLE_CLIENT_SECRET --name cleantrack-timesheet-preview`. Do not copy it into GitHub or Cursor |
 | `SENTRY_DSN` | Optional Worker secret on `cleantrack-timesheet-preview` | Error capture. Set with `wrangler secret put SENTRY_DSN`. Unset means capture is off. Do not copy it into GitHub |
 
 Create the preview database with `pnpm exec wrangler d1 create cleantrack-timesheet-preview`, put its id in `PREVIEW_D1_DATABASE_ID`, and set `PREVIEW_URL` to the workers.dev (or custom) origin before the first deploy. The workflow rewrites the built `dist/server/wrangler.json` to the preview name and database, applies migrations there, and deploys. It does not read or write the production D1 database.
