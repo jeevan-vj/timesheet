@@ -37,13 +37,13 @@ describe("week approval route contracts", () => {
   const getDashboard = exportedFunction(timesheet, "getDashboard");
 
   it("requires a trusted origin on approve and reopen cookie mutations", () => {
-    expect(approvePost).toMatch(/authorize\(request,\s*true\)/);
-    expect(reopenPost).toMatch(/authorize\(request,\s*true\)/);
+    expect(approvePost).toMatch(/requireOwner\(request,\s*true\)/);
+    expect(reopenPost).toMatch(/requireOwner\(request,\s*true\)/);
   });
 
   it("keeps dashboard GET as a non-mutation read", () => {
-    expect(dashboardGet).toMatch(/authorize\(request\)/);
-    expect(dashboardGet).not.toMatch(/authorize\(request,\s*true\)/);
+    expect(dashboardGet).toMatch(/requireOwner\(request\)/);
+    expect(dashboardGet).not.toMatch(/requireOwner\(request,\s*true\)/);
   });
 
   it("does not accept owner_user_id in approve or reopen validation or handlers", () => {

@@ -2,12 +2,12 @@ import { env } from "cloudflare:workers";
 import { ownerAssistantTurnInputSchema } from "@cleantrack/core/owner-assistant";
 import { db } from "@/db/client";
 import { noStoreJson } from "@/lib/accounts-config";
-import { apiError, authorize, readJson } from "@/lib/api";
+import { apiError, readJson, requireOwner } from "@/lib/api";
 import { planOwnerAssistantTurn } from "@/lib/owner-assistant-ai";
 import { ownerAssistantPlanFromForm, prepareOwnerAssistantResponse } from "@/services/owner-assistant";
 
 export async function POST(request: Request) {
-  const access = await authorize(request, true);
+  const access = await requireOwner(request, true);
   if ("response" in access) return access.response;
   try {
     const input = ownerAssistantTurnInputSchema.parse(await readJson(request));

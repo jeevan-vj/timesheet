@@ -27,6 +27,9 @@ vi.mock("@/db/client", () => ({ db: { tag: "mock-db" } }));
 vi.mock("@/lib/request-session", () => ({
   requireSessionUser: async () => session.user,
 }));
+vi.mock("@/lib/viewer", () => ({
+  resolveViewer: async () => ({ owner: { id: "biz_owner-1" }, contractorOf: [] }),
+}));
 vi.mock("@/lib/runtime-env", () => ({
   getTrustedOrigins: () => ["https://app.example.test", CLEANTRACK_APP_SCHEME],
   getSecureCookies: () => true,

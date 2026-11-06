@@ -1,10 +1,10 @@
 import { db } from "@/db/client";
-import { apiError, authorize } from "@/lib/api";
+import { apiError, requireOwner } from "@/lib/api";
 import { noStoreJson } from "@/lib/accounts-config";
 import { restoreAssignment } from "@/services/timesheet";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
-  const access = await authorize(request, true);
+  const access = await requireOwner(request, true);
   if ("response" in access) return access.response;
   const { id } = await context.params;
   if (!id || id.length > 64) return noStoreJson({ error: "invalid_request" }, 400);

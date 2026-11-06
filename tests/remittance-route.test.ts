@@ -28,6 +28,9 @@ vi.mock("@/db/client", () => ({ db }));
 vi.mock("@/lib/request-session", () => ({
   requireSessionUser: async () => session.user,
 }));
+vi.mock("@/lib/viewer", () => ({
+  resolveViewer: async () => ({ owner: { id: "biz_owner-1" }, contractorOf: [] }),
+}));
 vi.mock("@/lib/runtime-env", () => ({
   getTrustedOrigins: () => ["https://app.example.test"],
   getSecureCookies: () => true,
@@ -114,8 +117,8 @@ describe("contractor remittance route", () => {
   it("authorizes GET as a cookie read without mutation CSRF", async () => {
     remittanceService.getContractorWeekRemittance.mockResolvedValue(payload);
     const source = fs.readFileSync(path.resolve("src/app/api/contractors/[id]/remittance/route.ts"), "utf8");
-    expect(source).toMatch(/authorize\(request\)/);
-    expect(source).not.toMatch(/authorize\(request,\s*true\)/);
+    expect(source).toMatch(/requireOwner\(request\)/);
+    expect(source).not.toMatch(/requireOwner\(request,\s*true\)/);
 
     const response = await GET(cookieRequest(remittanceUrl("c1"), "GET", { origin: "https://evil.example" }), idParams("c1"));
     expect(response.status).toBe(200);
