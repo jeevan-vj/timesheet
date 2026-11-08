@@ -1,0 +1,22 @@
+Command: VITEST_MAX_WORKERS=1 pnpm verify
+Exit: 0
+
+> cleantrack-timesheet@0.1.0 verify /Users/jeevanwijerathna/.codex/worktrees/cleantrack-web-verification
+> pnpm lint && pnpm test && pnpm typecheck && pnpm typecheck:core && pnpm build
+> cleantrack-timesheet@0.1.0 lint /Users/jeevanwijerathna/.codex/worktrees/cleantrack-web-verification
+> node scripts/lint-paved-path.mjs
+paved-path lint ok (160 files)
+> cleantrack-timesheet@0.1.0 test /Users/jeevanwijerathna/.codex/worktrees/cleantrack-web-verification
+> vitest run
+ Test Files  107 passed (107)
+      Tests  883 passed (883)
+   Duration  212.93s (transform 5.43s, setup 0ms, import 66.08s, tests 86.24s, environment 36ms)
+> cleantrack-timesheet@0.1.0 typecheck /Users/jeevanwijerathna/.codex/worktrees/cleantrack-web-verification
+> tsc --noEmit
+> cleantrack-timesheet@0.1.0 typecheck:core /Users/jeevanwijerathna/.codex/worktrees/cleantrack-web-verification
+> tsc --noEmit -p packages/core
+> cleantrack-timesheet@0.1.0 build /Users/jeevanwijerathna/.codex/worktrees/cleantrack-web-verification
+> vinext build && node scripts/prepare-factory-wrangler.mjs
+  Build complete. Run `vinext start` to start the production server.
+
+Frozen install: Done in 1m 19.2s using pnpm v10.26.0
