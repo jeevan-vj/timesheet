@@ -37,3 +37,33 @@ The recurring template also predicts shifts in the following week; those are upc
 Email delivery was not configured; copy-link acceptance was tested. Native flows are documented in the skill but not executed, per request. No hosted CI/production conclusion follows from local evidence. Empty current-week headline status can say approved despite no approval row; this pre-existing status semantic is outside the PDF-link change. The headline range correction prevents mislabeling current-week totals as the latest approved week.
 
 No new endpoints, ownership rules, payroll calculations, database schema, dependencies, or control-plane changes. Server-side eligibility and approval checks remain authoritative on every PDF request, including after a page has loaded.
+
+## Factory CI readiness repair — 2026-11-09
+
+Two hosted attempts on `78cd5d2` timed out on post-signup `networkidle` waits
+although the required dashboard content was visible. User authorization covered
+the protected Factory harness change. Dashboard readiness now waits for the
+actual week-qualified dashboard response, required headings, HTTP 200, and
+`business: null`. Response and UI waits retain 30-second limits; all three
+scenarios, evidence policy, and workflow permissions remain intact. Signup's
+original loading wait remains in place to avoid interacting before hydration.
+
+The full evidence consumer also exposed premature pay-rules/holidays requests
+before business creation. `LoadedWeek` now mounts `PayRulesSettings` only when
+`data.business` exists, matching the existing owner-assistant readiness guard.
+This changes no API authorization or payroll calculation.
+
+Local final-source browser run: health-ok PASS, owner-signup PASS,
+empty-week-dashboard PASS. Evidence consumer PASS with no reason codes,
+console errors, or failed network requests. This is local evidence against the
+uncommitted patch over `78cd5d2`, not hosted evidence for a new SHA.
+Screenshot: `factory-empty-week.png`. Full local traces remain in
+`/tmp/pr141-e2e-proof`.
+
+Focused tests: 2 files, 20 tests passed, including missing UI, 401/500, malformed
+workspace, and unexpected-business rejection. Independent harness review PASS;
+its evidence-policy finding was fixed by the product guard above.
+
+Initial full verify: 890 tests passed; one existing mobile fingerprint test
+exceeded its unchanged 60-second deadline. No native build ran. Full rerun
+results are recorded in `check-output.txt`.

@@ -13,3 +13,22 @@ Acceptance:
 - Package repository web/native verification skills, with native execution excluded from this request.
 
 Non-goals: iOS/Android builds, native changes, new endpoints, payroll formulas, schema/migrations, factory controls, deployment and merge.
+
+## Authorized Factory readiness repair
+
+After two hosted runs timed out at `networkidle` despite successful signup and
+visible dashboard content, the user explicitly authorized editing the protected
+Factory harness. Extend `.factory/e2e/harness.mjs` using the existing authenticated
+readiness pattern in `.cursor/skills/verify-cleantrack/scripts/drive.mjs`.
+
+Acceptance: all three existing scenarios and 30-second UI deadlines remain;
+new-owner headings and authenticated `business: null` API state are required;
+missing headings, failed API responses, and unexpected business state fail;
+local real-browser harness, focused regression tests, and `pnpm verify` pass.
+No auth, payroll, migration, workflow-permission, or iOS changes. Protected-path
+human merge review remains required.
+
+The evidence consumer additionally requires no forbidden business-settings reads
+before onboarding. Guard `LoadedWeek`'s `PayRulesSettings` using `data.business`,
+as already done for `OwnerAssistantWhenReady`; prove with clean browser network
+and console artifacts plus the unchanged Factory evidence consumer.

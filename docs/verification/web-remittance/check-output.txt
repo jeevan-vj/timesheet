@@ -20,3 +20,23 @@ paved-path lint ok (160 files)
   Build complete. Run `vinext start` to start the production server.
 
 Frozen install: Done in 1m 19.2s using pnpm v10.26.0
+
+2026-11-09 Factory readiness repair
+pnpm install --frozen-lockfile
+Lockfile is up to date, resolution step is skipped
+Already up to date
+Done in 20s using pnpm v10.26.0
+
+VITEST_MAX_WORKERS=1 pnpm verify (rerun after unchanged fingerprint timeout)
+Test Files  108 passed (108)
+     Tests  891 passed (891)
+  Duration  177.14s
+
+pnpm exec vitest run tests/factory-dashboard-readiness.test.mjs tests/factory-e2e-evidence.test.mjs --maxWorkers=1
+Test Files  2 passed (2)
+     Tests  20 passed (20)
+
+Local Factory harness: health-ok PASS, owner-signup PASS, empty-week-dashboard PASS
+Factory evidence consumer: verdict pass, reasonCodes []
+No console errors or failed network requests.
+Full verify exit 0: lint, tests, typecheck, typecheck:core, build PASS.
