@@ -299,7 +299,7 @@ function LoadedWeek({ data, onboarding, weekLocked, editing, onReload, onAnnounc
       <PaySummary data={data} summary={shown.contractors} totalPay={shown.totalPay} siteSummary={shown.sites} onCopyWeekBrief={onCopyWeekBrief} onRemittance={onRemittance} />
     </section>
     <SetupPanel data={data} weekLocked={weekLocked} onReload={onReload} onAnnounce={onAnnounce} />
-    <PayRulesSettings onSaved={onReload} />
+    {data.business ? <PayRulesSettings onSaved={onReload} /> : null}
     {editing && !weekLocked ? <ShiftEntrySheet key={editing.id} data={data} entry={editing} onDismiss={() => onEdit(null)} onSave={async (body) => { await send(`/api/time-entries/${editing.id}`, body, "PATCH"); await onReload(); onAnnounce("Shift updated."); }} /> : null}
   </>;
 }

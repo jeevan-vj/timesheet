@@ -1,0 +1,44 @@
+Remittance Advice
+Remitter
+Web Proof Owner owner.current@example.test
+Contractor
+Proof Contractor
+Contractor ID
+5a6cb058-fdbf-4997-8f76-16ac8b5ad1a9
+Week (Monday–Sunday)
+2026-11-09 – 2026-11-15
+Reference
+RA-5a6cb058-fdbf-4997-8f76-16ac8b5ad1a9-2026-11-09
+Date
+Site
+Paid
+Rate
+Pay
+9 Nov 2026
+2h
+$32.00/hr
+$64.00
+Proof Office
+10 Nov 2026
+2h
+$32.00/hr
+$64.00
+Proof Office
+11 Nov 2026
+2h
+$32.00/hr
+$64.00
+Proof Office
+12 Nov 2026
+2h
+$32.00/hr
+$64.00
+Proof Office
+13 Nov 2026
+2h
+$32.00/hr
+$64.00
+Proof Office
+Total payable
+$320.00
+Gross contractor payments before tax, GST, expenses, or adjustments.

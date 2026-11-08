@@ -106,6 +106,16 @@ async function startLocalApp({ cwd, port }) {
   }
 }
 
+export async function waitForEmptyDashboard(page, response) {
+  await page.getByRole("heading", { name: "Hours & contractor pay" }).waitFor({ timeout: 30_000 });
+  await page.getByRole("heading", { name: "Add your business" }).waitFor({ timeout: 30_000 });
+  await page.getByText("No shifts this week").waitFor({ timeout: 30_000 });
+  const body = await response.json().catch(() => ({}));
+  if (response.status() !== 200 || body.business !== null) {
+    throw new Error(`empty dashboard check failed (${response.status()})`);
+  }
+}
+
 async function runScenarios({ page, baseUrl, headSha, screenshotDir }) {
   const email = `e2e.${headSha.slice(0, 10)}.${Date.now()}@example.test`;
   const results = [];
@@ -150,20 +160,21 @@ async function runScenarios({ page, baseUrl, headSha, screenshotDir }) {
     await page.getByLabel("Your name").fill("Factory E2E Owner");
     await page.getByLabel("Email").fill(email);
     await page.getByLabel("Password").fill(PASSWORD);
-    await page.getByRole("button", { name: "Create account" }).click();
+    const [response] = await Promise.all([
+      page.waitForResponse((result) => new URL(result.url()).pathname === "/api/dashboard", { timeout: 30_000 }),
+      page.getByRole("button", { name: "Create account" }).click(),
+    ]);
     await page.waitForURL(/\/dashboard(?:\/|$|\?)/, { timeout: 30_000 });
-    await page.getByRole("heading", { name: "Hours & contractor pay" }).waitFor({ timeout: 30_000 });
-    await page.getByText("No shifts this week").waitFor({ timeout: 30_000 });
-    await page.waitForLoadState("networkidle");
+    await waitForEmptyDashboard(page, response);
     return [await shot("owner-signup")];
   });
 
   await run("empty-week-dashboard", async () => {
-    await page.waitForLoadState("networkidle");
-    await page.goto(new URL("/dashboard", baseUrl).toString(), { waitUntil: "networkidle" });
-    await page.getByRole("heading", { name: "Hours & contractor pay" }).waitFor({ timeout: 30_000 });
-    await page.getByText("No shifts this week").waitFor({ timeout: 30_000 });
-    await page.waitForLoadState("networkidle");
+    const [response] = await Promise.all([
+      page.waitForResponse((result) => new URL(result.url()).pathname === "/api/dashboard", { timeout: 30_000 }),
+      page.goto(new URL("/dashboard", baseUrl).toString(), { waitUntil: "domcontentloaded" }),
+    ]);
+    await waitForEmptyDashboard(page, response);
     return [await shot("empty-week-dashboard")];
   });
 

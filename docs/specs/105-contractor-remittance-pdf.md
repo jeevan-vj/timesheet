@@ -26,3 +26,7 @@ Approved week detail returns one `{ businessId, businessName }` remittance targe
 The authenticated response is capped at 5 MiB, written only to `Paths.cache`, passed to the native share sheet as `application/pdf`, and deleted in `finally`, including after sharing fails. A contractor may explicitly save or share a copy from the system sheet.
 
 `expo-file-system` and `expo-sharing` are native SDK 58 dependencies. This changes the runtime fingerprint and requires a new iOS build (and Android build when Android distribution is supported). No OTA, EAS build, store submission, deployment, or production-data write is part of implementation verification.
+
+## Web contract
+
+Expanded approved pay details offer one download link per server-returned remittance target. Links use the same contractor-scoped endpoint and browser session; no contractor id or owner route is exposed. Each business downloads separately, and the endpoint rechecks eligibility and approval on every request. The summary labels its actual headline week range, which may differ from approved payment history.
