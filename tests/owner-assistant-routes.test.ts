@@ -11,6 +11,7 @@ const fromForm = vi.hoisted(() => vi.fn());
 vi.mock("cloudflare:workers", () => ({ env: { AI: { run: vi.fn() }, BETTER_AUTH_SECRET: "test-secret", BETTER_AUTH_URL: "https://app.example.test", AUTH_TRUSTED_ORIGINS: "" } }));
 vi.mock("@/db/client", () => ({ db: {} }));
 vi.mock("@/lib/request-session", () => ({ requireSessionUser: async () => state.user }));
+vi.mock("@/lib/viewer", () => ({ resolveViewer: async () => ({ owner: { id: "biz_owner-a" }, contractorOf: [] }) }));
 vi.mock("@/lib/owner-assistant-ai", () => ({ planOwnerAssistantTurn: plan }));
 vi.mock("@/services/owner-assistant", () => ({
   prepareOwnerAssistantResponse: prepare,

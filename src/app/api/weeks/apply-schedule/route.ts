@@ -1,11 +1,11 @@
 import { db } from "@/db/client";
-import { apiError, authorize, readJson } from "@/lib/api";
+import { apiError, readJson, requireOwner } from "@/lib/api";
 import { noStoreJson } from "@/lib/accounts-config";
 import { weekApplyScheduleInput, weekStartInput } from "@/lib/validation";
 import { applyScheduleToWeek } from "@/services/schedule";
 
 export async function POST(request: Request) {
-  const access = await authorize(request, true);
+  const access = await requireOwner(request, true);
   if ("response" in access) return access.response;
   try {
     const body = await readJson(request);

@@ -36,17 +36,17 @@ describe("recurring schedule route contracts", () => {
   const createTimeEntry = exportedFunction(timesheet, "createTimeEntry");
 
   it("requires a trusted origin on schedule PUT/DELETE and apply/exception POSTs", () => {
-    expect(schedulePut).toMatch(/authorize\(request,\s*true\)/);
-    expect(scheduleDelete).toMatch(/authorize\(request,\s*true\)/);
-    expect(applyPost).toMatch(/authorize\(request,\s*true\)/);
-    expect(exceptionPost).toMatch(/authorize\(request,\s*true\)/);
+    expect(schedulePut).toMatch(/requireOwner\(request,\s*true\)/);
+    expect(scheduleDelete).toMatch(/requireOwner\(request,\s*true\)/);
+    expect(applyPost).toMatch(/requireOwner\(request,\s*true\)/);
+    expect(exceptionPost).toMatch(/requireOwner\(request,\s*true\)/);
   });
 
   it("keeps GET schedule and dashboard GET as non-mutation reads", () => {
-    expect(scheduleGet).toMatch(/authorize\(request\)/);
-    expect(scheduleGet).not.toMatch(/authorize\(request,\s*true\)/);
-    expect(dashboardGet).toMatch(/authorize\(request\)/);
-    expect(dashboardGet).not.toMatch(/authorize\(request,\s*true\)/);
+    expect(scheduleGet).toMatch(/requireOwner\(request\)/);
+    expect(scheduleGet).not.toMatch(/requireOwner\(request,\s*true\)/);
+    expect(dashboardGet).toMatch(/requireOwner\(request\)/);
+    expect(dashboardGet).not.toMatch(/requireOwner\(request,\s*true\)/);
   });
 
   it("does not accept owner_user_id in schedule validation objects", () => {

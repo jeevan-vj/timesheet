@@ -1,11 +1,11 @@
 import { db } from "@/db/client";
-import { apiError, authorize, readJson } from "@/lib/api";
+import { apiError, readJson, requireOwner } from "@/lib/api";
 import { noStoreJson } from "@/lib/accounts-config";
 import { timeEntryInput } from "@/lib/validation";
 import { createTimeEntry } from "@/services/timesheet";
 
 export async function POST(request: Request) {
-  const access = await authorize(request, true);
+  const access = await requireOwner(request, true);
   if ("response" in access) return access.response;
   try {
     const input = timeEntryInput.parse(await readJson(request));

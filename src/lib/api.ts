@@ -1,8 +1,11 @@
 import { noStoreJson } from "@/lib/accounts-config";
+import { db } from "@/db/client";
 import { requireSessionUser, type SessionUser } from "@/lib/request-session";
 import { getTrustedOrigins } from "@/lib/runtime-env";
 import { isTrustedMutationRequest } from "@/lib/accounts-config";
 import { reportServerError } from "@/lib/report-server-error";
+import { activeOwnerMembership } from "@/lib/business";
+import { resolveViewer } from "@/lib/viewer";
 import { ZodError } from "zod";
 
 const expectedErrors: Record<string, { status: number; error: string }> = {
@@ -37,12 +40,37 @@ const expectedErrors: Record<string, { status: number; error: string }> = {
 };
 
 export async function authorize(request: Request, mutation = false): Promise<{ user: SessionUser } | { response: Response }> {
+  const user = await requireSessionUser(request);
+  if (!user) return { response: noStoreJson({ error: "unauthorized" }, 401) };
   if (mutation && !isTrustedMutationRequest(request, getTrustedOrigins())) {
     return { response: noStoreJson({ error: "forbidden" }, 403) };
   }
-  const user = await requireSessionUser(request);
-  if (!user) return { response: noStoreJson({ error: "unauthorized" }, 401) };
   return { user };
+}
+
+export async function requireOwner(request: Request, mutation = false): Promise<{ user: SessionUser } | { response: Response }> {
+  const access = await authorize(request, mutation);
+  if ("response" in access) return access;
+  try {
+    const viewer = await resolveViewer(db, access.user.id);
+    if (viewer.owner === null && viewer.contractorOf.length > 0) {
+      return { response: noStoreJson({ error: "forbidden" }, 403) };
+    }
+    return access;
+  } catch (error) {
+    return { response: await apiError(error, request) };
+  }
+}
+
+export async function requireActiveOwner(request: Request, mutation = false): Promise<{ user: SessionUser } | { response: Response }> {
+  const access = await requireOwner(request, mutation);
+  if ("response" in access) return access;
+  try {
+    if (!await activeOwnerMembership(db, access.user.id)) return { response: noStoreJson({ error: "forbidden" }, 403) };
+    return access;
+  } catch (error) {
+    return { response: await apiError(error, request) };
+  }
 }
 
 export async function readJson(request: Request): Promise<unknown> {

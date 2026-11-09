@@ -1,11 +1,11 @@
 import { db } from "@/db/client";
-import { apiError, authorize, readJson } from "@/lib/api";
+import { apiError, readJson, requireOwner } from "@/lib/api";
 import { noStoreJson } from "@/lib/accounts-config";
 import { parseIncludeArchived, siteInput } from "@/lib/validation";
 import { createSite, listSites } from "@/services/sites";
 
 export async function GET(request: Request) {
-  const access = await authorize(request);
+  const access = await requireOwner(request);
   if ("response" in access) return access.response;
   try {
     const includeArchived = parseIncludeArchived(new URL(request.url).searchParams.get("includeArchived"));
@@ -16,7 +16,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const access = await authorize(request, true);
+  const access = await requireOwner(request, true);
   if ("response" in access) return access.response;
   try {
     const input = siteInput.parse(await readJson(request));

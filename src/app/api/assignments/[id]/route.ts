@@ -1,11 +1,11 @@
 import { db } from "@/db/client";
-import { apiError, authorize, readItemError, readJson } from "@/lib/api";
+import { apiError, readItemError, readJson, requireOwner } from "@/lib/api";
 import { noStoreJson } from "@/lib/accounts-config";
 import { assignmentRateInput } from "@/lib/validation";
 import { getAssignment, unassignAssignment, updateAssignmentRate } from "@/services/timesheet";
 
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
-  const access = await authorize(request);
+  const access = await requireOwner(request);
   if ("response" in access) return access.response;
   const { id } = await context.params;
   if (!id || id.length > 64) return noStoreJson({ error: "invalid_request" }, 400);
@@ -17,7 +17,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
 }
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
-  const access = await authorize(request, true);
+  const access = await requireOwner(request, true);
   if ("response" in access) return access.response;
   const { id } = await context.params;
   if (!id || id.length > 64) return noStoreJson({ error: "invalid_request" }, 400);
@@ -31,7 +31,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 }
 
 export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
-  const access = await authorize(request, true);
+  const access = await requireOwner(request, true);
   if ("response" in access) return access.response;
   const { id } = await context.params;
   if (!id || id.length > 64) return noStoreJson({ error: "invalid_request" }, 400);

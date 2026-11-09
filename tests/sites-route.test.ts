@@ -14,7 +14,7 @@ const { authorize, readJson, createSite, listSites, getSite, updateSite, archive
 vi.mock("cloudflare:workers", () => ({ env: { DB: {}, BETTER_AUTH_URL: "http://localhost:3000" } }));
 vi.mock("@/db/client", () => ({ db: { tag: "db" } }));
 vi.mock("@/lib/api", () => ({
-  authorize,
+  requireOwner: authorize,
   readJson,
   apiError(error: unknown) {
     if (error instanceof Error && error.message === "payload_too_large") {

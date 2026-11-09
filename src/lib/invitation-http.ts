@@ -1,5 +1,5 @@
 import { noStoreJson } from "@/lib/accounts-config";
-import { apiError, authorize } from "@/lib/api";
+import { apiError, requireOwner } from "@/lib/api";
 import { isValidContractorId } from "@/lib/contractor-lifecycle";
 import { InvitationExistsError } from "@/lib/invitation-errors";
 
@@ -10,7 +10,7 @@ export async function withContractorOwner(
   params: Promise<{ id: string }>,
   mutation: boolean,
 ): Promise<OwnerAccess> {
-  const access = await authorize(request, mutation);
+  const access = await requireOwner(request, mutation);
   if ("response" in access) return { response: access.response };
   const { id } = await params;
   if (!isValidContractorId(id)) return { response: noStoreJson({ error: "invalid_request" }, 400) };

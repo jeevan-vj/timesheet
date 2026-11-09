@@ -31,16 +31,16 @@ describe("time entry route contracts", () => {
   const createTimeEntry = exportedFunction(timesheet, "createTimeEntry");
 
   it("GET by id authorizes without mutation CSRF; PATCH and DELETE require trusted origin", () => {
-    expect(getById).toMatch(/authorize\(request\)/);
-    expect(getById).not.toMatch(/authorize\(request,\s*true\)/);
-    expect(patchById).toMatch(/authorize\(request,\s*true\)/);
-    expect(deleteById).toMatch(/authorize\(request,\s*true\)/);
+    expect(getById).toMatch(/requireOwner\(request\)/);
+    expect(getById).not.toMatch(/requireOwner\(request,\s*true\)/);
+    expect(patchById).toMatch(/requireOwner\(request,\s*true\)/);
+    expect(deleteById).toMatch(/requireOwner\(request,\s*true\)/);
   });
 
   it("POST remains a mutation and dashboard GET remains a non-mutation read", () => {
-    expect(postCollection).toMatch(/authorize\(request,\s*true\)/);
-    expect(dashboardGet).toMatch(/authorize\(request\)/);
-    expect(dashboardGet).not.toMatch(/authorize\(request,\s*true\)/);
+    expect(postCollection).toMatch(/requireOwner\(request,\s*true\)/);
+    expect(dashboardGet).toMatch(/requireOwner\(request\)/);
+    expect(dashboardGet).not.toMatch(/requireOwner\(request,\s*true\)/);
   });
 
   it("maps not_found, invalid_shift, and duplicate_entry like POST", () => {
