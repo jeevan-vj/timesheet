@@ -40,11 +40,11 @@ const expectedErrors: Record<string, { status: number; error: string }> = {
 };
 
 export async function authorize(request: Request, mutation = false): Promise<{ user: SessionUser } | { response: Response }> {
-  const user = await requireSessionUser(request);
-  if (!user) return { response: noStoreJson({ error: "unauthorized" }, 401) };
   if (mutation && !isTrustedMutationRequest(request, getTrustedOrigins())) {
     return { response: noStoreJson({ error: "forbidden" }, 403) };
   }
+  const user = await requireSessionUser(request);
+  if (!user) return { response: noStoreJson({ error: "unauthorized" }, 401) };
   return { user };
 }
 

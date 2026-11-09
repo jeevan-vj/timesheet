@@ -200,6 +200,21 @@ function seedContractorSession(sqlite: SqlJsDatabase) {
   );
 }
 
+const CROSS_ORIGIN = "https://smoke.invalid";
+const mutatingOwnerRoutes = ownerRoutes.filter((route) => route.method !== "GET");
+const readOwnerRoutes = ownerRoutes.filter((route) => route.method === "GET");
+
+function requestWith(route: RouteCase, headers: Record<string, string>): Request {
+  const init: RequestInit = { method: route.method, headers: new Headers(headers) };
+  if (route.body !== undefined) {
+    const body = JSON.stringify(route.body);
+    (init.headers as Headers).set("content-type", "application/json");
+    (init.headers as Headers).set("content-length", String(body.length));
+    init.body = body;
+  }
+  return new Request(`https://app.example.test${route.path}`, init);
+}
+
 describe("owner-only API boundary", () => {
   beforeEach(async () => {
     const sqlite = await openPortalSqlite();
@@ -269,5 +284,79 @@ describe("owner-only API boundary", () => {
     const response = await getMe(requestFor({ method: "GET", path: "/api/me", invoke: getMe }, true));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ owner: null });
+  });
+});
+
+describe("mutation origin check runs before session and owner checks (#143)", () => {
+  beforeEach(async () => {
+    const sqlite = await openPortalSqlite();
+    handle.database = portalDatabase(sqlite);
+    seedOwnerWorkspace(sqlite, "owner-a", { name: "Owner A", email: "owner@example.test" });
+    seedContractorSession(sqlite);
+  });
+
+  it("matches the production smoke: unauthenticated cross-origin POST /api/sites returns 403", async () => {
+    session.user = null;
+    const route = mutatingOwnerRoutes.find((candidate) => candidate.method === "POST" && candidate.path === "/api/sites");
+    expect(route).toBeDefined();
+    const response = await route!.invoke(requestWith(route!, { origin: CROSS_ORIGIN, cookie: "cleantrack-smoke=1" }));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "forbidden" });
+  });
+
+  it.each(mutatingOwnerRoutes)("returns 403 to an unauthenticated cross-origin $method $path", async (route) => {
+    session.user = null;
+    const response = await route.invoke(requestWith(route, { origin: CROSS_ORIGIN, cookie: "cleantrack-smoke=1" }));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "forbidden" });
+  });
+
+  it.each(mutatingOwnerRoutes)("returns 403 to a contractor cross-origin $method $path", async (route) => {
+    session.user = { id: "contractor-user", email: "contractor@example.test", name: "Contractor" };
+    const response = await route.invoke(requestWith(route, { origin: CROSS_ORIGIN, cookie: "better-auth.session_token=test" }));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "forbidden" });
+  });
+
+  it.each(mutatingOwnerRoutes)("returns 403 to an owner cross-origin $method $path", async (route) => {
+    session.user = { id: "owner-a", email: "owner@example.test", name: "Owner A" };
+    const response = await route.invoke(requestWith(route, { origin: CROSS_ORIGIN, cookie: "better-auth.session_token=test" }));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "forbidden" });
+  });
+
+  it.each(mutatingOwnerRoutes)("returns 401 to a same-origin $method $path with a cookie but no session", async (route) => {
+    session.user = null;
+    const response = await route.invoke(requestWith(route, { origin: "https://app.example.test", cookie: "better-auth.session_token=stale" }));
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "unauthorized" });
+  });
+
+  it("lets a same-origin owner create a site (2xx)", async () => {
+    session.user = { id: "owner-a", email: "owner@example.test", name: "Owner A" };
+    const route = mutatingOwnerRoutes.find((candidate) => candidate.method === "POST" && candidate.path === "/api/sites")!;
+    const valid = { ...route, body: { name: "Origin Order Site", address: "" } };
+    const response = await route.invoke(requestWith(valid, { origin: "https://app.example.test", cookie: "better-auth.session_token=test" }));
+    expect(response.status).toBe(201);
+  });
+
+  it.each(readOwnerRoutes)("does not origin-check reads: unauthenticated cross-origin $method $path stays 401", async (route) => {
+    session.user = null;
+    const response = await route.invoke(requestWith(route, { origin: CROSS_ORIGIN, cookie: "cleantrack-smoke=1" }));
+    expect(response.status).toBe(401);
+  });
+
+  it.each(readOwnerRoutes)("does not origin-check reads: owner cross-origin $method $path passes the auth layer", async (route) => {
+    session.user = { id: "owner-a", email: "owner@example.test", name: "Owner A" };
+    const response = await route.invoke(requestWith(route, { origin: CROSS_ORIGIN, cookie: "better-auth.session_token=test" }));
+    expect(response.status).not.toBe(401);
+    expect(response.status).not.toBe(403);
+  });
+
+  it.each(portalRoutes)("leaves portal reads unchanged for a cross-origin contractor $method $path", async (route) => {
+    session.user = { id: "contractor-user", email: "contractor@example.test", name: "Contractor" };
+    const response = await route.invoke(requestWith(route, { origin: CROSS_ORIGIN, cookie: "better-auth.session_token=test" }));
+    expect(response.status).toBeGreaterThanOrEqual(200);
+    expect(response.status).toBeLessThan(300);
   });
 });
