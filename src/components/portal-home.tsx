@@ -19,6 +19,7 @@ import {
   type PortalUpcoming,
 } from "@cleantrack/core/portal";
 import { useEffect, useRef, useState } from "react";
+import { PortalRemittanceLinks } from "@/components/portal-remittance-links";
 import { RoleSwitcher } from "@/components/role-switcher";
 import { authClient } from "@/lib/auth-client";
 import { asViewerShape, type ViewerShape } from "@/lib/viewer-path";
@@ -152,7 +153,7 @@ function PortalBody({
       </section>
       <section className="panel portal-section" aria-labelledby="remittance-heading">
         <div><p className="eyebrow">Approved pay</p><h2 id="remittance-heading">Pay details</h2></div>
-        <div className="portal-summary"><span>Latest approved week</span><strong>{formatNzd(data.payments.headline.payCents)}</strong><span>{formatMinutes(data.payments.headline.paidMinutes)}{data.payments.headline.estimated ? " · estimated" : " · approved"}</span></div>
+        <div className="portal-summary"><span>{formatWeekRange(data.payments.headline.weekStart, data.payments.headline.weekEnd)}</span><strong>{formatNzd(data.payments.headline.payCents)}</strong><span>{formatMinutes(data.payments.headline.paidMinutes)}{data.payments.headline.estimated ? " · estimated" : " · approved"}</span></div>
         {data.payments.weeks.length === 0 ? <p className="muted">Approved remittance details will appear after the business approves a week.</p> : <div className="portal-remittances">
           {data.payments.weeks.map((week) => <button className={`portal-row portal-row-button${selectedWeek === week.weekStart ? " is-expanded" : ""}`} key={week.weekStart} aria-expanded={selectedWeek === week.weekStart} aria-busy={loadingWeek === week.weekStart} onClick={() => void onOpenRemittance(week.weekStart)}>
             <span><strong>{formatWeekRange(week.weekStart, week.weekEnd)}</strong><span>{formatMinutes(week.paidMinutes)} · {loadingWeek === week.weekStart ? "Loading…" : selectedWeek === week.weekStart ? "Hide details" : "View details"}</span></span><span className="portal-row-pay"><strong>{formatNzd(week.payCents)}</strong><span aria-hidden="true">{selectedWeek === week.weekStart ? "⌃" : "⌄"}</span></span>
@@ -162,7 +163,8 @@ function PortalBody({
         {detail ? <div className="portal-detail" aria-live="polite">
           <div className="portal-detail-heading"><h3>{formatWeekRange(detail.weekStart, detail.weekEnd)}</h3><button type="button" className="link-button portal-detail-close" onClick={() => void onOpenRemittance(detail.weekStart)}>Close pay details</button></div>
           <p><strong>{formatNzd(detail.payCents)}</strong> · {formatMinutes(detail.paidMinutes)}</p>
-          {detail.lines.map((line) => <div className="portal-detail-line" key={line.id}><span>{formatDayHeading(line.workDate)} · {line.siteName}<small>{line.businessName} · {formatMinutes(line.paidMinutes)}</small></span><strong>{formatNzd(line.payCents)}</strong></div>)}
+          <PortalRemittanceLinks weekStart={detail.weekStart} remittances={detail.remittances} />
+          {detail.lines.map((line) => <div className="portal-detail-line" key={line.id}><span>{formatDayHeading(line.workDate)} · {line.siteName}<small>{line.businessName} · {formatMinutes(line.paidMinutes)}</small>{line.fixedCents || line.holidayLoadingCents || line.weekendLoadingCents || line.overnightLoadingCents ? <small>{[["Base", line.baseCents], ["Public holiday loading", line.holidayLoadingCents], ["Weekend loading", line.weekendLoadingCents], ["Overnight loading", line.overnightLoadingCents], ["Fixed", line.fixedCents]].filter(([, cents]) => cents !== 0).map(([label, cents]) => `${label} ${formatNzd(Number(cents))}`).join(" · ")}</small> : null}</span><strong>{formatNzd(line.payCents)}</strong></div>)}
         </div> : null}
       </section>
     </div>}

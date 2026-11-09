@@ -84,6 +84,34 @@ export const businessMember = sqliteTable("business_member", {
   uniqueIndex("business_member_active_user_uq").on(t.userId).where(sql`${t.active} = 1`),
 ]);
 
+export const businessPayRules = sqliteTable("business_pay_rule", {
+  businessId: text("business_id").primaryKey().references(() => business.id, { onDelete: "cascade" }),
+  ownerUserId: text("owner_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  holidayMode: text("holiday_mode").notNull().default("off").$type<"off" | "multiplier">(),
+  holidayMultiplierBps: integer("holiday_multiplier_bps"),
+  useNzPublicHolidays: integer("use_nz_public_holidays", { mode: "boolean" }).notNull().default(false),
+  weekendSaturdayMultiplierBps: integer("weekend_saturday_multiplier_bps"),
+  weekendSundayMultiplierBps: integer("weekend_sunday_multiplier_bps"),
+  overnightStartMinutes: integer("overnight_start_minutes"),
+  overnightEndMinutes: integer("overnight_end_minutes"),
+  overnightMultiplierBps: integer("overnight_multiplier_bps"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (t) => [index("business_pay_rule_owner_idx").on(t.ownerUserId)]);
+
+export const businessHolidays = sqliteTable("business_holiday", {
+  id: text("id").primaryKey(),
+  businessId: text("business_id").notNull().references(() => business.id, { onDelete: "cascade" }),
+  ownerUserId: text("owner_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  holidayDate: text("holiday_date").notNull(),
+  name: text("name").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (t) => [
+  uniqueIndex("business_holiday_business_date_uq").on(t.businessId, t.holidayDate),
+  index("business_holiday_owner_idx").on(t.ownerUserId, t.businessId, t.holidayDate),
+]);
+
 const ownedFields = {
   ownerUserId: text("owner_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   businessId: text("business_id").notNull().references(() => business.id, { onDelete: "restrict" }),
@@ -124,6 +152,8 @@ export const assignments = sqliteTable("assignment", {
   contractorId: text("contractor_id").notNull().references(() => contractors.id, { onDelete: "cascade" }),
   siteId: text("site_id").notNull().references(() => sites.id, { onDelete: "cascade" }),
   rateCents: integer("rate_cents"),
+  payMode: text("pay_mode").notNull().default("hourly").$type<"hourly" | "fixed">(),
+  fixedPayCents: integer("fixed_pay_cents"),
   active: integer("active", { mode: "boolean" }).notNull().default(true),
 }, (t) => [
   index("assignment_owner_idx").on(t.ownerUserId),
@@ -156,6 +186,11 @@ export const timeEntries = sqliteTable("time_entry", {
   breakMinutes: integer("break_minutes").notNull().default(0),
   paidMinutes: integer("paid_minutes").notNull(),
   rateCents: integer("rate_cents").notNull(),
+  payMode: text("pay_mode").notNull().default("hourly").$type<"hourly" | "fixed">(),
+  fixedPayCents: integer("fixed_pay_cents"),
+  holidayLoadingCents: integer("holiday_loading_cents").notNull().default(0),
+  weekendLoadingCents: integer("weekend_loading_cents").notNull().default(0),
+  overnightLoadingCents: integer("overnight_loading_cents").notNull().default(0),
   notes: text("notes").notNull().default(""),
   entryMode: text("entry_mode").notNull().default("clock").$type<"clock" | "paid_hours" | "absent">(),
   occurrenceKind: text("occurrence_kind").notNull().default("manual").$type<"manual" | "scheduled" | "worked" | "absent" | "hours_override">(),

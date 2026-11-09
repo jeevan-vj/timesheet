@@ -11,7 +11,7 @@ import {
 } from "@/db/schema";
 import { ownerBusinessIdOrNull, requireOwnerBusinessId } from "@/lib/business";
 import { isUniqueConstraintError } from "@/lib/db-errors";
-import { weekEnd, weekStartFromDate } from "@/lib/payroll";
+import { calculateShiftPay, weekEnd, weekStartFromDate } from "@/lib/payroll";
 import {
   addDaysIso,
   dateIsoWeekday,
@@ -27,6 +27,7 @@ import type { occurrenceExceptionInput, schedulePutInput } from "@/lib/validatio
 import { findWeekApproval } from "@/lib/week-approval-query";
 import { getTimeEntry } from "@/services/timesheet";
 import { assertUnlockedWeek } from "@/services/week-approval";
+import { payRuleSnapshot } from "@/services/pay-rules";
 import type { z } from "zod";
 
 type Database = typeof db;
@@ -124,6 +125,7 @@ async function writeAuditedThisDayOccurrence(
 ) {
   const timestamp = now();
   const next = { ...input.next, scheduleVersionId: input.existing.scheduleVersionId };
+  const payWrite = await loadingWrite(database, input.ownerUserId, input.businessId, input.existing, input.next);
   const auditRow = {
     id: id(),
     ownerUserId: input.ownerUserId,
@@ -138,7 +140,7 @@ async function writeAuditedThisDayOccurrence(
   const auditInsert = database.insert(ownerTimeEntryAudit).values(auditRow);
   const entryUpdate = database
     .update(timeEntries)
-    .set({ ...input.next, updatedAt: timestamp })
+    .set({ ...input.next, ...payWrite, updatedAt: timestamp })
     .where(and(
       eq(timeEntries.id, input.existing.id),
       eq(timeEntries.ownerUserId, input.ownerUserId),
@@ -155,12 +157,36 @@ async function writeAuditedThisDayOccurrence(
   };
   (database as unknown as SyncAtomicDatabase).transaction((transaction) => {
     transaction.insert(ownerTimeEntryAudit).values(auditRow).run();
-    transaction.update(timeEntries).set({ ...input.next, updatedAt: timestamp }).where(and(
+    transaction.update(timeEntries).set({ ...input.next, ...payWrite, updatedAt: timestamp }).where(and(
       eq(timeEntries.id, input.existing.id),
       eq(timeEntries.ownerUserId, input.ownerUserId),
       eq(timeEntries.businessId, input.businessId),
     )).run();
   });
+}
+
+async function loadingWrite(
+  database: Database,
+  ownerUserId: string,
+  businessId: string,
+  existing: Pick<typeof timeEntries.$inferSelect, "workDate" | "rateCents" | "payMode" | "fixedPayCents">,
+  next: { paidMinutes: number; entryMode: "clock" | "paid_hours" | "absent"; startMinutes: number; endMinutes: number },
+) {
+  const snapshot = await payRuleSnapshot(database, ownerUserId, businessId, existing.workDate);
+  const pay = calculateShiftPay({
+    workDate: existing.workDate,
+    paidMinutes: next.paidMinutes,
+    rateCents: existing.rateCents,
+    startMinutes: next.entryMode === "paid_hours" ? 0 : next.startMinutes,
+    endMinutes: next.entryMode === "paid_hours" ? 0 : next.endMinutes,
+    payMode: existing.payMode,
+    fixedPayCents: existing.fixedPayCents,
+  }, snapshot.rules, snapshot.holidayDates);
+  return {
+    holidayLoadingCents: pay.holidayLoadingCents,
+    weekendLoadingCents: pay.weekendLoadingCents,
+    overnightLoadingCents: pay.overnightLoadingCents,
+  };
 }
 
 async function loadOwnedAssignment(database: Database, ownerUserId: string, businessId: string, assignmentId: string) {
@@ -263,6 +289,9 @@ async function rewriteUnexceptedScheduled(
       id: timeEntries.id,
       workDate: timeEntries.workDate,
       occurrenceKind: timeEntries.occurrenceKind,
+      rateCents: timeEntries.rateCents,
+      payMode: timeEntries.payMode,
+      fixedPayCents: timeEntries.fixedPayCents,
     })
     .from(timeEntries)
     .where(and(
@@ -276,12 +305,12 @@ async function rewriteUnexceptedScheduled(
   const clock = paidHoursClockFields(newVersion.paidMinutes);
   const timestamp = now();
   const deleteIds: string[] = [];
-  const updateIds: string[] = [];
+  const updateRows: typeof rows = [];
   for (const row of rows) {
     if (row.occurrenceKind !== "scheduled") continue;
     if (approved.has(weekStartFromDate(row.workDate))) continue;
     if (!allowedDays.has(dateIsoWeekday(row.workDate))) deleteIds.push(row.id);
-    else updateIds.push(row.id);
+    else updateRows.push(row);
   }
   if (deleteIds.length > 0) {
     await database.delete(timeEntries).where(and(
@@ -290,16 +319,18 @@ async function rewriteUnexceptedScheduled(
       inArray(timeEntries.id, deleteIds),
     ));
   }
-  if (updateIds.length > 0) {
+  for (const row of updateRows) {
+    const payWrite = await loadingWrite(database, ownerUserId, businessId, row, { entryMode: "paid_hours", paidMinutes: newVersion.paidMinutes, ...clock });
     await database.update(timeEntries).set({
       paidMinutes: newVersion.paidMinutes,
       ...clock,
+      ...payWrite,
       scheduleVersionId: newVersion.id,
       updatedAt: timestamp,
     }).where(and(
       eq(timeEntries.ownerUserId, ownerUserId),
       eq(timeEntries.businessId, businessId),
-      inArray(timeEntries.id, updateIds),
+      eq(timeEntries.id, row.id),
     ));
   }
 }
@@ -409,6 +440,8 @@ export async function applyScheduleToWeek(database: Database, ownerUserId: strin
         siteId: assignments.siteId,
         assignmentRate: assignments.rateCents,
         defaultRate: contractors.defaultRateCents,
+        payMode: assignments.payMode,
+        fixedPayCents: assignments.fixedPayCents,
       })
       .from(assignments)
       .innerJoin(contractors, and(
@@ -471,6 +504,17 @@ export async function applyScheduleToWeek(database: Database, ownerUserId: strin
       if (shouldSkipExistingEntry(existing)) continue;
       if (weekLocked) continue;
       const clock = paidHoursClockFields(date.paidMinutes);
+      const rateCents = assignment.assignmentRate ?? assignment.defaultRate;
+      const snapshot = await payRuleSnapshot(database, ownerUserId, businessId, date.workDate);
+      const pay = calculateShiftPay({
+        workDate: date.workDate,
+        paidMinutes: date.paidMinutes,
+        rateCents,
+        startMinutes: 0,
+        endMinutes: 0,
+        payMode: assignment.payMode,
+        fixedPayCents: assignment.fixedPayCents,
+      }, snapshot.rules, snapshot.holidayDates);
       const row = {
         id: id(),
         ownerUserId,
@@ -482,7 +526,12 @@ export async function applyScheduleToWeek(database: Database, ownerUserId: strin
         entryMode: "paid_hours" as const,
         paidMinutes: date.paidMinutes,
         ...clock,
-        rateCents: assignment.assignmentRate ?? assignment.defaultRate,
+        rateCents,
+        payMode: assignment.payMode,
+        fixedPayCents: assignment.fixedPayCents,
+        holidayLoadingCents: pay.holidayLoadingCents,
+        weekendLoadingCents: pay.weekendLoadingCents,
+        overnightLoadingCents: pay.overnightLoadingCents,
         occurrenceKind: "scheduled" as const,
         scheduleVersionId: version.id,
         createdAt: timestamp,
@@ -549,9 +598,10 @@ async function applyHoursOverrideGoingForward(
     };
     if (thisDayWouldChange(existing, next)) {
       await assertUnlockedWeek(database, ownerUserId, existing.workDate, businessId);
+      const payWrite = await loadingWrite(database, ownerUserId, businessId, existing, next);
       await database
         .update(timeEntries)
-        .set({ ...next, updatedAt: now() })
+        .set({ ...next, ...payWrite, updatedAt: now() })
         .where(and(eq(timeEntries.id, existing.id), eq(timeEntries.ownerUserId, ownerUserId), eq(timeEntries.businessId, businessId)));
     }
   }
@@ -571,11 +621,14 @@ async function applyHoursOverrideGoingForward(
   });
 
   if (convertMondayToScheduled) {
+    const next = clockFieldsForWrite({ entryMode: "paid_hours", paidMinutes });
+    const payWrite = await loadingWrite(database, ownerUserId, businessId, existing, next);
     await database
       .update(timeEntries)
       .set({
         occurrenceKind: "scheduled",
-        ...clockFieldsForWrite({ entryMode: "paid_hours", paidMinutes }),
+        ...next,
+        ...payWrite,
         scheduleVersionId: created.id,
         updatedAt: now(),
       })

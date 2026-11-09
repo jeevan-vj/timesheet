@@ -17,6 +17,7 @@ import {
   isEditReclassification,
   initialShiftDraft,
   parseRateDollars,
+  parseFixedPayDollars,
   paidMinutePartOptions,
   selectContractor,
   selectSite,
@@ -31,10 +32,11 @@ import {
   type RecordedTimeEntry,
   type ShiftEntryDraft,
 } from "@/lib/shift-entry";
+import { calculateShiftPay, type ShiftPayRules } from "@/lib/payroll";
 
 type Site = { id: string; name: string };
 type Contractor = { id: string; name: string; defaultRateCents: number };
-type Assignment = { contractorId: string; siteId: string; rateCents: number | null };
+type Assignment = { contractorId: string; siteId: string; rateCents: number | null; payMode?: "hourly" | "fixed"; fixedPayCents?: number | null };
 
 export type ShiftEntryData = {
   weekStart: string;
@@ -42,12 +44,15 @@ export type ShiftEntryData = {
   sites: Site[];
   contractors: Contractor[];
   assignments: Assignment[];
+  payRules?: ShiftPayRules | null;
+  holidayDates?: string[];
 };
 
 function startingDraft(data: ShiftEntryData): ShiftEntryDraft {
   const contractorId = data.contractors[0]?.id ?? "";
   const assignedId = sitesForContractor(data.sites, data.assignments, contractorId).assigned[0]?.id ?? "";
-  return initialShiftDraft({ weekStart: data.weekStart, contractorId, siteId: assignedId });
+  const assignment = data.assignments.find((row) => row.contractorId === contractorId && row.siteId === assignedId);
+  return initialShiftDraft({ weekStart: data.weekStart, contractorId, siteId: assignedId, payMode: assignment?.payMode, fixedPayCents: assignment?.fixedPayCents });
 }
 
 function breakLabel(minutes: number) {
@@ -122,7 +127,21 @@ export function ShiftEntrySheet({
       : null;
   const paidMinutes = draftPaidMinutes(draft);
   const durationError = draftDurationError(draft);
-  const preview = rateCents && paidMinutes ? formatPayPreview(paidMinutes, rateCents) : null;
+  const fixedPayCents = parseFixedPayDollars(draft.fixedPay);
+  const payBreakdown = rateCents && paidMinutes && fixedPayCents !== "invalid" ? calculateShiftPay({
+    workDate: draft.workDate,
+    paidMinutes,
+    rateCents,
+    startMinutes: draft.mode === "clock" ? Number(draft.start.slice(0, 2)) * 60 + Number(draft.start.slice(3, 5)) : 0,
+    endMinutes: draft.mode === "clock" ? Number(draft.end.slice(0, 2)) * 60 + Number(draft.end.slice(3, 5)) : 0,
+    payMode: draft.payMode,
+    fixedPayCents,
+  }, data.payRules, data.holidayDates ?? []) : null;
+  const preview = payBreakdown
+    ? draft.payMode === "fixed"
+      ? `Fixed price = ${formatNzd(payBreakdown.totalCents)}`
+      : `${formatPayPreview(paidMinutes!, rateCents!)}${payBreakdown.totalCents === payBreakdown.baseCents ? "" : ` · total ${formatNzd(payBreakdown.totalCents)}`}`
+    : null;
   const dateBounds = shiftDateBounds(editing, data.weekStart, data.weekEnd);
 
   function openSheet() {
@@ -189,7 +208,13 @@ export function ShiftEntrySheet({
             <select value={draft.contractorId} autoFocus required onChange={(event) => {
               const contractorId = event.target.value;
               const assignedIds = sitesForContractor(data.sites, data.assignments, contractorId).assigned.map((site) => site.id);
-              setDraft(selectContractor(draft, contractorId, assignedIds));
+              const next = selectContractor(draft, contractorId, assignedIds);
+              const nextAssignment = data.assignments.find((row) => row.contractorId === contractorId && row.siteId === next.siteId);
+              setDraft({
+                ...next,
+                payMode: nextAssignment?.payMode ?? "hourly",
+                fixedPay: nextAssignment?.fixedPayCents == null ? "" : (nextAssignment.fixedPayCents / 100).toFixed(2),
+              });
             }}>
               {contractorOptions.map((row) => <option value={row.id} key={row.id}>{row.name}</option>)}
             </select>
@@ -198,7 +223,15 @@ export function ShiftEntrySheet({
             <select
               value={assigning ? ASSIGN_ANOTHER_SITE : draft.siteId}
               required
-              onChange={(event) => setDraft(selectSite(draft, event.target.value))}
+              onChange={(event) => {
+                const next = selectSite(draft, event.target.value);
+                const nextAssignment = data.assignments.find((row) => row.contractorId === draft.contractorId && row.siteId === next.siteId);
+                setDraft({
+                  ...next,
+                  payMode: nextAssignment?.payMode ?? "hourly",
+                  fixedPay: nextAssignment?.fixedPayCents == null ? "" : (nextAssignment.fixedPayCents / 100).toFixed(2),
+                });
+              }}
             >
               <option value="" disabled>Choose a site</option>
               {siteOptions.map((site) => <option value={site.id} key={site.id}>{site.name}</option>)}
@@ -275,9 +308,20 @@ export function ShiftEntrySheet({
             </div>
           )}
           {durationError ? <p className="field-error" role="status">{durationError}</p> : null}
+          <fieldset className="mode-toggle">
+            <legend>Pay method</legend>
+            <div role="radiogroup" aria-label="Pay method" className="mode-toggle-row">
+              <label className={draft.payMode === "hourly" ? "is-active" : ""}><input type="radio" name={`${modeName}-pay`} checked={draft.payMode === "hourly"} onChange={() => setDraft({ ...draft, payMode: "hourly", fixedPay: "" })} />Hourly</label>
+              <label className={draft.payMode === "fixed" ? "is-active" : ""}><input type="radio" name={`${modeName}-pay`} checked={draft.payMode === "fixed"} onChange={() => setDraft({ ...draft, payMode: "fixed" })} />Fixed price</label>
+            </div>
+          </fieldset>
+          {draft.payMode === "fixed" ? <label>Fixed price (NZD)<input type="number" inputMode="decimal" min="0.01" step="0.01" required value={draft.fixedPay} onChange={(event) => setDraft({ ...draft, fixedPay: event.target.value })} /></label> : null}
           <div className="pay-preview" aria-live="polite">
             <p className="eyebrow">Estimated gross pay</p>
             {preview ? <p className="pay-preview-sum">{preview}</p> : <p className="muted">Enter paid hours to see estimated pay.</p>}
+            {payBreakdown && payBreakdown.holidayLoadingCents ? <p className="muted">Public holiday loading {formatNzd(payBreakdown.holidayLoadingCents)}</p> : null}
+            {payBreakdown && payBreakdown.weekendLoadingCents ? <p className="muted">Weekend loading {formatNzd(payBreakdown.weekendLoadingCents)}</p> : null}
+            {payBreakdown && payBreakdown.overnightLoadingCents ? <p className="muted">Overnight loading {formatNzd(payBreakdown.overnightLoadingCents)}</p> : null}
             {editing && entry && isEditReclassification(entry, draft) && preview
               ? <p className="muted">Changing contractor or site snapshots the current site rate onto this shift.</p>
               : null}

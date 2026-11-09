@@ -13,7 +13,7 @@ import {
 } from "@cleantrack/core/portal";
 import type { db } from "@/db/client";
 import { assignmentScheduleVersions, assignments, business, contractorAccount, contractors, sites, timeEntries, user, weekApprovals } from "@/db/schema";
-import { calculateEntryPayCents, weekEnd, weekStartFromDate } from "@/lib/payroll";
+import { snapshotShiftPay, weekEnd, weekStartFromDate } from "@/lib/payroll";
 
 type Database = typeof db;
 
@@ -38,6 +38,11 @@ type EntryRow = {
   breakMinutes: number;
   paidMinutes: number;
   rateCents: number;
+  payMode: "hourly" | "fixed";
+  fixedPayCents: number | null;
+  holidayLoadingCents: number;
+  weekendLoadingCents: number;
+  overnightLoadingCents: number;
   entryMode: "clock" | "paid_hours" | "absent";
   occurrenceKind: "manual" | "scheduled" | "worked" | "absent" | "hours_override";
 };
@@ -55,6 +60,8 @@ type VersionRow = {
   siteActive: boolean;
   rateCents: number | null;
   defaultRateCents: number;
+  payMode: "hourly" | "fixed";
+  fixedPayCents: number | null;
 };
 
 type PrivateShift = PortalShift & {
@@ -96,10 +103,8 @@ function toPublic(shift: PrivateShift): PortalShift {
   };
 }
 
-function entryPayCents(paidMinutes: number, rateCents: number): number {
-  if (paidMinutes <= 0) return 0;
-  if (!Number.isInteger(rateCents) || rateCents <= 0) return 0;
-  return calculateEntryPayCents(paidMinutes, rateCents);
+function entryPay(entry: EntryRow) {
+  return snapshotShiftPay(entry);
 }
 
 function presentEntry(scope: Scope, entry: EntryRow): PrivateShift {
@@ -117,7 +122,7 @@ function presentEntry(scope: Scope, entry: EntryRow): PrivateShift {
     startMinutes: clock ? entry.startMinutes : null,
     endMinutes: clock ? entry.endMinutes : null,
     breakMinutes: clock ? entry.breakMinutes : null,
-    payCents: entryPayCents(entry.paidMinutes, entry.rateCents),
+    payCents: entryPay(entry).totalCents,
     estimated: false,
     scopeKey: scopeKey(scope),
   };
@@ -138,7 +143,7 @@ function presentVirtual(scope: Scope, version: VersionRow, workDate: string): Pr
     startMinutes: null,
     endMinutes: null,
     breakMinutes: null,
-    payCents: entryPayCents(version.paidMinutes, rate),
+    payCents: snapshotShiftPay({ paidMinutes: version.paidMinutes, rateCents: rate, payMode: version.payMode, fixedPayCents: version.fixedPayCents }).totalCents,
     estimated: true,
     scopeKey: scopeKey(scope),
   };
@@ -197,6 +202,11 @@ async function loadEntries(database: Database, scope: Scope, from: string | null
       breakMinutes: timeEntries.breakMinutes,
       paidMinutes: timeEntries.paidMinutes,
       rateCents: timeEntries.rateCents,
+      payMode: timeEntries.payMode,
+      fixedPayCents: timeEntries.fixedPayCents,
+      holidayLoadingCents: timeEntries.holidayLoadingCents,
+      weekendLoadingCents: timeEntries.weekendLoadingCents,
+      overnightLoadingCents: timeEntries.overnightLoadingCents,
       entryMode: timeEntries.entryMode,
       occurrenceKind: timeEntries.occurrenceKind,
     })
@@ -231,6 +241,8 @@ async function loadVersions(database: Database, scope: Scope): Promise<VersionRo
       siteActive: sites.active,
       rateCents: assignments.rateCents,
       defaultRateCents: contractors.defaultRateCents,
+      payMode: assignments.payMode,
+      fixedPayCents: assignments.fixedPayCents,
     })
     .from(assignmentScheduleVersions)
     .innerJoin(assignments, and(
@@ -348,7 +360,7 @@ export async function getPortalPayments(database: Database, userId: string, week
       if (!weeks.has(start)) continue;
       const bucket = buckets.get(start) ?? { paidMinutes: 0, payCents: 0 };
       bucket.paidMinutes += entry.paidMinutes;
-      bucket.payCents += entryPayCents(entry.paidMinutes, entry.rateCents);
+      bucket.payCents += entryPay(entry).totalCents;
       buckets.set(start, bucket);
     }
   }
@@ -383,7 +395,8 @@ export async function getPortalPaymentDetail(database: Database, userId: string,
     }
     for (const entry of entries) {
       found = true;
-      const linePay = entryPayCents(entry.paidMinutes, entry.rateCents);
+      const breakdown = entryPay(entry);
+      const linePay = breakdown.totalCents;
       paidMinutes += entry.paidMinutes;
       payCents += linePay;
       if (entry.paidMinutes <= 0) continue;
@@ -395,6 +408,11 @@ export async function getPortalPaymentDetail(database: Database, userId: string,
         businessName: scope.businessName,
         paidMinutes: entry.paidMinutes,
         payCents: linePay,
+        baseCents: breakdown.baseCents,
+        holidayLoadingCents: breakdown.holidayLoadingCents,
+        weekendLoadingCents: breakdown.weekendLoadingCents,
+        overnightLoadingCents: breakdown.overnightLoadingCents,
+        fixedCents: breakdown.fixedCents,
       });
     }
   }
@@ -431,6 +449,11 @@ export async function getPortalWeekRemittance(database: Database, userId: string
       siteName: entry.siteName,
       paidMinutes: entry.paidMinutes,
       rateCents: entry.rateCents,
+      payMode: entry.payMode,
+      fixedPayCents: entry.fixedPayCents,
+      holidayLoadingCents: entry.holidayLoadingCents,
+      weekendLoadingCents: entry.weekendLoadingCents,
+      overnightLoadingCents: entry.overnightLoadingCents,
       contractorId: scope.contractorId,
       contractorName: scope.contractorName,
     })),

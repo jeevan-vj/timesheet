@@ -1,5 +1,5 @@
 import {
-  calculateEntryPayCents,
+  snapshotShiftPay,
   formatDayHeading,
   formatMinutes,
   formatNzd,
@@ -10,8 +10,10 @@ import {
   type OwnerEntry,
 } from "@cleantrack/core";
 import { useEffect, useRef, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
-import { OwnerShiftMutationFailure, useOwnerShiftException } from "@/owner-mutations-client";
+import { StyleSheet, Text, TextInput, View } from "react-native";
+import { useQueryClient } from "@tanstack/react-query";
+import { OWNER_DASHBOARD_QUERY } from "@/owner-api";
+import { OwnerShiftMutationFailure, saveOwnerShiftFixedPrice, useOwnerShiftException } from "@/owner-mutations-client";
 import {
   OWNER_SHIFT_ACTIONS_ENABLED,
   ownerShiftActionsState,
@@ -60,6 +62,7 @@ export function OwnerShiftSheet({
     submitting.current = false;
     setIsSubmitting(false);
   });
+  const queryClient = useQueryClient();
   const initial = initialPaidParts(entry);
   const [hours, setHours] = useState(initial.hours);
   const [minutes, setMinutes] = useState(initial.minutes);
@@ -67,6 +70,8 @@ export function OwnerShiftSheet({
   const [confirmationAction, setConfirmationAction] = useState<OwnerShiftAction | null>(null);
   const [pendingAction, setPendingAction] = useState<OwnerShiftAction | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [editingFixed, setEditingFixed] = useState(false);
+  const [fixedDollars, setFixedDollars] = useState(entry?.fixedPayCents == null ? "" : (entry.fixedPayCents / 100).toFixed(2));
 
   useEffect(() => {
     const next = initialPaidParts(entry);
@@ -76,6 +81,8 @@ export function OwnerShiftSheet({
     setConfirmationAction(null);
     setPendingAction(null);
     setLocalError(null);
+    setEditingFixed(false);
+    setFixedDollars(entry?.fixedPayCents == null ? "" : (entry.fixedPayCents / 100).toFixed(2));
     mutation.reset();
   }, [entry?.id]);
 
@@ -86,9 +93,8 @@ export function OwnerShiftSheet({
   const state = ownerShiftActionsState(entry, approvalStatus);
   const paidMinutes = hours * 60 + minutes;
   const paidMinutesError = ownerShiftPaidMinutesError(paidMinutes);
-  const payCents = entry.paidMinutes > 0 && entry.rateCents > 0
-    ? calculateEntryPayCents(entry.paidMinutes, entry.rateCents)
-    : 0;
+  const pay = snapshotShiftPay(entry);
+  const payCents = pay.totalCents;
   const mutationMessage = mutation.error instanceof OwnerShiftMutationFailure
     ? mutation.error.detail.message
     : mutation.error instanceof Error
@@ -144,6 +150,38 @@ export function OwnerShiftSheet({
     );
   };
 
+  const saveFixedPrice = async () => {
+    if (approvalStatus === "approved" || entry.entryMode === "absent" || isSubmitting) return;
+    const dollars = Number(fixedDollars);
+    const fixedPayCents = Math.round(dollars * 100);
+    if (!Number.isFinite(dollars) || fixedPayCents <= 0) {
+      setLocalError("Enter a fixed price greater than zero.");
+      return;
+    }
+    setIsSubmitting(true);
+    setLocalError(null);
+    const clock = entry.entryMode === "clock"
+      ? { entryMode: "clock" as const, startMinutes: entry.startMinutes, endMinutes: entry.endMinutes, breakMinutes: entry.breakMinutes }
+      : { entryMode: "paid_hours" as const, paidMinutes: entry.paidMinutes };
+    try {
+      await saveOwnerShiftFixedPrice({
+        entryId: entry.id,
+        contractorId: entry.contractorId,
+        siteId: entry.siteId,
+        workDate: entry.workDate,
+        notes: entry.notes,
+        clock,
+        fixedPayCents,
+      });
+      await queryClient.invalidateQueries({ queryKey: [OWNER_DASHBOARD_QUERY] });
+      onClose();
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : "Could not save the fixed price.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <Sheet closeLabel="Close shift actions" onClose={onClose} title={entry.siteName} visible>
       <View style={styles.heading}>
@@ -154,6 +192,17 @@ export function OwnerShiftSheet({
         icon={{ ios: "person", android: "person", web: "person" }}
         title={entry.contractorName}
       />
+      {pay.holidayLoadingCents ? <ListRow icon={{ ios: "calendar.badge.plus", android: "event", web: "event" }} title="Public holiday loading" trailing={<Text style={styles.amount}>{formatNzd(pay.holidayLoadingCents)}</Text>} /> : null}
+      {pay.weekendLoadingCents ? <ListRow icon={{ ios: "calendar", android: "date_range", web: "date_range" }} title="Weekend loading" trailing={<Text style={styles.amount}>{formatNzd(pay.weekendLoadingCents)}</Text>} /> : null}
+      {pay.overnightLoadingCents ? <ListRow icon={{ ios: "moon", android: "dark_mode", web: "dark_mode" }} title="Overnight loading" trailing={<Text style={styles.amount}>{formatNzd(pay.overnightLoadingCents)}</Text>} /> : null}
+      {pay.fixedCents ? <ListRow icon={{ ios: "dollarsign.circle", android: "paid", web: "paid" }} title="Fixed" trailing={<Text style={styles.amount}>{formatNzd(pay.fixedCents)}</Text>} /> : null}
+
+      {entry.entryMode !== "absent" ? editingFixed ? <View style={styles.editor}>
+        <Text style={styles.editorTitle}>Fixed price (NZD)</Text>
+        <TextInput accessibilityLabel="Fixed price in New Zealand dollars" keyboardType="decimal-pad" style={styles.input} value={fixedDollars} onChangeText={setFixedDollars} />
+        <PrimaryButton accessibilityLabel="Save fixed price" disabled={isSubmitting || approvalStatus === "approved"} onPress={() => void saveFixedPrice()}>Save fixed price</PrimaryButton>
+        <SecondaryButton accessibilityLabel="Cancel fixed price editing" disabled={isSubmitting} onPress={() => setEditingFixed(false)}>Cancel</SecondaryButton>
+      </View> : <SecondaryButton accessibilityLabel="Set fixed price" disabled={isSubmitting || approvalStatus === "approved"} onPress={() => setEditingFixed(true)}>Set fixed price</SecondaryButton> : null}
       <ListRow
         accessibilityLabel={`${formatDayHeading(entry.workDate)}, ${formatShiftTime(entry)}`}
         icon={{ ios: "calendar", android: "calendar_month", web: "calendar_month" }}
@@ -300,6 +349,16 @@ const styles = StyleSheet.create({
     fontSize: typeScale.body,
     lineHeight: 24,
     fontWeight: "700",
+  },
+  amount: { color: theme.text, fontSize: typeScale.body, fontWeight: "700", fontVariant: ["tabular-nums"] },
+  input: {
+    minHeight: theme.touchTarget,
+    borderWidth: 1,
+    borderColor: theme.muted,
+    borderRadius: theme.radius,
+    color: theme.text,
+    paddingHorizontal: spacing.sm,
+    fontSize: typeScale.body,
   },
   stepperRow: {
     minHeight: theme.touchTarget,

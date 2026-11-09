@@ -101,14 +101,16 @@ function RemittanceContent({ data }: { data: OwnerRemittance }) {
       </View>
       <View style={styles.stack}>
         {data.lines.map((line, index) => (
-          <ListRow
+          <View key={`${line.workDate}:${line.siteName}:${index}`}>
+            <ListRow
             accessibilityLabel={`${line.siteName}, ${formatDayHeading(line.workDate)}, ${formatMinutes(line.paidMinutes)}, rate ${spokenNzd(line.rateCents)} per hour, pay ${spokenNzd(line.payCents)}`}
             icon={{ ios: "mappin.and.ellipse", android: "location_on", web: "location_on" }}
-            key={`${line.workDate}:${line.siteName}:${index}`}
             subtitle={`${formatDayHeading(line.workDate)} · ${formatMinutes(line.paidMinutes)} · ${formatNzd(line.rateCents)}/hr`}
             title={line.siteName}
             trailing={<Text selectable style={styles.amount}>{formatNzd(line.payCents)}</Text>}
-          />
+            />
+            <PayBreakdown line={line} />
+          </View>
         ))}
       </View>
       <View accessibilityLabel={`Total ${formatMinutes(data.paidMinutes)}, ${spokenNzd(data.payCents)}`} style={styles.total}>
@@ -120,6 +122,21 @@ function RemittanceContent({ data }: { data: OwnerRemittance }) {
   );
 }
 
+function PayBreakdown({ line }: { line: OwnerRemittance["lines"][number] }) {
+  const rows = [
+    ["Base", line.baseCents],
+    ["Public holiday loading", line.holidayLoadingCents],
+    ["Weekend loading", line.weekendLoadingCents],
+    ["Overnight loading", line.overnightLoadingCents],
+    ["Fixed", line.fixedCents],
+  ] as const;
+  const extra = line.fixedCents !== 0 || line.holidayLoadingCents !== 0 || line.weekendLoadingCents !== 0 || line.overnightLoadingCents !== 0;
+  if (!extra) return null;
+  return <View style={styles.breakdown}>{rows.filter(([, cents]) => cents !== 0).map(([label, cents]) => (
+    <View key={label} style={styles.breakdownRow}><Text style={styles.meta}>{label}</Text><Text style={styles.meta}>{formatNzd(cents)}</Text></View>
+  ))}</View>;
+}
+
 const styles = StyleSheet.create({
   stack: { gap: spacing.xs },
   summary: { gap: spacing.xxs },
@@ -127,6 +144,8 @@ const styles = StyleSheet.create({
   heading: { color: theme.text, fontSize: typeScale.title, lineHeight: 28, fontWeight: "700" },
   meta: { color: theme.mutedHighContrast, fontSize: typeScale.subhead, lineHeight: 22 },
   amount: { color: theme.text, fontSize: typeScale.body, fontWeight: "700", fontVariant: ["tabular-nums"] },
+  breakdown: { gap: spacing.xxs, paddingHorizontal: spacing.md, paddingBottom: spacing.sm },
+  breakdownRow: { flexDirection: "row", justifyContent: "space-between", gap: spacing.sm },
   total: {
     minHeight: theme.touchTarget,
     flexDirection: "row",

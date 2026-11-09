@@ -53,6 +53,8 @@ export const ownerAssignmentSchema = z.object({
   contractorId: z.string().min(1),
   siteId: z.string().min(1),
   rateCents: z.number().int().min(0).nullable(),
+  payMode: z.enum(["hourly", "fixed"]).default("hourly"),
+  fixedPayCents: z.number().int().min(1).nullable().default(null),
   schedule: ownerScheduleSchema.nullable(),
 });
 
@@ -68,6 +70,11 @@ export const ownerEntrySchema = z.object({
   breakMinutes: minuteOfDay,
   paidMinutes: minuteOfDay,
   rateCents: z.number().int().min(0),
+  payMode: z.enum(["hourly", "fixed"]).default("hourly"),
+  fixedPayCents: z.number().int().min(1).nullable().default(null),
+  holidayLoadingCents: z.number().int().default(0),
+  weekendLoadingCents: z.number().int().default(0),
+  overnightLoadingCents: z.number().int().default(0),
   notes: z.string(),
   entryMode,
   occurrenceKind,
@@ -96,6 +103,17 @@ export const ownerDashboardSchema = z.object({
   entries: z.array(ownerEntrySchema),
   summary: z.array(ownerSummarySchema),
   approval: ownerApprovalSchema,
+  payRules: z.object({
+    holidayMode: z.enum(["off", "multiplier"]),
+    holidayMultiplierBps: z.number().int().nullable(),
+    useNzPublicHolidays: z.boolean(),
+    weekendSaturdayMultiplierBps: z.number().int().nullable(),
+    weekendSundayMultiplierBps: z.number().int().nullable(),
+    overnightStartMinutes: z.number().int().nullable(),
+    overnightEndMinutes: z.number().int().nullable(),
+    overnightMultiplierBps: z.number().int().nullable(),
+  }).nullable().default(null),
+  holidayDates: z.array(z.string().refine(isIsoDate)).default([]),
   business: ownerBusinessSchema.nullable(),
 }).refine((value) => {
   if (!isMonday(value.weekStart)) return false;
@@ -157,6 +175,11 @@ export const ownerRemittanceLineSchema = z.object({
   paidMinutes: z.number().int().min(0).max(1_439),
   rateCents: z.number().int().min(0),
   payCents: z.number().int().min(0),
+  baseCents: z.number().int().min(0).default(0),
+  holidayLoadingCents: z.number().int().default(0),
+  weekendLoadingCents: z.number().int().default(0),
+  overnightLoadingCents: z.number().int().default(0),
+  fixedCents: z.number().int().min(0).default(0),
 });
 
 export const ownerRemittanceSchema = z.object({

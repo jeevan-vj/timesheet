@@ -19,6 +19,7 @@ import {
   type UnassignAssignmentTarget,
 } from "@/lib/assignment-manage";
 import { scheduleEditorMode, scheduleSaveSuccess } from "@/lib/schedule-editor";
+import { parseFixedPayDollars } from "@/lib/shift-entry";
 
 type ContractorOption = { id: string; name: string };
 type SiteOption = { id: string; name: string };
@@ -158,9 +159,9 @@ export function AssignmentManager({
               assignment={row}
               busy={mutating}
               onInvalid={() => { setNoticeKind("error"); setNotice(assignmentMutationMessage("invalid_request")); }}
-              onSave={(rateCents) => void runMutation(
-                () => send(`/api/assignments/${row.id}`, { rateCents }, "PATCH"),
-                rateCents === null ? assignmentSuccessMessage.rateCleared : assignmentSuccessMessage.rateSaved,
+              onSave={(body) => void runMutation(
+                () => send(`/api/assignments/${row.id}`, body, "PATCH"),
+                body.payMode === "fixed" ? "Fixed price saved." : body.rateCents === null ? assignmentSuccessMessage.rateCleared : assignmentSuccessMessage.rateSaved,
               )}
             />
           </details>
@@ -185,25 +186,32 @@ export function AssignmentManager({
   </article>;
 }
 
-function OverrideForm({ assignment, busy, onSave, onInvalid }: { assignment: AssignmentItemDTO; busy: boolean; onSave: (rateCents: number | null) => void; onInvalid: () => void }) {
+function OverrideForm({ assignment, busy, onSave, onInvalid }: { assignment: AssignmentItemDTO; busy: boolean; onSave: (body: { rateCents: number | null; payMode: "hourly" | "fixed"; fixedPayCents: number | null }) => void; onInvalid: () => void }) {
   const [rate, setRate] = useState(assignment.rateCents == null ? "" : (assignment.rateCents / 100).toFixed(2));
+  const [payMode, setPayMode] = useState<"hourly" | "fixed">(assignment.payMode ?? "hourly");
+  const [fixedPay, setFixedPay] = useState(assignment.fixedPayCents == null ? "" : (assignment.fixedPayCents / 100).toFixed(2));
   useEffect(() => {
     setRate(assignment.rateCents == null ? "" : (assignment.rateCents / 100).toFixed(2));
-  }, [assignment.rateCents]);
+    setPayMode(assignment.payMode ?? "hourly");
+    setFixedPay(assignment.fixedPayCents == null ? "" : (assignment.fixedPayCents / 100).toFixed(2));
+  }, [assignment.fixedPayCents, assignment.payMode, assignment.rateCents]);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const parsed = parseAssignmentOverride(rate);
-    if (parsed === "invalid") { onInvalid(); return; }
-    onSave(parsed);
+    const fixed = parseFixedPayDollars(fixedPay);
+    if (parsed === "invalid" || fixed === "invalid" || (payMode === "fixed" && fixed == null)) { onInvalid(); return; }
+    onSave({ rateCents: parsed, payMode, fixedPayCents: payMode === "fixed" ? fixed : null });
   }
 
   return <form className="mini-form" onSubmit={submit}>
     <label>Rate override (NZD)
       <input type="number" inputMode="decimal" min={15} max={250} step="0.01" placeholder="Use default rate" value={rate} onChange={(event) => setRate(event.target.value)} disabled={busy} />
     </label>
+    <label>Pay method<select value={payMode} onChange={(event) => setPayMode(event.target.value as "hourly" | "fixed")} disabled={busy}><option value="hourly">Hourly</option><option value="fixed">Fixed price</option></select></label>
+    {payMode === "fixed" ? <label>Fixed price (NZD)<input type="number" inputMode="decimal" min="0.01" step="0.01" required value={fixedPay} onChange={(event) => setFixedPay(event.target.value)} disabled={busy} /></label> : null}
     <div className="assignment-rate-actions">
-      <button type="button" className="button tiny secondary" disabled={busy} onClick={() => onSave(null)}>Use default</button>
+      <button type="button" className="button tiny secondary" disabled={busy} onClick={() => onSave({ rateCents: null, payMode: "hourly", fixedPayCents: null })}>Use default</button>
       <button className="button tiny" disabled={busy} aria-busy={busy}>Save</button>
     </div>
   </form>;
@@ -219,7 +227,7 @@ function CreateAssignmentForm({
   contractors: ContractorOption[];
   sites: SiteOption[];
   busy: boolean;
-  onSave: (body: { contractorId: string; siteId: string; rateCents: number | null }) => Promise<boolean>;
+  onSave: (body: { contractorId: string; siteId: string; rateCents: number | null; payMode: "hourly" | "fixed"; fixedPayCents: number | null }) => Promise<boolean>;
   onInvalid: () => void;
 }) {
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -227,8 +235,10 @@ function CreateAssignmentForm({
     const form = event.currentTarget;
     const data = new FormData(form);
     const parsed = parseAssignmentOverride(String(data.get("rate") ?? ""));
-    if (parsed === "invalid") { onInvalid(); return; }
-    const saved = await onSave({ contractorId: String(data.get("contractorId")), siteId: String(data.get("siteId")), rateCents: parsed });
+    const payMode = String(data.get("payMode")) === "fixed" ? "fixed" : "hourly";
+    const fixedPayCents = parseFixedPayDollars(String(data.get("fixedPay") ?? ""));
+    if (parsed === "invalid" || fixedPayCents === "invalid" || (payMode === "fixed" && fixedPayCents == null)) { onInvalid(); return; }
+    const saved = await onSave({ contractorId: String(data.get("contractorId")), siteId: String(data.get("siteId")), rateCents: parsed, payMode, fixedPayCents: payMode === "fixed" ? fixedPayCents : null });
     if (saved) form.reset();
   }
 
@@ -246,6 +256,8 @@ function CreateAssignmentForm({
       <label>Rate override (optional)
         <input name="rate" type="number" inputMode="decimal" min={15} max={250} step="0.01" placeholder="Use default rate" disabled={busy} />
       </label>
+      <label>Pay method<select name="payMode" defaultValue="hourly" disabled={busy}><option value="hourly">Hourly</option><option value="fixed">Fixed price</option></select></label>
+      <label>Fixed price (NZD, optional)<input name="fixedPay" type="number" inputMode="decimal" min="0.01" step="0.01" disabled={busy} /></label>
       <button className="button small" disabled={busy || !contractors.length || !sites.length} aria-busy={busy}>Save assignment</button>
     </form>
   </details>;

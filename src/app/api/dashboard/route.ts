@@ -29,6 +29,8 @@ export async function GET(request: Request) {
         entries: [],
         summary: summarizeWeek([]),
         approval: toDashboardApproval(null),
+        payRules: null,
+        holidayDates: [],
         business: null,
       });
     }

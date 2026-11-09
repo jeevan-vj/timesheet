@@ -9,6 +9,7 @@ import { ContractorsPanel } from "@/components/contractors";
 import { ShiftEntrySheet } from "@/components/shift-entry";
 import { SiteSetup } from "@/components/site-setup";
 import { OwnerAssistant } from "@/components/owner-assistant";
+import { PayRulesSettings } from "@/components/pay-rules-settings";
 import { AddRepeatingSchedule, WeekGrid } from "@/components/week-grid";
 import { mondayFor, mondayFromInput, shiftWeek, thisWeekSelection } from "@/components/week-picker";
 import { assignmentMutationMessage } from "@/lib/assignment-manage";
@@ -46,7 +47,7 @@ import {
 type Site = { id: string; name: string; address: string };
 type Contractor = { id: string; name: string; email: string; phone: string; defaultRateCents: number; currency: string };
 type AssignmentSchedule = { id: string; weekdays: number[]; paidMinutes: number; effectiveFrom: string };
-type Assignment = { id: string; contractorId: string; siteId: string; rateCents: number | null; schedule: AssignmentSchedule | null };
+type Assignment = { id: string; contractorId: string; siteId: string; rateCents: number | null; payMode: "hourly" | "fixed"; fixedPayCents: number | null; schedule: AssignmentSchedule | null };
 type Entry = {
   id: string;
   contractorId: string;
@@ -59,6 +60,11 @@ type Entry = {
   breakMinutes: number;
   paidMinutes: number;
   rateCents: number;
+  payMode: "hourly" | "fixed";
+  fixedPayCents: number | null;
+  holidayLoadingCents: number;
+  weekendLoadingCents: number;
+  overnightLoadingCents: number;
   notes: string;
   entryMode: "clock" | "paid_hours" | "absent";
   occurrenceKind: "manual" | "scheduled" | "worked" | "absent" | "hours_override";
@@ -78,7 +84,7 @@ type BusinessProfile = {
   weekStart: string;
   onboardingCompletedAt: string | null;
 };
-type DashboardData = { weekStart: string; weekEnd: string; sites: Site[]; contractors: Contractor[]; assignments: Assignment[]; entries: Entry[]; summary: Summary[]; approval: WeekApproval; business: BusinessProfile | null };
+type DashboardData = { weekStart: string; weekEnd: string; sites: Site[]; contractors: Contractor[]; assignments: Assignment[]; entries: Entry[]; summary: Summary[]; approval: WeekApproval; payRules: import("@/lib/payroll").ShiftPayRules | null; holidayDates: string[]; business: BusinessProfile | null };
 
 function duration(minutes: number) { return formatMinutes(minutes); }
 function money(cents: number) { return formatNzd(cents); }
@@ -293,6 +299,7 @@ function LoadedWeek({ data, onboarding, weekLocked, editing, onReload, onAnnounc
       <PaySummary data={data} summary={shown.contractors} totalPay={shown.totalPay} siteSummary={shown.sites} onCopyWeekBrief={onCopyWeekBrief} onRemittance={onRemittance} />
     </section>
     <SetupPanel data={data} weekLocked={weekLocked} onReload={onReload} onAnnounce={onAnnounce} />
+    {data.business ? <PayRulesSettings onSaved={onReload} /> : null}
     {editing && !weekLocked ? <ShiftEntrySheet key={editing.id} data={data} entry={editing} onDismiss={() => onEdit(null)} onSave={async (body) => { await send(`/api/time-entries/${editing.id}`, body, "PATCH"); await onReload(); onAnnounce("Shift updated."); }} /> : null}
   </>;
 }

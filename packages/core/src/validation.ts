@@ -5,6 +5,12 @@ import { isIsoDate, isMonday } from "./payroll";
 const trimmed = (max: number) => z.string().trim().min(1).max(max);
 const optionalTrimmed = (max: number) => z.string().trim().max(max).default("");
 const rateCents = z.number().int().min(1_500).max(25_000);
+const fixedPayCents = z.number().int().min(1).max(100_000_000);
+const multiplierBps = z.number().int().min(10_000).max(30_000);
+const payFields = {
+  payMode: z.enum(["hourly", "fixed"]).optional(),
+  fixedPayCents: fixedPayCents.nullable().optional(),
+};
 
 export function rateCentsFromNzdText(value: string): number | null {
   const match = /^(\d{1,3})(?:\.(\d{1,2}))?$/.exec(value.trim());
@@ -91,11 +97,13 @@ export const assignmentInput = z.object({
   contractorId: trimmed(64),
   siteId: trimmed(64),
   rateCents: rateCents.nullable().default(null),
-});
+  ...payFields,
+}).refine((value) => value.payMode !== "fixed" || (value.fixedPayCents ?? 0) > 0);
 
 export const assignmentRateInput = z.object({
   rateCents: rateCents.nullable(),
-});
+  ...payFields,
+}).refine((value) => value.payMode !== "fixed" || (value.fixedPayCents ?? 0) > 0);
 
 const timeEntryIds = {
   contractorId: trimmed(64),
@@ -123,14 +131,34 @@ const assignSite = {
 };
 
 export const timeEntryInput = z.discriminatedUnion("entryMode", [
-  z.object({ ...clockEntryFields, ...timeEntryIds, ...assignSite }),
-  z.object({ ...paidHoursEntryFields, ...timeEntryIds, ...assignSite }),
-]);
+  z.object({ ...clockEntryFields, ...timeEntryIds, ...assignSite, ...payFields }),
+  z.object({ ...paidHoursEntryFields, ...timeEntryIds, ...assignSite, ...payFields }),
+]).refine((value) => value.payMode !== "fixed" || (value.fixedPayCents ?? 0) > 0);
 
 export const timeEntryUpdateInput = z.discriminatedUnion("entryMode", [
-  z.object({ ...clockEntryFields, ...timeEntryIds }),
-  z.object({ ...paidHoursEntryFields, ...timeEntryIds }),
-]);
+  z.object({ ...clockEntryFields, ...timeEntryIds, ...payFields }),
+  z.object({ ...paidHoursEntryFields, ...timeEntryIds, ...payFields }),
+]).refine((value) => value.payMode !== "fixed" || (value.fixedPayCents ?? 0) > 0);
+
+export const payRulesInput = z.object({
+  holidayMode: z.enum(["off", "multiplier"]),
+  holidayMultiplierBps: multiplierBps.nullable(),
+  useNzPublicHolidays: z.boolean(),
+  weekendSaturdayMultiplierBps: multiplierBps.nullable(),
+  weekendSundayMultiplierBps: multiplierBps.nullable(),
+  overnightStartMinutes: z.number().int().min(0).max(1_440).nullable(),
+  overnightEndMinutes: z.number().int().min(0).max(1_440).nullable(),
+  overnightMultiplierBps: multiplierBps.nullable(),
+}).refine((value) => value.holidayMode === "off" || value.holidayMultiplierBps != null)
+  .refine((value) => {
+    const overnight = [value.overnightStartMinutes, value.overnightEndMinutes, value.overnightMultiplierBps];
+    return overnight.every((part) => part == null) || overnight.every((part) => part != null);
+  });
+
+export const businessHolidayInput = z.object({
+  holidayDate: z.string().refine(isIsoDate, "Invalid holiday date"),
+  name: trimmed(100),
+});
 
 export const weekStartInput = z.string().refine(isMonday, "Week must start on Monday");
 

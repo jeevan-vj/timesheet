@@ -276,7 +276,8 @@ describe("factory E2E workflows stay fail-closed and complementary", () => {
     expect(e2e).toContain("cp .dev.vars dist/server/.dev.vars");
     expect(harness).toContain('path.join(distDir, ".dev.vars")');
     expect(harness).toContain('await page.getByText("No shifts this week").waitFor({ timeout: 30_000 });');
-    expect(harness).toContain('await page.waitForLoadState("networkidle");');
+    expect(harness).not.toContain('waitForLoadState("networkidle")');
+    expect(harness).toContain("await waitForEmptyDashboard(page, response);");
     expect(e2e).not.toContain("CLOUDFLARE_API_TOKEN");
     expect(e2e).not.toContain("gh api");
     expect(e2e).not.toContain("GH_TOKEN");
