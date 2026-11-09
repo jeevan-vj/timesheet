@@ -5,6 +5,7 @@ import { seedOwnerWorkspace } from "./owner-workspace";
 
 const session = vi.hoisted(() => ({
   user: null as { id: string; email: string; name: string } | null,
+  lookups: 0,
 }));
 
 const handle = vi.hoisted(() => ({ database: null as unknown }));
@@ -31,7 +32,10 @@ vi.mock("@/db/client", () => ({
   }),
 }));
 vi.mock("@/lib/request-session", () => ({
-  requireSessionUser: async (request: Request) => request.headers.has("cookie") ? session.user : null,
+  requireSessionUser: async (request: Request) => {
+    session.lookups += 1;
+    return request.headers.has("cookie") ? session.user : null;
+  },
 }));
 
 import { POST as restoreAssignment } from "../src/app/api/assignments/[id]/restore/route";
@@ -215,8 +219,23 @@ function requestWith(route: RouteCase, headers: Record<string, string>): Request
   return new Request(`https://app.example.test${route.path}`, init);
 }
 
+function cookieMutation(origin: string): Request {
+  const body = "{}";
+  return new Request("https://app.example.test/api/sites", {
+    method: "POST",
+    body,
+    headers: {
+      cookie: "cleantrack-smoke=1",
+      origin,
+      "content-type": "application/json",
+      "content-length": String(body.length),
+    },
+  });
+}
+
 describe("owner-only API boundary", () => {
   beforeEach(async () => {
+    session.lookups = 0;
     const sqlite = await openPortalSqlite();
     handle.database = portalDatabase(sqlite);
     seedOwnerWorkspace(sqlite, "owner-a", { name: "Owner A", email: "owner@example.test" });
@@ -277,6 +296,23 @@ describe("owner-only API boundary", () => {
     expect(response.headers.get("content-disposition")).toMatch(/^attachment; filename=".+\.pdf"$/);
     const bytes = new Uint8Array(await response.arrayBuffer());
     expect(new TextDecoder().decode(bytes.slice(0, 5))).toBe("%PDF-");
+  });
+
+  it("returns 403 for a forged-origin mutation with a cookie and no session before looking up the session", async () => {
+    session.user = null;
+    const response = await postSite(cookieMutation("https://smoke.invalid"));
+    expect(response.status).toBe(403);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(await response.json()).toEqual({ error: "forbidden" });
+    expect(session.lookups).toBe(0);
+  });
+
+  it("returns 401 for a trusted-origin mutation with a cookie and no session", async () => {
+    session.user = null;
+    const response = await postSite(cookieMutation("https://app.example.test"));
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "unauthorized" });
+    expect(session.lookups).toBe(1);
   });
 
   it("keeps the shared viewer route available to a contractor session", async () => {
