@@ -38,7 +38,10 @@ import { POST as restoreAssignment } from "../src/app/api/assignments/[id]/resto
 import { DELETE as deleteAssignment, GET as getAssignment, PATCH as patchAssignment } from "../src/app/api/assignments/[id]/route";
 import { DELETE as deleteSchedule, GET as getSchedule, PUT as putSchedule } from "../src/app/api/assignments/[id]/schedule/route";
 import { GET as getAssignments, POST as postAssignment } from "../src/app/api/assignments/route";
+import { DELETE as deleteHoliday } from "../src/app/api/business/holidays/[id]/route";
+import { GET as getHolidays, POST as postHoliday } from "../src/app/api/business/holidays/route";
 import { POST as completeOnboarding } from "../src/app/api/business/onboarding/complete/route";
+import { GET as getPayRules, PUT as putPayRules } from "../src/app/api/business/pay-rules/route";
 import { POST as postBusiness } from "../src/app/api/business/route";
 import { POST as archiveContractor } from "../src/app/api/contractors/[id]/archive/route";
 import { POST as resendInvitation } from "../src/app/api/contractors/[id]/invitation/resend/route";
@@ -87,6 +90,11 @@ const ownerRoutes: RouteCase[] = [
   { method: "POST", path: "/api/assignments", body: {}, invoke: postAssignment },
   { method: "POST", path: "/api/business", body: {}, invoke: postBusiness },
   { method: "POST", path: "/api/business/onboarding/complete", invoke: completeOnboarding },
+  { method: "GET", path: "/api/business/pay-rules", invoke: getPayRules },
+  { method: "PUT", path: "/api/business/pay-rules", body: {}, invoke: putPayRules },
+  { method: "GET", path: "/api/business/holidays", invoke: getHolidays },
+  { method: "POST", path: "/api/business/holidays", body: {}, invoke: postHoliday },
+  { method: "DELETE", path: "/api/business/holidays/missing", invoke: (request) => deleteHoliday(request, idContext) },
   { method: "POST", path: "/api/contractors/missing/archive", invoke: (request) => archiveContractor(request, idContext) },
   { method: "POST", path: "/api/contractors/missing/invitation/resend", invoke: (request) => resendInvitation(request, idContext) },
   { method: "POST", path: "/api/contractors/missing/invitation/revoke", invoke: (request) => revokeInvitation(request, idContext) },
@@ -116,6 +124,8 @@ const ownerRoutes: RouteCase[] = [
   { method: "POST", path: "/api/weeks/approve", body: {}, invoke: approveWeek },
   { method: "POST", path: "/api/weeks/reopen", body: {}, invoke: reopenWeek },
 ];
+
+const activeOwnerOnlyRoutes = ownerRoutes.filter((route) => route.path.startsWith("/api/business/pay-rules") || route.path.startsWith("/api/business/holidays"));
 
 const portalRoutes: RouteCase[] = [
   { method: "GET", path: "/api/portal/week?week=2026-10-19", invoke: getPortalWeek },
@@ -233,6 +243,25 @@ describe("owner-only API boundary", () => {
     const response = await route.invoke(requestFor(route, true));
     expect(response.status).toBeGreaterThanOrEqual(200);
     expect(response.status).toBeLessThan(300);
+  });
+
+  it.each(activeOwnerOnlyRoutes)("returns 403 to a signed-in user with no owner workspace for $method $path", async (route) => {
+    session.user = { id: "new-owner", email: "new-owner@example.test", name: "New Owner" };
+    const response = await route.invoke(requestFor(route, true));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "forbidden" });
+  });
+
+  it("lets a contractor download the approved week remittance PDF from the portal", async () => {
+    session.user = { id: "contractor-user", email: "contractor@example.test", name: "Contractor" };
+    const route = portalRoutes.find((item) => item.path.includes("/remittance/"));
+    if (!route) throw new Error("portal remittance route missing");
+    const response = await route.invoke(requestFor(route, true));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/pdf");
+    expect(response.headers.get("content-disposition")).toMatch(/^attachment; filename=".+\.pdf"$/);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    expect(new TextDecoder().decode(bytes.slice(0, 5))).toBe("%PDF-");
   });
 
   it("keeps the shared viewer route available to a contractor session", async () => {

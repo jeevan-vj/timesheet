@@ -4,6 +4,7 @@ import { requireSessionUser, type SessionUser } from "@/lib/request-session";
 import { getTrustedOrigins } from "@/lib/runtime-env";
 import { isTrustedMutationRequest } from "@/lib/accounts-config";
 import { reportServerError } from "@/lib/report-server-error";
+import { activeOwnerMembership } from "@/lib/business";
 import { resolveViewer } from "@/lib/viewer";
 import { ZodError } from "zod";
 
@@ -55,6 +56,17 @@ export async function requireOwner(request: Request, mutation = false): Promise<
     if (viewer.owner === null && viewer.contractorOf.length > 0) {
       return { response: noStoreJson({ error: "forbidden" }, 403) };
     }
+    return access;
+  } catch (error) {
+    return { response: await apiError(error, request) };
+  }
+}
+
+export async function requireActiveOwner(request: Request, mutation = false): Promise<{ user: SessionUser } | { response: Response }> {
+  const access = await requireOwner(request, mutation);
+  if ("response" in access) return access;
+  try {
+    if (!await activeOwnerMembership(db, access.user.id)) return { response: noStoreJson({ error: "forbidden" }, 403) };
     return access;
   } catch (error) {
     return { response: await apiError(error, request) };
