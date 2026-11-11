@@ -20,10 +20,10 @@ describe("runtime dependency pins", () => {
     });
   });
 
-  it("uses one React 19.3 and TypeScript 6.0.3 graph so Expo SDK 58 stays deduped", () => {
-    expect(root.dependencies.react).toBe("19.3.0");
-    expect(root.dependencies["react-dom"]).toBe("19.3.0");
-    expect(root.dependencies["react-server-dom-webpack"]).toBe("19.3.0");
+  it("pins web React Server Components to the patched 19.3.1 (GHSA-xqc2-xf4c-x3h3) and mobile React to Expo SDK 58's 19.3.0", () => {
+    expect(root.dependencies.react).toBe("19.3.1");
+    expect(root.dependencies["react-dom"]).toBe("19.3.1");
+    expect(root.dependencies["react-server-dom-webpack"]).toBe("19.3.1");
     expect(mobile.dependencies.react).toBe("19.3.0");
     expect(mobile.dependencies["react-native"]).toBe("0.88.1");
     expect(mobile.dependencies["expo-file-system"]).toBe("~58.0.13");
