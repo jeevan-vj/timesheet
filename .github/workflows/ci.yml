@@ -35,7 +35,7 @@ jobs:
       - run: pnpm --filter mobile test
       - name: Expo doctor
         working-directory: apps/mobile
-        run: npx --yes expo-doctor
+        run: npx --yes expo-doctor@1.21.6 # pinned: 1.21.7 crashes with "Cannot find module @expo/env"
         continue-on-error: ${{ github.event_name == 'pull_request' }}
 
   core:
