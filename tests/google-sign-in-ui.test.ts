@@ -37,6 +37,6 @@ describe("Google sign-in UI", () => {
     expect(signIn).toContain('callbackURL: "/"');
     expect(signIn).toContain('testID="google-sign-in"');
     expect(signIn).toContain('router.replace("/")');
-    expect(dependencies.dependencies["expo-web-browser"]).toBe("~58.0.7");
+    expect(dependencies.dependencies["expo-web-browser"]).toBe("~58.0.8");
   });
 });
