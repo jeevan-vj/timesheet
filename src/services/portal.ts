@@ -334,28 +334,33 @@ function groupDays(shifts: PrivateShift[]): PortalUpcoming["days"] {
 async function submissionContext(database: Database, scopes: Scope[], from: string, to: string) {
   const locks = new Set<string>();
   const reasons = new Map<string, string>();
-  for (const scope of scopes) {
-    const approvals = await database
-      .select({ weekStart: weekApprovals.weekStart, status: weekApprovals.status })
-      .from(weekApprovals)
-      .where(and(
-        eq(weekApprovals.ownerUserId, scope.ownerUserId),
-        eq(weekApprovals.businessId, scope.businessId),
-      ));
-    for (const approval of approvals) {
-      if (approval.status === "approved") locks.add(`${scopeKey(scope)}:${approval.weekStart}`);
+  const loaded = await Promise.all(scopes.map(async (scope) => {
+    const [approvals, rows] = await Promise.all([
+      database
+        .select({ weekStart: weekApprovals.weekStart, status: weekApprovals.status })
+        .from(weekApprovals)
+        .where(and(
+          eq(weekApprovals.ownerUserId, scope.ownerUserId),
+          eq(weekApprovals.businessId, scope.businessId),
+        )),
+      database
+        .select({ id: timeEntries.id, submissionReason: timeEntries.submissionReason })
+        .from(timeEntries)
+        .where(and(
+          eq(timeEntries.ownerUserId, scope.ownerUserId),
+          eq(timeEntries.businessId, scope.businessId),
+          eq(timeEntries.contractorId, scope.contractorId),
+          gte(timeEntries.workDate, from),
+          lte(timeEntries.workDate, to),
+        )),
+    ]);
+    return { scope, approvals, rows };
+  }));
+  for (const item of loaded) {
+    for (const approval of item.approvals) {
+      if (approval.status === "approved") locks.add(`${scopeKey(item.scope)}:${approval.weekStart}`);
     }
-    const rows = await database
-      .select({ id: timeEntries.id, submissionReason: timeEntries.submissionReason })
-      .from(timeEntries)
-      .where(and(
-        eq(timeEntries.ownerUserId, scope.ownerUserId),
-        eq(timeEntries.businessId, scope.businessId),
-        eq(timeEntries.contractorId, scope.contractorId),
-        gte(timeEntries.workDate, from),
-        lte(timeEntries.workDate, to),
-      ));
-    for (const row of rows) reasons.set(row.id, row.submissionReason);
+    for (const row of item.rows) reasons.set(row.id, row.submissionReason);
   }
   return { locks, reasons };
 }

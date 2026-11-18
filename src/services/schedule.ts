@@ -746,6 +746,12 @@ export async function applyOccurrenceException(
   return requireEntryResource(database, ownerUserId, existing.id);
 }
 
+function contractorAuditAction(action: ContractorShiftStatusInput["action"]): OccurrenceExceptionInput["kind"] {
+  if (action === "worked_as_scheduled") return "confirm_worked";
+  if (action === "absent") return "absent";
+  return "hours_override";
+}
+
 function contractorReason(input: ContractorShiftStatusInput): string {
   if (input.action !== "different_hours") return "";
   const reason = input.reason?.trim() ?? "";
@@ -814,7 +820,7 @@ export async function applyContractorOccurrence(
     businessId: scope.businessId,
     actorUserId: scope.actorUserId,
     existing,
-    action: input.action === "worked_as_scheduled" ? "confirm_worked" : input.action === "absent" ? "absent" : "hours_override",
+    action: contractorAuditAction(input.action),
     next,
     submissionReason: reason,
   });
