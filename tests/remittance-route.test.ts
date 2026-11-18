@@ -16,6 +16,10 @@ const pdfRender = vi.hoisted(() => ({
 
 const db = vi.hoisted(() => ({ tag: "mock-db" }));
 
+const businessService = vi.hoisted(() => ({
+  businessResourceForUser: vi.fn(),
+}));
+
 vi.mock("cloudflare:workers", () => ({
   env: {
     DB: { prepare: vi.fn() },
@@ -36,6 +40,7 @@ vi.mock("@/lib/runtime-env", () => ({
   getSecureCookies: () => true,
 }));
 vi.mock("@/services/remittance", () => remittanceService);
+vi.mock("@/services/business", () => businessService);
 vi.mock("@/lib/remittance", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/lib/remittance")>();
   return {
@@ -102,6 +107,8 @@ describe("contractor remittance route", () => {
   beforeEach(() => {
     session.user = { id: "owner-1", email: "owner@example.test", name: "Owner" };
     remittanceService.getContractorWeekRemittance.mockReset();
+    businessService.businessResourceForUser.mockReset();
+    businessService.businessResourceForUser.mockResolvedValue(null);
     pdfRender.renderRemittancePdf.mockReset();
     pdfRender.renderRemittancePdf.mockResolvedValue(new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x34]));
   });
@@ -137,6 +144,11 @@ describe("contractor remittance route", () => {
     const body = new Uint8Array(await response.arrayBuffer());
     expect(Buffer.from(body.subarray(0, 4)).toString("utf8")).toBe("%PDF");
     expect(pdfRender.renderRemittancePdf).toHaveBeenCalledTimes(1);
+    expect(pdfRender.renderRemittancePdf).toHaveBeenCalledWith(expect.objectContaining({
+      remitterName: "Owner",
+      remitterEmail: "owner@example.test",
+    }));
+    expect(businessService.businessResourceForUser).toHaveBeenCalledWith(db, "owner-1");
   });
 
   it.each([
@@ -156,6 +168,8 @@ describe("contractor remittance route", () => {
       currency: "NZD",
       paidMinutes: 570,
       payCents: 29_800,
+      remitterName: "Owner",
+      remitterEmail: "owner@example.test",
       lines: [
         { workDate: weekStart, siteName: "Harbour Offices", paidMinutes: 480, rateCents: 3_200, payCents: 25_600 },
         { workDate: "2026-09-01", siteName: "Warehouse", paidMinutes: 90, rateCents: 2_800, payCents: 4_200 },
@@ -193,6 +207,46 @@ describe("contractor remittance route", () => {
     await expectJsonError(response, 400, "invalid_request");
     expect(remittanceService.getContractorWeekRemittance).not.toHaveBeenCalled();
     expect(pdfRender.renderRemittancePdf).not.toHaveBeenCalled();
+  });
+
+  it("uses the owner business name and contact email on the remittance model", async () => {
+    remittanceService.getContractorWeekRemittance.mockResolvedValue(payload);
+    businessService.businessResourceForUser.mockResolvedValue({
+      name: "Northwind Cleaning",
+      contactEmail: "office@northwind.test",
+    });
+    const response = await GET(cookieRequest(remittanceUrl("c1"), "GET", { accept: "application/json" }), idParams("c1"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      remitterName: "Northwind Cleaning",
+      remitterEmail: "office@northwind.test",
+    });
+    expect(businessService.businessResourceForUser).toHaveBeenCalledWith(db, "owner-1");
+    expect(pdfRender.renderRemittancePdf).not.toHaveBeenCalled();
+  });
+
+  it("falls back per field when the business name or contact email is blank", async () => {
+    session.user = { id: "owner-1", email: "owner@example.test", name: "   " };
+    remittanceService.getContractorWeekRemittance.mockResolvedValue(payload);
+    businessService.businessResourceForUser.mockResolvedValue({
+      name: "Northwind Cleaning",
+      contactEmail: " ",
+    });
+    const response = await GET(cookieRequest(remittanceUrl("c1"), "GET", { accept: "application/json" }), idParams("c1"));
+    expect(await response.json()).toMatchObject({
+      remitterName: "Northwind Cleaning",
+      remitterEmail: "owner@example.test",
+    });
+  });
+
+  it("falls back to the session owner when both business remitter fields are blank", async () => {
+    remittanceService.getContractorWeekRemittance.mockResolvedValue(payload);
+    businessService.businessResourceForUser.mockResolvedValue({ name: "  ", contactEmail: "" });
+    const response = await GET(cookieRequest(remittanceUrl("c1"), "GET", { accept: "application/json" }), idParams("c1"));
+    expect(await response.json()).toMatchObject({
+      remitterName: "Owner",
+      remitterEmail: "owner@example.test",
+    });
   });
 
   it("returns missing_remitter when the session name or email is blank", async () => {
