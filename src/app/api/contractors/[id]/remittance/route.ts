@@ -2,8 +2,9 @@ import { db } from "@/db/client";
 import { apiError, requireOwner } from "@/lib/api";
 import { noStoreJson } from "@/lib/accounts-config";
 import { isValidContractorId } from "@/lib/contractor-lifecycle";
-import { buildRemittanceModel, renderRemittancePdf } from "@/lib/remittance";
+import { buildRemittanceModel, remittanceRemitter, renderRemittancePdf } from "@/lib/remittance";
 import { weekStartInput } from "@/lib/validation";
+import { businessResourceForUser } from "@/services/business";
 import { getContractorWeekRemittance } from "@/services/remittance";
 
 function acceptsRemittanceModel(request: Request): boolean {
@@ -22,16 +23,21 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   if (!parsed.success) return noStoreJson({ error: "invalid_week" }, 400);
   try {
     const data = await getContractorWeekRemittance(db, access.user.id, id, parsed.data);
-    const remitterName = access.user.name?.trim() ?? "";
-    const remitterEmail = access.user.email?.trim() ?? "";
-    if (!remitterName || !remitterEmail) return noStoreJson({ error: "missing_remitter" }, 400);
+    const profile = await businessResourceForUser(db, access.user.id);
+    const remitter = remittanceRemitter({
+      businessName: profile?.name ?? "",
+      contactEmail: profile?.contactEmail ?? "",
+      ownerName: access.user.name,
+      ownerEmail: access.user.email,
+    });
+    if (!remitter.remitterName || !remitter.remitterEmail) return noStoreJson({ error: "missing_remitter" }, 400);
     const model = buildRemittanceModel({
       contractorId: data.contractor.id,
       contractorName: data.contractor.name,
       weekStart: data.weekStart,
       weekEnd: data.weekEnd,
-      remitterName,
-      remitterEmail,
+      remitterName: remitter.remitterName,
+      remitterEmail: remitter.remitterEmail,
       entries: data.entries,
     });
     if (acceptsRemittanceModel(request)) return noStoreJson(model);

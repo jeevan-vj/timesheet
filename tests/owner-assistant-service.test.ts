@@ -6,7 +6,7 @@ import {
   prepareOwnerAssistantResponse,
 } from "../src/services/owner-assistant";
 import { createSite } from "../src/services/sites";
-import { createContractor } from "../src/services/timesheet";
+import { createAssignment, createContractor, createTimeEntry } from "../src/services/timesheet";
 import { seedOwnerWorkspace } from "./owner-workspace";
 import { openPortalSqlite, portalDatabase, sqlRows } from "./portal-db";
 
@@ -90,6 +90,90 @@ describe("owner assistant service", () => {
         contractors: [{ label: "Akila", value: "Akila" }],
         sites: [{ label: "Harbour", value: "Harbour" }],
       },
+    });
+  });
+
+  async function recordAkilaShift() {
+    const contractor = await createContractor(database, "owner-a", {
+      name: "Akila",
+      email: "",
+      phone: "",
+      defaultRateCents: 3_200,
+    });
+    const site = await createSite(database, "owner-a", { name: "Harbour", address: "" });
+    await createAssignment(database, "owner-a", { contractorId: contractor.id, siteId: site.id, rateCents: 3_200 });
+    await createTimeEntry(database, "owner-a", {
+      entryMode: "paid_hours",
+      contractorId: contractor.id,
+      siteId: site.id,
+      workDate: "2026-10-26",
+      paidMinutes: 60,
+      notes: "",
+    });
+  }
+
+  function remittancePlan() {
+    return {
+      intent: "get_remittance" as const,
+      reply: "I will check Akila's remittance.",
+      contractorName: "Akila",
+      weekStart: "2026-10-26",
+    };
+  }
+
+  it("uses the owner business name and contact email on a remittance", async () => {
+    sqlite.run("UPDATE business SET name = ?, contact_email = ? WHERE id = ?", ["Northwind Cleaning", "office@northwind.test", "biz_owner-a"]);
+    sqlite.run("UPDATE business SET name = ?, contact_email = ? WHERE id = ?", ["Harbour Crew", "accounts@harbour.test", "biz_owner-b"]);
+    await recordAkilaShift();
+
+    const response = await prepareOwnerAssistantResponse(database, {
+      id: "owner-a",
+      name: "Personal Owner",
+      email: "personal@example.test",
+    }, remittancePlan(), SECRET);
+
+    expect(response.kind).toBe("remittance");
+    if (response.kind !== "remittance") throw new Error("expected remittance");
+    expect(response.remittance).toMatchObject({
+      remitterName: "Northwind Cleaning",
+      remitterEmail: "office@northwind.test",
+    });
+    expect(JSON.stringify(response)).not.toContain("Harbour Crew");
+    expect(JSON.stringify(response)).not.toContain("accounts@harbour.test");
+    expect(JSON.stringify(response)).not.toContain("Personal Owner");
+    expect(JSON.stringify(response)).not.toContain("personal@example.test");
+  });
+
+  it("falls back to the session owner when business remitter fields are blank", async () => {
+    sqlite.run("UPDATE business SET name = ?, contact_email = ? WHERE id = ?", ["Northwind Cleaning", "", "biz_owner-a"]);
+    await recordAkilaShift();
+    const owner = { id: "owner-a", name: "Personal Owner", email: "personal@example.test" };
+
+    const partial = await prepareOwnerAssistantResponse(database, owner, remittancePlan(), SECRET);
+    expect(partial.kind).toBe("remittance");
+    if (partial.kind !== "remittance") throw new Error("expected remittance");
+    expect(partial.remittance).toMatchObject({
+      remitterName: "Northwind Cleaning",
+      remitterEmail: "personal@example.test",
+    });
+
+    sqlite.run("UPDATE business SET name = '', contact_email = '' WHERE id = 'biz_owner-a'");
+    const fallback = await prepareOwnerAssistantResponse(database, owner, remittancePlan(), SECRET);
+    expect(fallback.kind).toBe("remittance");
+    if (fallback.kind !== "remittance") throw new Error("expected remittance");
+    expect(fallback.remittance).toMatchObject({
+      remitterName: "Personal Owner",
+      remitterEmail: "personal@example.test",
+    });
+
+    const missing = await prepareOwnerAssistantResponse(database, {
+      id: "owner-a",
+      name: "   ",
+      email: "",
+    }, remittancePlan(), SECRET);
+    expect(missing).toEqual({
+      kind: "message",
+      message: "Complete the owner name and email before requesting a remittance.",
     });
   });
 

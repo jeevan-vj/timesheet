@@ -8,6 +8,7 @@ import {
   remittanceFilenameSlug,
   remittanceMoney,
   remittanceReference,
+  remittanceRemitter,
   renderRemittancePdf,
   type RemittanceEntryInput,
   type RemittanceModel,
@@ -96,6 +97,32 @@ async function extractVisiblePdfText(bytes: Uint8Array): Promise<string> {
   }
   return parts.join("\n");
 }
+
+describe("remittance remitter", () => {
+  it("uses the business name and contact email", () => {
+    expect(remittanceRemitter({
+      businessName: " Northwind Cleaning ",
+      contactEmail: " office@northwind.test ",
+      ownerName: "Personal Owner",
+      ownerEmail: "personal@example.test",
+    })).toEqual({ remitterName: "Northwind Cleaning", remitterEmail: "office@northwind.test" });
+  });
+
+  it("falls back to the owner only for a blank business field", () => {
+    expect(remittanceRemitter({
+      businessName: "   ",
+      contactEmail: "",
+      ownerName: " Personal Owner ",
+      ownerEmail: " personal@example.test ",
+    })).toEqual({ remitterName: "Personal Owner", remitterEmail: "personal@example.test" });
+    expect(remittanceRemitter({
+      businessName: "Northwind Cleaning",
+      contactEmail: " ",
+      ownerName: "",
+      ownerEmail: "personal@example.test",
+    })).toEqual({ remitterName: "Northwind Cleaning", remitterEmail: "personal@example.test" });
+  });
+});
 
 describe("remittance filename and reference", () => {
   it("builds a stable reference and ASCII filename slug", () => {
@@ -235,6 +262,9 @@ describe("remittance PDF", () => {
     const visible = await extractVisiblePdfText(pdf);
     const total = remittanceMoney(model.payCents);
     expect(visible).toContain("Remittance Advice");
+    expect(visible).toContain("Remitter");
+    expect(visible).toContain("Owner One");
+    expect(visible).toContain("owner@example.test");
     expect(visible).toContain(contractorName);
     expect(visible).toContain(contractorId);
     expect(visible).toContain(weekStart);
@@ -246,5 +276,50 @@ describe("remittance PDF", () => {
     expect(visible).not.toMatch(/remittance date/i);
     expect(visible).not.toMatch(/created at/i);
     expect(visible).not.toMatch(/date issued/i);
+  });
+
+  it("draws the business remitter and the owner fallback on the Remitter line", async () => {
+    const entries = twoRateEntries;
+    const business = remittanceRemitter({
+      businessName: "Northwind Cleaning",
+      contactEmail: "office@northwind.test",
+      ownerName: "Personal Owner",
+      ownerEmail: "personal@example.test",
+    });
+    const businessText = await extractVisiblePdfText(await renderRemittancePdf(buildRemittanceModel({
+      contractorId,
+      contractorName,
+      weekStart,
+      weekEnd,
+      remitterName: business.remitterName,
+      remitterEmail: business.remitterEmail,
+      entries,
+    })));
+    expect(businessText).toContain("Remitter");
+    expect(businessText).toContain("Northwind Cleaning");
+    expect(businessText).toContain("office@northwind.test");
+    expect(businessText).not.toContain("Personal Owner");
+    expect(businessText).not.toContain("personal@example.test");
+
+    const fallback = remittanceRemitter({
+      businessName: " ",
+      contactEmail: "",
+      ownerName: "Personal Owner",
+      ownerEmail: "personal@example.test",
+    });
+    const fallbackText = await extractVisiblePdfText(await renderRemittancePdf(buildRemittanceModel({
+      contractorId,
+      contractorName,
+      weekStart,
+      weekEnd,
+      remitterName: fallback.remitterName,
+      remitterEmail: fallback.remitterEmail,
+      entries,
+    })));
+    expect(fallbackText).toContain("Remitter");
+    expect(fallbackText).toContain("Personal Owner");
+    expect(fallbackText).toContain("personal@example.test");
+    expect(fallbackText).not.toContain("Northwind Cleaning");
+    expect(fallbackText).not.toContain("office@northwind.test");
   });
 });
