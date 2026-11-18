@@ -1,9 +1,11 @@
 import {
   formatDayHeading,
   formatShiftTime,
+  portalCalendar,
   shiftStatusLabel,
   type PortalShiftSubmission,
 } from "@cleantrack/core/portal";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { StyleSheet, Text, TextInput, View } from "react-native";
 import { ContractorShiftMutationFailure, useContractorShiftStatus } from "@/contractor-shift-client";
@@ -49,6 +51,7 @@ export function ContractorShiftSheet({
   onShift: (shift: PortalShiftSubmission) => void;
 }) {
   const online = useOnline();
+  const queryClient = useQueryClient();
   const mutation = useContractorShiftStatus();
   const initial = initialPaidParts(shift);
   const [hours, setHours] = useState(initial.hours);
@@ -71,7 +74,7 @@ export function ContractorShiftSheet({
 
   if (!shift) return <Sheet onClose={onClose} title="Shift status" visible={false}>{null}</Sheet>;
 
-  const editor = contractorShiftEditor(shift);
+  const editor = contractorShiftEditor(shift, portalCalendar().today);
   const status = shiftStatusLabel(shift.occurrenceKind);
   const paidMinutes = hours * 60 + minutes;
   const paidMinutesError = editingHours ? contractorShiftPaidMinutesError(paidMinutes) : null;
@@ -105,6 +108,9 @@ export function ContractorShiftSheet({
         },
         onError: (error) => {
           setPendingAction(null);
+          if (error instanceof ContractorShiftMutationFailure && error.detail.code === "week_locked") {
+            void queryClient.invalidateQueries({ queryKey: ["portal-week"] });
+          }
           fail(error instanceof ContractorShiftMutationFailure ? error.detail.message : CONTRACTOR_SHIFT_MESSAGES.unavailable);
         },
       },

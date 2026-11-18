@@ -48,6 +48,7 @@ describe("mobile contractor shift status", () => {
     expect(contractorShiftEditor({ ...shift, recorded: false }).mode).toBe("unrecorded");
     expect(contractorShiftEditor({ occurrenceKind: "scheduled", id: "entry-a" }).mode).toBe("edit");
     expect(contractorShiftEditor({ occurrenceKind: "scheduled", id: "sched_v-a_2026-10-28" }).mode).toBe("unrecorded");
+    expect(contractorShiftEditor({ ...shift, workDate: "2099-06-01" }, "2026-11-18").mode).toBe("future");
     expect(contractorShiftEditor({ ...shift, occurrenceKind: "manual" }).mode).toBe("employer_recorded");
   });
 
@@ -88,6 +89,23 @@ describe("mobile contractor shift status", () => {
       body: { saved: true },
     }));
     expect(statusAfterAttempt(shift, unreadable)).toBe("scheduled");
+  });
+
+  it("maps a network failure to offline and other thrown errors to unavailable", async () => {
+    const offline = await runContractorShiftStatus("entry-a", "absent", undefined, async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    expect(offline).toMatchObject({ ok: false, error: { code: "offline" } });
+    expect(statusAfterAttempt(shift, offline)).toBe("scheduled");
+
+    let calls = 0;
+    const invalid = await runContractorShiftStatus("entry-a", "different_hours", { paidMinutes: 0 }, async () => {
+      calls += 1;
+      return { status: 200, body: saved("hours_override") };
+    });
+    expect(calls).toBe(0);
+    expect(invalid).toMatchObject({ ok: false, error: { code: "unavailable" } });
+    expect(statusAfterAttempt(shift, invalid)).toBe("scheduled");
   });
 
   it("does not send a status update while offline", async () => {
@@ -132,6 +150,8 @@ describe("mobile contractor shift status", () => {
     }
     expect(sheet).toContain("Current status");
     expect(sheet).toContain("StatusPill");
+    expect(sheet).toContain("week_locked");
+    expect(sheet).toContain('invalidateQueries({ queryKey: ["portal-week"] })');
     expect(sheet).toContain("accessibilityRole=\"alert\"");
     expect(sheet).toContain("minHeight: theme.touchTarget");
     expect(sheet).not.toContain("rateCents");

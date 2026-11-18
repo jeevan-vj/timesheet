@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lte, notExists, sql } from "drizzle-orm";
 import type { db } from "@/db/client";
 import {
   assignmentScheduleVersions,
@@ -11,6 +11,7 @@ import {
 } from "@/db/schema";
 import { ownerBusinessIdOrNull, requireOwnerBusinessId } from "@/lib/business";
 import { isUniqueConstraintError } from "@/lib/db-errors";
+import { aucklandDateIso } from "@cleantrack/core/portal";
 import { calculateShiftPay, weekEnd, weekStartFromDate } from "@/lib/payroll";
 import {
   addDaysIso,
@@ -150,6 +151,7 @@ async function writeAuditedThisDayOccurrence(
     eq(timeEntries.id, input.existing.id),
     eq(timeEntries.ownerUserId, input.ownerUserId),
     eq(timeEntries.businessId, input.businessId),
+    eq(timeEntries.contractorId, input.existing.contractorId),
   );
   const auditInsert = database.insert(ownerTimeEntryAudit).values(auditRow);
   const entryUpdate = database.update(timeEntries).set(entryWrite).where(ownedEntry);
@@ -777,6 +779,51 @@ async function nextContractorOccurrence(
   return paidHoursOccurrence("worked", paidMinutes);
 }
 
+function weekStillOpen(database: Database, ownerUserId: string, businessId: string, weekStart: string) {
+  return notExists(
+    database
+      .select({ present: sql<number>`1` })
+      .from(weekApprovals)
+      .where(and(
+        eq(weekApprovals.ownerUserId, ownerUserId),
+        eq(weekApprovals.businessId, businessId),
+        eq(weekApprovals.weekStart, weekStart),
+        eq(weekApprovals.status, "approved"),
+      )),
+  );
+}
+
+function changedRows(database: Database, result: unknown): number {
+  if (typeof result === "object" && result !== null) {
+    if ("changes" in result && typeof result.changes === "number") return result.changes;
+    if ("meta" in result && typeof result.meta === "object" && result.meta !== null && "changes" in result.meta && typeof result.meta.changes === "number") {
+      return result.meta.changes;
+    }
+  }
+  const client = (database as { session?: { client?: { getRowsModified?: () => number } } }).session?.client;
+  const modified = client?.getRowsModified?.();
+  if (typeof modified === "number") return modified;
+  throw new Error("week_locked");
+}
+
+async function updateUnlockedContractorEntry(
+  database: Database,
+  existing: typeof timeEntries.$inferSelect,
+  entryWrite: Partial<typeof timeEntries.$inferInsert>,
+) {
+  const result = await database
+    .update(timeEntries)
+    .set(entryWrite)
+    .where(and(
+      eq(timeEntries.id, existing.id),
+      eq(timeEntries.ownerUserId, existing.ownerUserId),
+      eq(timeEntries.businessId, existing.businessId),
+      eq(timeEntries.contractorId, existing.contractorId),
+      weekStillOpen(database, existing.ownerUserId, existing.businessId, weekStartFromDate(existing.workDate)),
+    ));
+  if (changedRows(database, result) === 0) throw new Error("week_locked");
+}
+
 export async function applyContractorOccurrence(
   database: Database,
   scope: { actorUserId: string; ownerUserId: string; businessId: string; contractorId: string },
@@ -795,6 +842,7 @@ export async function applyContractorOccurrence(
     .limit(1);
   if (!existing) throw new Error("not_found");
   if (existing.occurrenceKind === "manual" || existing.scheduleVersionId == null) throw new Error("no_schedule");
+  if (existing.workDate > aucklandDateIso(new Date())) throw new Error("future_shift");
 
   await assertUnlockedWeek(database, scope.ownerUserId, existing.workDate, scope.businessId);
 
@@ -803,25 +851,27 @@ export async function applyContractorOccurrence(
   if (!thisDayWouldChange(existing, next) && existing.submissionReason === reason) return;
 
   if (!thisDayWouldChange(existing, next)) {
-    await database
-      .update(timeEntries)
-      .set({ submissionReason: reason, updatedAt: now() })
-      .where(and(
-        eq(timeEntries.id, existing.id),
-        eq(timeEntries.ownerUserId, scope.ownerUserId),
-        eq(timeEntries.businessId, scope.businessId),
-        eq(timeEntries.contractorId, scope.contractorId),
-      ));
+    await updateUnlockedContractorEntry(database, existing, { submissionReason: reason, updatedAt: now() });
     return;
   }
 
-  await writeAuditedThisDayOccurrence(database, {
+  const timestamp = now();
+  const payWrite = await loadingWrite(database, scope.ownerUserId, scope.businessId, existing, next);
+  await updateUnlockedContractorEntry(database, existing, {
+    ...next,
+    ...payWrite,
+    submissionReason: reason,
+    updatedAt: timestamp,
+  });
+  await database.insert(ownerTimeEntryAudit).values({
+    id: id(),
     ownerUserId: scope.ownerUserId,
     businessId: scope.businessId,
     actorUserId: scope.actorUserId,
-    existing,
+    entryId: existing.id,
     action: contractorAuditAction(input.action),
-    next,
-    submissionReason: reason,
+    oldJson: JSON.stringify(auditedOccurrenceState(existing)),
+    newJson: JSON.stringify(auditedOccurrenceState({ ...next, scheduleVersionId: existing.scheduleVersionId })),
+    createdAt: timestamp,
   });
 }

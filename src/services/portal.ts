@@ -342,6 +342,7 @@ async function submissionContext(database: Database, scopes: Scope[], from: stri
         .where(and(
           eq(weekApprovals.ownerUserId, scope.ownerUserId),
           eq(weekApprovals.businessId, scope.businessId),
+          eq(weekApprovals.weekStart, from),
         )),
       database
         .select({ id: timeEntries.id, submissionReason: timeEntries.submissionReason })

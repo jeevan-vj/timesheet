@@ -10,6 +10,7 @@ const session = vi.hoisted(() => ({
 }));
 
 const handle = vi.hoisted(() => ({ database: null as unknown }));
+const lockRace = vi.hoisted(() => ({ afterCheck: null as null | (() => void) }));
 
 vi.mock("cloudflare:workers", () => ({
   env: {
@@ -37,6 +38,16 @@ vi.mock("@/lib/request-session", () => ({
     return session.user;
   },
 }));
+vi.mock("@/services/week-approval", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/services/week-approval")>();
+  return {
+    ...actual,
+    assertUnlockedWeek: async (...args: Parameters<typeof actual.assertUnlockedWeek>) => {
+      await actual.assertUnlockedWeek(...args);
+      lockRace.afterCheck?.();
+    },
+  };
+});
 
 import { POST as postShiftStatus } from "../src/app/api/portal/shifts/[id]/route";
 import { GET as readWeek } from "../src/app/api/portal/week/route";
@@ -84,6 +95,7 @@ describe("contractor shift status", () => {
   let sqlite: SqlJsDatabase;
 
   beforeEach(async () => {
+    lockRace.afterCheck = null;
     session.user = { id: "user-a", email: "aroha@example.test", name: "Aroha" };
     sqlite = await openPortalSqlite();
     handle.database = portalDatabase(sqlite);
@@ -348,6 +360,109 @@ describe("contractor shift status", () => {
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: "no_schedule" });
     expect(entry(sqlite, "entry-manual")).toEqual(before);
+  });
+
+  function approveWeek(ownerUserId = "owner-a", weekStart = WEEK) {
+    sqlite.run(
+      `INSERT INTO week_approval (
+        id, owner_user_id, business_id, created_at, updated_at, week_start, status, approved_at, reopened_at
+      ) VALUES (?, ?, ?, 1, 1, ?, 'approved', 1, NULL)`,
+      [`wa-${ownerUserId}-${weekStart}`, ownerUserId, `biz_${ownerUserId}`, weekStart],
+    );
+  }
+
+  it("rejects a write when the week is approved after the lock check", async () => {
+    const before = entry(sqlite, "entry-a");
+    lockRace.afterCheck = () => approveWeek();
+    const response = await mobilePost("entry-a", { action: "absent" });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "week_locked" });
+    expect(entry(sqlite, "entry-a")).toEqual(before);
+    expect(count(sqlite, "owner_time_entry_audit")).toBe(0);
+  });
+
+  it("rejects a reason-only write when the week is approved after the lock check", async () => {
+    expect((await mobilePost("entry-a", { action: "different_hours", paidMinutes: 75, reason: "one" })).status).toBe(200);
+    const before = entry(sqlite, "entry-a");
+    lockRace.afterCheck = () => approveWeek();
+    const response = await mobilePost("entry-a", { action: "different_hours", paidMinutes: 75, reason: "two" });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "week_locked" });
+    expect(entry(sqlite, "entry-a")).toEqual(before);
+    expect(count(sqlite, "owner_time_entry_audit")).toBe(1);
+  });
+
+  it("does not update an occurrence in another business", async () => {
+    seedOwnerWorkspace(sqlite, "owner-b", { name: "Harbour", email: "harbour@example.test" });
+    sqlite.run(
+      `INSERT INTO contractor (
+        id, owner_user_id, business_id, created_at, updated_at, name, email, phone, default_rate_cents, currency, active
+      ) VALUES ('c-h', 'owner-b', 'biz_owner-b', 1, 1, 'Harbour', '', '', 4000, 'NZD', 1)`,
+    );
+    sqlite.run(
+      `INSERT INTO site (id, owner_user_id, business_id, created_at, updated_at, name, address, active)
+       VALUES ('site-h', 'owner-b', 'biz_owner-b', 1, 1, 'Harbour Site', '', 1)`,
+    );
+    sqlite.run(
+      `INSERT INTO time_entry (
+        id, owner_user_id, business_id, created_at, updated_at, contractor_id, site_id, work_date,
+        start_minutes, end_minutes, break_minutes, paid_minutes, rate_cents, notes, entry_mode, occurrence_kind, schedule_version_id
+      ) VALUES ('entry-h', 'owner-b', 'biz_owner-b', 1, 1, 'c-h', 'site-h', ?, 0, 90, 0, 90, 4000, '', 'paid_hours', 'scheduled', 'v-h')`,
+      [WEEK],
+    );
+    const response = await mobilePost("entry-h", { action: "absent" });
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "not_found" });
+    expect(entry(sqlite, "entry-h")?.[0]).toBe("scheduled");
+    expect(entry(sqlite, "entry-a")?.[0]).toBe("scheduled");
+  });
+
+  it("does not let an owner-only session update a contractor occurrence", async () => {
+    session.user = { id: "owner-a", email: "office@example.test", name: "Northwind" };
+    const before = entry(sqlite, "entry-a");
+    const response = await mobilePost("entry-a", { action: "absent" });
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "not_found" });
+    expect(entry(sqlite, "entry-a")).toEqual(before);
+  });
+
+  it("hides suspended and archived contractors from the status write", async () => {
+    sqlite.run("UPDATE contractor SET engagement_status = 'suspended', active = 0 WHERE id = 'c-a'");
+    const suspended = await mobilePost("entry-a", { action: "absent" });
+    expect(suspended.status).toBe(404);
+    expect(entry(sqlite, "entry-a")?.[0]).toBe("scheduled");
+    sqlite.run("UPDATE contractor SET engagement_status = 'archived', active = 0 WHERE id = 'c-a'");
+    const archived = await mobilePost("entry-a", { action: "absent" });
+    expect(archived.status).toBe(404);
+    expect(entry(sqlite, "entry-a")?.[0]).toBe("scheduled");
+    expect(count(sqlite, "owner_time_entry_audit")).toBe(0);
+  });
+
+  it("rejects minutes outside 1 to 1439 and a reason longer than 200 characters", async () => {
+    const before = entry(sqlite, "entry-a");
+    for (const paidMinutes of [0, 1440]) {
+      const response = await mobilePost("entry-a", { action: "different_hours", paidMinutes });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "invalid_request" });
+    }
+    const longReason = await mobilePost("entry-a", { action: "different_hours", paidMinutes: 75, reason: "x".repeat(201) });
+    expect(longReason.status).toBe(400);
+    expect(await longReason.json()).toEqual({ error: "invalid_request" });
+    expect(entry(sqlite, "entry-a")).toEqual(before);
+  });
+
+  it("rejects a shift dated after today in Pacific/Auckland", async () => {
+    sqlite.run(
+      `INSERT INTO time_entry (
+        id, owner_user_id, business_id, created_at, updated_at, contractor_id, site_id, work_date,
+        start_minutes, end_minutes, break_minutes, paid_minutes, rate_cents, notes, entry_mode, occurrence_kind, schedule_version_id
+      ) VALUES ('entry-future', 'owner-a', 'biz_owner-a', 1, 1, 'c-a', 'site-a', '2099-06-01', 0, 90, 0, 90, 2500, 'OWNER NOTE', 'paid_hours', 'scheduled', 'v-a')`,
+    );
+    const response = await mobilePost("entry-future", { action: "worked_as_scheduled" });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "future_shift" });
+    expect(entry(sqlite, "entry-future")?.[0]).toBe("scheduled");
+    expect(count(sqlite, "owner_time_entry_audit")).toBe(0);
   });
 
   it("requires a session and a trusted mobile client", async () => {

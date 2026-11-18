@@ -10,7 +10,7 @@ import {
   type PortalShiftSubmission,
 } from "@cleantrack/core";
 import { SymbolView } from "expo-symbols";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PanResponder, Pressable, StyleSheet, Text, View } from "react-native";
 import { ContractorShiftSheet } from "@/components/contractor-shift-sheet";
 import { ShiftList } from "@/components/shift-list";
@@ -62,6 +62,19 @@ export default function WeekScreen() {
   const [weekStart, setWeekStart] = useState(calendar.weekStart);
   const [shift, setShift] = useState<PortalShiftSubmission | null>(null);
   const week = usePortalWeek(weekStart);
+  useEffect(() => {
+    if (!shift) return;
+    const next = week.data?.days.flatMap((day) => day.shifts).find((item) => item.id === shift.id);
+    if (!next) return;
+    if (
+      next.locked === shift.locked
+      && next.recorded === shift.recorded
+      && next.occurrenceKind === shift.occurrenceKind
+      && next.paidMinutes === shift.paidMinutes
+      && next.reason === shift.reason
+    ) return;
+    setShift(next);
+  }, [week.data, shift]);
   const pan = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_event, gesture) => Math.abs(gesture.dx) > 24 && Math.abs(gesture.dx) > Math.abs(gesture.dy),

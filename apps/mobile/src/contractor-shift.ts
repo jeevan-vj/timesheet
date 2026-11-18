@@ -17,7 +17,8 @@ export type ContractorShiftEditor =
   | { mode: "edit" }
   | { mode: "locked"; message: string }
   | { mode: "unrecorded"; message: string }
-  | { mode: "employer_recorded"; message: string };
+  | { mode: "employer_recorded"; message: string }
+  | { mode: "future"; message: string };
 
 export type ContractorShiftMutationCode =
   | "week_locked"
@@ -27,7 +28,8 @@ export type ContractorShiftMutationCode =
   | "forbidden"
   | "invalid_request"
   | "offline"
-  | "unavailable";
+  | "unavailable"
+  | "future_shift";
 
 export type ContractorShiftMutationError = {
   code: ContractorShiftMutationCode;
@@ -60,6 +62,7 @@ export const CONTRACTOR_SHIFT_MESSAGES = {
   invalidRequest: "Those hours aren't valid.",
   offline: "You're offline. Nothing was saved. Check your connection and try again.",
   unavailable: "That update didn't save. Try again.",
+  future: "You can update this shift once the day has started.",
   invalidMinutes: "Enter a whole number of minutes from 1 to 1439.",
 } as const;
 
@@ -67,11 +70,13 @@ const SHIFT_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 export function contractorShiftEditor(shift: {
   id?: string;
+  workDate?: string;
   locked?: boolean;
   recorded?: boolean;
   occurrenceKind: PortalShiftSubmission["occurrenceKind"];
-}): ContractorShiftEditor {
+}, today?: string): ContractorShiftEditor {
   if (shift.locked === true) return { mode: "locked", message: CONTRACTOR_SHIFT_MESSAGES.locked };
+  if (today && shift.workDate && shift.workDate > today) return { mode: "future", message: CONTRACTOR_SHIFT_MESSAGES.future };
   const recorded = shift.recorded ?? (shift.id == null || !shift.id.startsWith("sched_"));
   if (!recorded) return { mode: "unrecorded", message: CONTRACTOR_SHIFT_MESSAGES.unrecorded };
   if (shift.occurrenceKind === "manual") return { mode: "employer_recorded", message: CONTRACTOR_SHIFT_MESSAGES.employerRecorded };
@@ -120,6 +125,9 @@ function mutationError(status: number, body: unknown): ContractorShiftMutationEr
   }
   if (status === 409 && responseCode === "week_locked") {
     return { code: "week_locked", message: CONTRACTOR_SHIFT_MESSAGES.weekLocked };
+  }
+  if (status === 409 && responseCode === "future_shift") {
+    return { code: "future_shift", message: CONTRACTOR_SHIFT_MESSAGES.future };
   }
   if (status === 409 && responseCode === "no_schedule") {
     return { code: "no_schedule", message: CONTRACTOR_SHIFT_MESSAGES.noSchedule };
@@ -177,7 +185,10 @@ export async function runContractorShiftStatus(
     const parsed = portalShiftSubmissionSchema.safeParse(response.body);
     if (!parsed.success) return { ok: false, error: { code: "unavailable", message: CONTRACTOR_SHIFT_MESSAGES.unavailable } };
     return { ok: true, shift: parsed.data };
-  } catch {
-    return { ok: false, error: { code: "offline", message: CONTRACTOR_SHIFT_MESSAGES.offline } };
+  } catch (error) {
+    if (error instanceof TypeError) {
+      return { ok: false, error: { code: "offline", message: CONTRACTOR_SHIFT_MESSAGES.offline } };
+    }
+    return { ok: false, error: { code: "unavailable", message: CONTRACTOR_SHIFT_MESSAGES.unavailable } };
   }
 }
