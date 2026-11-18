@@ -7,13 +7,13 @@ import {
   showsBusinessName,
   sumPaidMinutes,
   weekEnd,
-  type PortalShift,
+  type PortalShiftSubmission,
 } from "@cleantrack/core";
 import { SymbolView } from "expo-symbols";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PanResponder, Pressable, StyleSheet, Text, View } from "react-native";
+import { ContractorShiftSheet } from "@/components/contractor-shift-sheet";
 import { ShiftList } from "@/components/shift-list";
-import { ShiftSheet } from "@/components/shift-sheet";
 import {
   collapseEmptyDays,
   emptySpanLabel,
@@ -60,8 +60,21 @@ function WeekSkeleton() {
 export default function WeekScreen() {
   const calendar = portalCalendar();
   const [weekStart, setWeekStart] = useState(calendar.weekStart);
-  const [shift, setShift] = useState<PortalShift | null>(null);
+  const [shift, setShift] = useState<PortalShiftSubmission | null>(null);
   const week = usePortalWeek(weekStart);
+  useEffect(() => {
+    if (!shift) return;
+    const next = week.data?.days.flatMap((day) => day.shifts).find((item) => item.id === shift.id);
+    if (!next) return;
+    if (
+      next.locked === shift.locked
+      && next.recorded === shift.recorded
+      && next.occurrenceKind === shift.occurrenceKind
+      && next.paidMinutes === shift.paidMinutes
+      && next.reason === shift.reason
+    ) return;
+    setShift(next);
+  }, [week.data, shift]);
   const pan = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_event, gesture) => Math.abs(gesture.dx) > 24 && Math.abs(gesture.dx) > Math.abs(gesture.dy),
@@ -160,7 +173,14 @@ export default function WeekScreen() {
                       {row.isToday ? <Text style={styles.todayLabel}>Today</Text> : null}
                     </View>
                     {day.shifts.length === 0 ? <Text style={styles.gapText}>No shifts</Text> : (
-                      <ShiftList onPress={setShift} shifts={day.shifts} showBusiness={showBusiness} />
+                      <ShiftList
+                        onPress={(item) => {
+                          const full = week.data?.days.flatMap((entry) => entry.shifts).find((entry) => entry.id === item.id);
+                          if (full) setShift(full);
+                        }}
+                        shifts={day.shifts}
+                        showBusiness={showBusiness}
+                      />
                     )}
                   </View>
                 );
@@ -169,7 +189,7 @@ export default function WeekScreen() {
           </>
         ) : null}
       </Screen>
-      <ShiftSheet onClose={() => setShift(null)} shift={shift} />
+      <ContractorShiftSheet onClose={() => setShift(null)} onShift={setShift} shift={shift} />
     </>
   );
 }

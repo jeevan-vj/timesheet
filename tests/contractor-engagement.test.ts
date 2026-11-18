@@ -35,6 +35,7 @@ async function openMemoryDb() {
   for (const name of MIGRATIONS) sqlite.exec(fs.readFileSync(path.resolve("drizzle", name), "utf8"));
   execContractorEngagementMigration(sqlite);
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0011_pay_rules.sql"), "utf8"));
+  sqlite.exec(fs.readFileSync(path.resolve("drizzle/0012_contractor_submission_reason.sql"), "utf8"));
   const database = drizzle(sqlite) as unknown as TimesheetDb;
   return { sqlite, database };
 }

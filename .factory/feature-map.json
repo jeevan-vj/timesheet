@@ -48,6 +48,13 @@
       "path": "/dashboard",
       "reach": "Press Approve week and confirm the totals.",
       "expect": "The week badge says Approved and shift edits are refused until reopen."
+    },
+    {
+      "id": "contractor-shift-status",
+      "name": "Contractor updates a scheduled shift",
+      "path": "/portal",
+      "reach": "In the mobile app, sign in as a linked contractor, open My week, and tap a recorded scheduled shift. Use synthetic names only.",
+      "expect": "The sheet shows the current status in text and the actions Worked as scheduled, Didn't work, and Worked different hours. An approved week explains that the status cannot be changed."
     }
   ]
 }

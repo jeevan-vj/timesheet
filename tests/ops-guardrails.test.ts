@@ -33,6 +33,7 @@ const MIGRATIONS = [
   "drizzle/0004_business_workspace.sql",
   "drizzle/0005_ops_audit.sql",
   "drizzle/0011_pay_rules.sql",
+  "drizzle/0012_contractor_submission_reason.sql",
 ];
 
 async function openMemoryDb() {

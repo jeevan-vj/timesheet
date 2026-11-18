@@ -195,6 +195,7 @@ export const timeEntries = sqliteTable("time_entry", {
   entryMode: text("entry_mode").notNull().default("clock").$type<"clock" | "paid_hours" | "absent">(),
   occurrenceKind: text("occurrence_kind").notNull().default("manual").$type<"manual" | "scheduled" | "worked" | "absent" | "hours_override">(),
   scheduleVersionId: text("schedule_version_id"),
+  submissionReason: text("submission_reason").notNull().default(""),
 }, (t) => [
   index("time_entry_owner_week_idx").on(t.ownerUserId, t.workDate),
   index("time_entry_contractor_idx").on(t.contractorId),

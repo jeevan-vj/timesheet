@@ -14,6 +14,7 @@ export function execContractorEngagementMigration(sqlite: SqlJsDatabase) {
 
 export function execPayRulesMigration(sqlite: SqlJsDatabase) {
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0011_pay_rules.sql"), "utf8"));
+  sqlite.exec(fs.readFileSync(path.resolve("drizzle/0012_contractor_submission_reason.sql"), "utf8"));
 }
 
 export function seedOwnerWorkspace(sqlite: SqlJsDatabase, userId: string, profile?: { name?: string; email?: string }) {

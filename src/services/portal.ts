@@ -8,15 +8,21 @@ import {
   type PortalPaymentDetail,
   type PortalPayments,
   type PortalShift,
+  type PortalShiftSubmission,
   type PortalUpcoming,
   type PortalWeek,
+  type PortalWeekSubmission,
 } from "@cleantrack/core/portal";
 import type { db } from "@/db/client";
 import { assignmentScheduleVersions, assignments, business, contractorAccount, contractors, sites, timeEntries, user, weekApprovals } from "@/db/schema";
 import { snapshotShiftPay, weekEnd, weekStartFromDate } from "@/lib/payroll";
 import { remittanceRemitter } from "@/lib/remittance";
+import type { contractorShiftStatusInput } from "@/lib/validation";
+import { applyContractorOccurrence } from "@/services/schedule";
+import type { z } from "zod";
 
 type Database = typeof db;
+type ContractorShiftStatusInput = z.infer<typeof contractorShiftStatusInput>;
 
 type Scope = {
   contractorId: string;
@@ -102,6 +108,15 @@ function toPublic(shift: PrivateShift): PortalShift {
     startMinutes: shift.startMinutes,
     endMinutes: shift.endMinutes,
     breakMinutes: shift.breakMinutes,
+  };
+}
+
+function toSubmission(shift: PrivateShift, locks: ReadonlySet<string>, reasons: ReadonlyMap<string, string>): PortalShiftSubmission {
+  return {
+    ...toPublic(shift),
+    locked: locks.has(`${shift.scopeKey}:${weekStartFromDate(shift.workDate)}`),
+    recorded: !shift.estimated,
+    reason: reasons.get(shift.id) ?? "",
   };
 }
 
@@ -319,18 +334,110 @@ function groupDays(shifts: PrivateShift[]): PortalUpcoming["days"] {
   }));
 }
 
-export async function getPortalWeek(database: Database, userId: string, weekStart: string): Promise<PortalWeek> {
+async function submissionContext(database: Database, scopes: Scope[], from: string, to: string) {
+  const locks = new Set<string>();
+  const reasons = new Map<string, string>();
+  const loaded = await Promise.all(scopes.map(async (scope) => {
+    const [approvals, rows] = await Promise.all([
+      database
+        .select({ weekStart: weekApprovals.weekStart, status: weekApprovals.status })
+        .from(weekApprovals)
+        .where(and(
+          eq(weekApprovals.ownerUserId, scope.ownerUserId),
+          eq(weekApprovals.businessId, scope.businessId),
+          eq(weekApprovals.weekStart, from),
+        )),
+      database
+        .select({ id: timeEntries.id, submissionReason: timeEntries.submissionReason })
+        .from(timeEntries)
+        .where(and(
+          eq(timeEntries.ownerUserId, scope.ownerUserId),
+          eq(timeEntries.businessId, scope.businessId),
+          eq(timeEntries.contractorId, scope.contractorId),
+          gte(timeEntries.workDate, from),
+          lte(timeEntries.workDate, to),
+        )),
+    ]);
+    return { scope, approvals, rows };
+  }));
+  for (const item of loaded) {
+    for (const approval of item.approvals) {
+      if (approval.status === "approved") locks.add(`${scopeKey(item.scope)}:${approval.weekStart}`);
+    }
+    for (const row of item.rows) reasons.set(row.id, row.submissionReason);
+  }
+  return { locks, reasons };
+}
+
+export async function getPortalWeek(database: Database, userId: string, weekStart: string): Promise<PortalWeek>;
+export async function getPortalWeek(database: Database, userId: string, weekStart: string, options: { submission: true }): Promise<PortalWeekSubmission>;
+export async function getPortalWeek(
+  database: Database,
+  userId: string,
+  weekStart: string,
+  options?: { submission?: boolean },
+): Promise<PortalWeek | PortalWeekSubmission> {
   const end = weekEnd(weekStart);
-  const shifts = await shiftsForRange(database, await listPortalScopes(database, userId), weekStart, end);
+  const scopes = await listPortalScopes(database, userId);
+  const shifts = await shiftsForRange(database, scopes, weekStart, end);
+  const days = eachDate(weekStart, end);
+  if (options?.submission) {
+    const context = await submissionContext(database, scopes, weekStart, end);
+    return {
+      weekStart,
+      weekEnd: end,
+      days: days.map((date) => ({
+        date,
+        shifts: shifts.filter((shift) => shift.workDate === date).map((shift) => toSubmission(shift, context.locks, context.reasons)),
+      })),
+      tasks: tasksForShifts(shifts),
+    };
+  }
   return {
     weekStart,
     weekEnd: end,
-    days: eachDate(weekStart, end).map((date) => ({
+    days: days.map((date) => ({
       date,
       shifts: shifts.filter((shift) => shift.workDate === date).map(toPublic),
     })),
     tasks: tasksForShifts(shifts),
   };
+}
+
+export async function submitPortalShift(
+  database: Database,
+  userId: string,
+  entryId: string,
+  input: ContractorShiftStatusInput,
+): Promise<PortalShiftSubmission> {
+  const scopes = await listPortalScopes(database, userId);
+  const [row] = await database
+    .select({
+      ownerUserId: timeEntries.ownerUserId,
+      businessId: timeEntries.businessId,
+      contractorId: timeEntries.contractorId,
+      workDate: timeEntries.workDate,
+    })
+    .from(timeEntries)
+    .where(eq(timeEntries.id, entryId))
+    .limit(1);
+  if (!row) throw new Error("not_found");
+  const scope = scopes.find((item) => (
+    item.ownerUserId === row.ownerUserId
+    && item.businessId === row.businessId
+    && item.contractorId === row.contractorId
+  ));
+  if (!scope) throw new Error("not_found");
+  await applyContractorOccurrence(database, {
+    actorUserId: userId,
+    ownerUserId: scope.ownerUserId,
+    businessId: scope.businessId,
+    contractorId: scope.contractorId,
+  }, entryId, input);
+  const week = await getPortalWeek(database, userId, weekStartFromDate(row.workDate), { submission: true });
+  const shift = week.days.flatMap((day) => day.shifts).find((item) => item.id === entryId);
+  if (!shift) throw new Error("not_found");
+  return shift;
 }
 
 export async function getPortalUpcoming(database: Database, userId: string, days: number, today: string): Promise<PortalUpcoming> {

@@ -2,11 +2,11 @@ import {
   portalPaymentDetailSchema,
   portalPaymentsSchema,
   portalUpcomingSchema,
-  portalWeekSchema,
+  portalWeekSubmissionSchema,
   type PortalPaymentDetail,
   type PortalPayments,
   type PortalUpcoming,
-  type PortalWeek,
+  type PortalWeekSubmission,
 } from "@cleantrack/core/portal";
 import { useQuery } from "@tanstack/react-query";
 import type { ZodType } from "zod";
@@ -23,7 +23,10 @@ async function readPortal<T>(path: string, schema: ZodType<T>): Promise<T> {
 export function usePortalWeek(weekStart: string) {
   return useQuery({
     queryKey: ["portal-week", weekStart],
-    queryFn: () => readPortal<PortalWeek>(`/api/portal/week?week=${encodeURIComponent(weekStart)}`, portalWeekSchema),
+    queryFn: () => readPortal<PortalWeekSubmission>(
+      `/api/portal/week?week=${encodeURIComponent(weekStart)}&submission=1`,
+      portalWeekSubmissionSchema,
+    ),
   });
 }
 

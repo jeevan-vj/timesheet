@@ -13,6 +13,7 @@ export const API_ERROR_CODES = [
   "duplicate_entry",
   "duplicate_site",
   "forbidden",
+  "future_shift",
   "internal_error",
   "invalid_request",
   "invalid_shift",

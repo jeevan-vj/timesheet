@@ -199,6 +199,17 @@ export const occurrenceExceptionInput = z.object({
   return true;
 });
 
+const submissionReason = z.string().trim().max(200).refine((value) => !/[\u0000-\u001f]/.test(value));
+
+export const contractorShiftStatusInput = z.object({
+  action: z.enum(["worked_as_scheduled", "absent", "different_hours"]),
+  paidMinutes: z.number().int().min(1).max(1439).optional(),
+  reason: submissionReason.optional(),
+}).strict().refine((value) => {
+  if (value.action === "different_hours") return value.paidMinutes != null;
+  return value.paidMinutes == null && value.reason == null;
+});
+
 export function parseIncludeArchived(value: string | null): boolean {
   return value === "1";
 }
