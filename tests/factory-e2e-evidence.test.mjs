@@ -268,6 +268,23 @@ describe("factory E2E workflows stay fail-closed and complementary", () => {
     expect(e2e).toContain(`name: ${E2E_JOB_NAME}`);
     expect(e2e).toContain("pull_request:");
     expect(e2e).toContain("pnpm exec playwright install --with-deps chromium");
+    expect(e2e).toContain("runs-on: ubuntu-24.04");
+    expect(e2e).toContain("Playwright 1.55.0 does not support chromium on ubuntu26.04-x64");
+    expect(e2e).not.toContain("runs-on: ubuntu-latest");
+    const workflowDir = new URL("../.github/workflows/", import.meta.url);
+    const playwrightJobs = [];
+    for (const name of fs.readdirSync(workflowDir)) {
+      if (!name.endsWith(".yml") && !name.endsWith(".yaml")) continue;
+      const text = fs.readFileSync(new URL(name, workflowDir), "utf8");
+      const jobs = text.split(/^jobs:\n/m)[1] ?? "";
+      for (const block of jobs.split(/\n(?=  [A-Za-z0-9_-]+:)/)) {
+        if (!block.includes("playwright install")) continue;
+        playwrightJobs.push(`${name}:${block.slice(0, block.indexOf("\n")).trim()}`);
+        expect(block).toContain("runs-on: ubuntu-24.04");
+        expect(block).not.toContain("runs-on: ubuntu-latest");
+      }
+    }
+    expect(playwrightJobs).toEqual(["factory-e2e.yml:evidence:"]);
     expect(e2e).toContain("node .factory/e2e/harness.mjs");
     expect(e2e).toContain("evaluate-e2e-evidence.mjs");
     expect(e2e).toContain("retention-days: 14");

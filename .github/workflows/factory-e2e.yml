@@ -16,7 +16,9 @@ jobs:
   evidence:
     if: github.event.pull_request.draft == false
     name: Factory E2E evidence
-    runs-on: ubuntu-latest
+    # Playwright 1.55.0 does not support chromium on ubuntu26.04-x64.
+    # ubuntu-latest is 26.04, so this job stays on 24.04 until Playwright ships a 26.04 browser build.
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
       FACTORY_E2E_REPOSITORY: ${{ github.repository }}

@@ -12,3 +12,9 @@ auditConfig:
     # @expo/cli requires zod ^3.25.76, so this advisory stays on that CLI only.
     # App, mobile, and @cleantrack/core pin zod 4.6.7 in tests/runtime-dependency-pins.test.mjs.
     - GHSA-mrhx-c7xc-m3w5
+    # GHSA-fc5q-39xc-vjpf: picomatch <=4.0.7 ReDoS via extglobs. npm still has no
+    # patched release (latest 4.0.7; advisory patched range is empty). Prod paths are
+    # better-auth>vitest>picomatch and
+    # vinext>vite-plugin-commonjs>vite-plugin-dynamic-import>fast-glob>micromatch>picomatch.
+    # Those globs are build-time and not user-controlled. Remove this ignore once a patched picomatch ships.
+    - GHSA-fc5q-39xc-vjpf

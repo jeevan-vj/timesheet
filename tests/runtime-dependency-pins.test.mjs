@@ -37,8 +37,14 @@ describe("runtime dependency pins", () => {
     expect(mobile.devDependencies["@types/react"]).toBe("~19.3.0");
   });
 
-  it("keeps the audit exception limited to the Expo CLI zod 3 advisory", () => {
+  it("keeps audit exceptions limited to the Expo CLI zod advisory and the unpatched picomatch ReDoS", () => {
     expect(workspace).toContain("GHSA-mrhx-c7xc-m3w5");
-    expect(workspace.match(/GHSA-[0-9a-z-]+/g)).toEqual(["GHSA-mrhx-c7xc-m3w5"]);
+    expect(workspace).toContain("GHSA-fc5q-39xc-vjpf");
+    expect(workspace).toContain("not user-controlled");
+    expect(workspace).toContain("Remove this ignore once a patched picomatch ships");
+    expect([...new Set(workspace.match(/GHSA-[0-9a-z-]+/g))]).toEqual([
+      "GHSA-mrhx-c7xc-m3w5",
+      "GHSA-fc5q-39xc-vjpf",
+    ]);
   });
 });
