@@ -806,22 +806,90 @@ function changedRows(database: Database, result: unknown): number {
   throw new Error("week_locked");
 }
 
+function unlockedContractorEntry(
+  database: Database,
+  existing: typeof timeEntries.$inferSelect,
+) {
+  return and(
+    eq(timeEntries.id, existing.id),
+    eq(timeEntries.ownerUserId, existing.ownerUserId),
+    eq(timeEntries.businessId, existing.businessId),
+    eq(timeEntries.contractorId, existing.contractorId),
+    weekStillOpen(database, existing.ownerUserId, existing.businessId, weekStartFromDate(existing.workDate)),
+  );
+}
+
 async function updateUnlockedContractorEntry(
   database: Database,
   existing: typeof timeEntries.$inferSelect,
   entryWrite: Partial<typeof timeEntries.$inferInsert>,
 ) {
-  const result = await database
-    .update(timeEntries)
-    .set(entryWrite)
-    .where(and(
-      eq(timeEntries.id, existing.id),
-      eq(timeEntries.ownerUserId, existing.ownerUserId),
-      eq(timeEntries.businessId, existing.businessId),
-      eq(timeEntries.contractorId, existing.contractorId),
-      weekStillOpen(database, existing.ownerUserId, existing.businessId, weekStartFromDate(existing.workDate)),
-    ));
+  const result = await database.update(timeEntries).set(entryWrite).where(unlockedContractorEntry(database, existing));
   if (changedRows(database, result) === 0) throw new Error("week_locked");
+}
+
+function contractorAuditInsert(
+  database: Database,
+  existing: typeof timeEntries.$inferSelect,
+  audit: {
+    id: string;
+    actorUserId: string;
+    action: OccurrenceExceptionInput["kind"];
+    oldJson: string;
+    newJson: string;
+    createdAt: number;
+  },
+) {
+  return database.insert(ownerTimeEntryAudit).select(
+    database.select({
+      id: sql`${audit.id}`.as("id"),
+      ownerUserId: sql`${existing.ownerUserId}`.as("owner_user_id"),
+      businessId: sql`${existing.businessId}`.as("business_id"),
+      actorUserId: sql`${audit.actorUserId}`.as("actor_user_id"),
+      entryId: sql`${existing.id}`.as("entry_id"),
+      action: sql`${audit.action}`.as("action"),
+      oldJson: sql`${audit.oldJson}`.as("old_json"),
+      newJson: sql`${audit.newJson}`.as("new_json"),
+      createdAt: sql`${audit.createdAt}`.as("created_at"),
+    }).from(sql`(select 1)`).where(
+      weekStillOpen(database, existing.ownerUserId, existing.businessId, weekStartFromDate(existing.workDate)),
+    ),
+  );
+}
+
+async function commitUnlockedContractorOccurrence(
+  database: Database,
+  existing: typeof timeEntries.$inferSelect,
+  entryWrite: Partial<typeof timeEntries.$inferInsert>,
+  audit: {
+    id: string;
+    actorUserId: string;
+    action: OccurrenceExceptionInput["kind"];
+    oldJson: string;
+    newJson: string;
+    createdAt: number;
+  },
+) {
+  const statements = (db: Database) => ({
+    entryUpdate: db.update(timeEntries).set(entryWrite).where(unlockedContractorEntry(db, existing)),
+    auditInsert: contractorAuditInsert(db, existing, audit),
+  });
+  if ("batch" in database && typeof database.batch === "function") {
+    const { entryUpdate, auditInsert } = statements(database);
+    const results = await database.batch([entryUpdate, auditInsert]);
+    const updateResult = Array.isArray(results) ? results[0] : results;
+    if (changedRows(database, updateResult) === 0) throw new Error("week_locked");
+    return;
+  }
+  const sync = database as unknown as {
+    transaction(callback: (transaction: Database) => void): void;
+  };
+  sync.transaction((transaction) => {
+    const { entryUpdate, auditInsert } = statements(transaction);
+    const result = entryUpdate.run();
+    if (changedRows(transaction, result) === 0) throw new Error("week_locked");
+    auditInsert.run();
+  });
 }
 
 export async function applyContractorOccurrence(
@@ -857,21 +925,18 @@ export async function applyContractorOccurrence(
 
   const timestamp = now();
   const payWrite = await loadingWrite(database, scope.ownerUserId, scope.businessId, existing, next);
-  await updateUnlockedContractorEntry(database, existing, {
+  const audited = auditedOccurrenceState({ ...next, scheduleVersionId: existing.scheduleVersionId });
+  await commitUnlockedContractorOccurrence(database, existing, {
     ...next,
     ...payWrite,
     submissionReason: reason,
     updatedAt: timestamp,
-  });
-  await database.insert(ownerTimeEntryAudit).values({
+  }, {
     id: id(),
-    ownerUserId: scope.ownerUserId,
-    businessId: scope.businessId,
     actorUserId: scope.actorUserId,
-    entryId: existing.id,
     action: contractorAuditAction(input.action),
     oldJson: JSON.stringify(auditedOccurrenceState(existing)),
-    newJson: JSON.stringify(auditedOccurrenceState({ ...next, scheduleVersionId: existing.scheduleVersionId })),
-    createdAt: timestamp,
+    newJson: JSON.stringify(audited),
+    createdAt: Math.floor(timestamp.getTime() / 1000),
   });
 }
