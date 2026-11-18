@@ -23,7 +23,7 @@ import {
   shouldSkipExistingEntry,
 } from "@/lib/schedule";
 import { clockFieldsForWrite, paidHoursClockFields } from "@/lib/time-entry-write";
-import type { occurrenceExceptionInput, schedulePutInput } from "@/lib/validation";
+import type { contractorShiftStatusInput, occurrenceExceptionInput, schedulePutInput } from "@/lib/validation";
 import { findWeekApproval } from "@/lib/week-approval-query";
 import { getTimeEntry } from "@/services/timesheet";
 import { assertUnlockedWeek } from "@/services/week-approval";
@@ -33,6 +33,7 @@ import type { z } from "zod";
 type Database = typeof db;
 type SchedulePutInput = z.infer<typeof schedulePutInput>;
 type OccurrenceExceptionInput = z.infer<typeof occurrenceExceptionInput>;
+type ContractorShiftStatusInput = z.infer<typeof contractorShiftStatusInput>;
 
 export type ScheduleCurrentView = {
   id: string;
@@ -118,34 +119,40 @@ async function writeAuditedThisDayOccurrence(
   input: {
     ownerUserId: string;
     businessId: string;
+    actorUserId?: string;
     existing: typeof timeEntries.$inferSelect;
     action: OccurrenceExceptionInput["kind"];
     next: ThisDayOccurrence;
+    submissionReason?: string;
   },
 ) {
   const timestamp = now();
   const next = { ...input.next, scheduleVersionId: input.existing.scheduleVersionId };
   const payWrite = await loadingWrite(database, input.ownerUserId, input.businessId, input.existing, input.next);
+  const entryWrite = {
+    ...input.next,
+    ...payWrite,
+    ...(input.submissionReason === undefined ? {} : { submissionReason: input.submissionReason }),
+    updatedAt: timestamp,
+  };
   const auditRow = {
     id: id(),
     ownerUserId: input.ownerUserId,
     businessId: input.businessId,
-    actorUserId: input.ownerUserId,
+    actorUserId: input.actorUserId ?? input.ownerUserId,
     entryId: input.existing.id,
     action: input.action,
     oldJson: JSON.stringify(auditedOccurrenceState(input.existing)),
     newJson: JSON.stringify(auditedOccurrenceState(next)),
     createdAt: timestamp,
   };
+  const ownedEntry = and(
+    eq(timeEntries.id, input.existing.id),
+    eq(timeEntries.ownerUserId, input.ownerUserId),
+    eq(timeEntries.businessId, input.businessId),
+  );
   const auditInsert = database.insert(ownerTimeEntryAudit).values(auditRow);
-  const entryUpdate = database
-    .update(timeEntries)
-    .set({ ...input.next, ...payWrite, updatedAt: timestamp })
-    .where(and(
-      eq(timeEntries.id, input.existing.id),
-      eq(timeEntries.ownerUserId, input.ownerUserId),
-      eq(timeEntries.businessId, input.businessId),
-    ));
+  const entryUpdate = database.update(timeEntries).set(entryWrite).where(ownedEntry);
 
   if ("batch" in database && typeof database.batch === "function") {
     await database.batch([auditInsert, entryUpdate]);
@@ -157,11 +164,7 @@ async function writeAuditedThisDayOccurrence(
   };
   (database as unknown as SyncAtomicDatabase).transaction((transaction) => {
     transaction.insert(ownerTimeEntryAudit).values(auditRow).run();
-    transaction.update(timeEntries).set({ ...input.next, ...payWrite, updatedAt: timestamp }).where(and(
-      eq(timeEntries.id, input.existing.id),
-      eq(timeEntries.ownerUserId, input.ownerUserId),
-      eq(timeEntries.businessId, input.businessId),
-    )).run();
+    transaction.update(timeEntries).set(entryWrite).where(ownedEntry).run();
   });
 }
 
@@ -741,4 +744,78 @@ export async function applyOccurrenceException(
   }
 
   return requireEntryResource(database, ownerUserId, existing.id);
+}
+
+function contractorReason(input: ContractorShiftStatusInput): string {
+  if (input.action !== "different_hours") return "";
+  const reason = input.reason?.trim() ?? "";
+  if (reason.length > 200 || /[\u0000-\u001f]/.test(reason)) throw new Error("invalid_request");
+  return reason;
+}
+
+async function nextContractorOccurrence(
+  database: Database,
+  ownerUserId: string,
+  businessId: string,
+  existing: { scheduleVersionId: string | null },
+  input: ContractorShiftStatusInput,
+): Promise<ThisDayOccurrence> {
+  if (input.action === "absent") {
+    return { occurrenceKind: "absent", entryMode: "absent", paidMinutes: 0, startMinutes: 0, endMinutes: 0, breakMinutes: 0 };
+  }
+  if (input.action === "different_hours") {
+    if (input.paidMinutes == null) throw new Error("invalid_request");
+    return paidHoursOccurrence("hours_override", input.paidMinutes);
+  }
+  const paidMinutes = await scheduledVersionMinutes(database, ownerUserId, businessId, existing.scheduleVersionId);
+  return paidHoursOccurrence("worked", paidMinutes);
+}
+
+export async function applyContractorOccurrence(
+  database: Database,
+  scope: { actorUserId: string; ownerUserId: string; businessId: string; contractorId: string },
+  entryId: string,
+  input: ContractorShiftStatusInput,
+) {
+  const [existing] = await database
+    .select()
+    .from(timeEntries)
+    .where(and(
+      eq(timeEntries.id, entryId),
+      eq(timeEntries.ownerUserId, scope.ownerUserId),
+      eq(timeEntries.businessId, scope.businessId),
+      eq(timeEntries.contractorId, scope.contractorId),
+    ))
+    .limit(1);
+  if (!existing) throw new Error("not_found");
+  if (existing.occurrenceKind === "manual" || existing.scheduleVersionId == null) throw new Error("no_schedule");
+
+  await assertUnlockedWeek(database, scope.ownerUserId, existing.workDate, scope.businessId);
+
+  const next = await nextContractorOccurrence(database, scope.ownerUserId, scope.businessId, existing, input);
+  const reason = contractorReason(input);
+  if (!thisDayWouldChange(existing, next) && existing.submissionReason === reason) return;
+
+  if (!thisDayWouldChange(existing, next)) {
+    await database
+      .update(timeEntries)
+      .set({ submissionReason: reason, updatedAt: now() })
+      .where(and(
+        eq(timeEntries.id, existing.id),
+        eq(timeEntries.ownerUserId, scope.ownerUserId),
+        eq(timeEntries.businessId, scope.businessId),
+        eq(timeEntries.contractorId, scope.contractorId),
+      ));
+    return;
+  }
+
+  await writeAuditedThisDayOccurrence(database, {
+    ownerUserId: scope.ownerUserId,
+    businessId: scope.businessId,
+    actorUserId: scope.actorUserId,
+    existing,
+    action: input.action === "worked_as_scheduled" ? "confirm_worked" : input.action === "absent" ? "absent" : "hours_override",
+    next,
+    submissionReason: reason,
+  });
 }

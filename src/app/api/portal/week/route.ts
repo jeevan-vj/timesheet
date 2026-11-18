@@ -7,10 +7,14 @@ import { getPortalWeek } from "@/services/portal";
 export async function GET(request: Request) {
   const access = await authorize(request);
   if ("response" in access) return access.response;
-  const parsed = weekStartInput.safeParse(new URL(request.url).searchParams.get("week") ?? "");
+  const url = new URL(request.url);
+  const parsed = weekStartInput.safeParse(url.searchParams.get("week") ?? "");
   if (!parsed.success) return noStoreJson({ error: "invalid_week" }, 400);
+  const submission = url.searchParams.get("submission") === "1";
   try {
-    return noStoreJson(await getPortalWeek(db, access.user.id, parsed.data));
+    return noStoreJson(submission
+      ? await getPortalWeek(db, access.user.id, parsed.data, { submission: true })
+      : await getPortalWeek(db, access.user.id, parsed.data));
   } catch (error) {
     return apiError(error, request);
   }

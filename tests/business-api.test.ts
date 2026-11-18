@@ -120,6 +120,7 @@ async function openMemoryDb() {
   execContractorEngagementMigration(sqlite);
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0007_contractor_portal_access.sql"), "utf8"));
   sqlite.exec(fs.readFileSync(path.resolve("drizzle/0011_pay_rules.sql"), "utf8"));
+  sqlite.exec(fs.readFileSync(path.resolve("drizzle/0012_contractor_submission_reason.sql"), "utf8"));
   handle.sqlite = sqlite;
   handle.database = drizzle(sqlite);
   return sqlite;

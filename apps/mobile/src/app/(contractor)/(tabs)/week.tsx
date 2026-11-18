@@ -7,13 +7,13 @@ import {
   showsBusinessName,
   sumPaidMinutes,
   weekEnd,
-  type PortalShift,
+  type PortalShiftSubmission,
 } from "@cleantrack/core";
 import { SymbolView } from "expo-symbols";
 import { useRef, useState } from "react";
 import { PanResponder, Pressable, StyleSheet, Text, View } from "react-native";
+import { ContractorShiftSheet } from "@/components/contractor-shift-sheet";
 import { ShiftList } from "@/components/shift-list";
-import { ShiftSheet } from "@/components/shift-sheet";
 import {
   collapseEmptyDays,
   emptySpanLabel,
@@ -60,7 +60,7 @@ function WeekSkeleton() {
 export default function WeekScreen() {
   const calendar = portalCalendar();
   const [weekStart, setWeekStart] = useState(calendar.weekStart);
-  const [shift, setShift] = useState<PortalShift | null>(null);
+  const [shift, setShift] = useState<PortalShiftSubmission | null>(null);
   const week = usePortalWeek(weekStart);
   const pan = useRef(
     PanResponder.create({
@@ -160,7 +160,14 @@ export default function WeekScreen() {
                       {row.isToday ? <Text style={styles.todayLabel}>Today</Text> : null}
                     </View>
                     {day.shifts.length === 0 ? <Text style={styles.gapText}>No shifts</Text> : (
-                      <ShiftList onPress={setShift} shifts={day.shifts} showBusiness={showBusiness} />
+                      <ShiftList
+                        onPress={(item) => {
+                          const full = week.data?.days.flatMap((entry) => entry.shifts).find((entry) => entry.id === item.id);
+                          if (full) setShift(full);
+                        }}
+                        shifts={day.shifts}
+                        showBusiness={showBusiness}
+                      />
                     )}
                   </View>
                 );
@@ -169,7 +176,7 @@ export default function WeekScreen() {
           </>
         ) : null}
       </Screen>
-      <ShiftSheet onClose={() => setShift(null)} shift={shift} />
+      <ContractorShiftSheet onClose={() => setShift(null)} onShift={setShift} shift={shift} />
     </>
   );
 }

@@ -41,6 +41,22 @@ export const portalWeekSchema = z.object({
   tasks: z.array(portalTaskSchema),
 }).strict();
 
+export const portalShiftSubmissionSchema = portalShiftSchema.extend({
+  locked: z.boolean(),
+  recorded: z.boolean(),
+  reason: z.string().max(200),
+}).strict();
+
+export const portalWeekSubmissionSchema = z.object({
+  weekStart: z.string(),
+  weekEnd: z.string(),
+  days: z.array(z.object({
+    date: z.string(),
+    shifts: z.array(portalShiftSubmissionSchema),
+  }).strict()),
+  tasks: z.array(portalTaskSchema),
+}).strict();
+
 export const portalUpcomingSchema = z.object({
   from: z.string(),
   to: z.string(),
@@ -87,8 +103,10 @@ export const portalPaymentDetailSchema = portalPaymentWeekSchema.extend({
 }).strict();
 
 export type PortalShift = z.infer<typeof portalShiftSchema>;
+export type PortalShiftSubmission = z.infer<typeof portalShiftSubmissionSchema>;
 export type PortalTask = z.infer<typeof portalTaskSchema>;
 export type PortalWeek = z.infer<typeof portalWeekSchema>;
+export type PortalWeekSubmission = z.infer<typeof portalWeekSubmissionSchema>;
 export type PortalUpcoming = z.infer<typeof portalUpcomingSchema>;
 export type PortalPayments = z.infer<typeof portalPaymentsSchema>;
 export type PortalPaymentDetail = z.infer<typeof portalPaymentDetailSchema>;
