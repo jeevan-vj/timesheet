@@ -14,6 +14,7 @@ import {
 import type { db } from "@/db/client";
 import { assignmentScheduleVersions, assignments, business, contractorAccount, contractors, sites, timeEntries, user, weekApprovals } from "@/db/schema";
 import { snapshotShiftPay, weekEnd, weekStartFromDate } from "@/lib/payroll";
+import { remittanceRemitter } from "@/lib/remittance";
 
 type Database = typeof db;
 
@@ -25,6 +26,7 @@ type Scope = {
   ownerEmail: string;
   businessId: string;
   businessName: string;
+  businessContactEmail: string;
 };
 
 type EntryRow = {
@@ -165,6 +167,7 @@ export async function listPortalScopes(database: Database, userId: string): Prom
       ownerEmail: user.email,
       businessId: contractorAccount.businessId,
       businessName: business.name,
+      businessContactEmail: business.contactEmail,
     })
     .from(contractorAccount)
     .innerJoin(business, eq(business.id, contractorAccount.businessId))
@@ -436,13 +439,19 @@ export async function getPortalWeekRemittance(database: Database, userId: string
   const end = weekEnd(weekStart);
   const entries = await loadEntries(database, scope, weekStart, end);
   if (entries.length === 0) throw new Error("no_entries");
+  const remitter = remittanceRemitter({
+    businessName: scope.businessName,
+    contactEmail: scope.businessContactEmail,
+    ownerName: scope.ownerName,
+    ownerEmail: scope.ownerEmail,
+  });
   return {
     contractorId: scope.contractorId,
     contractorName: scope.contractorName,
     weekStart,
     weekEnd: end,
-    remitterName: scope.ownerName,
-    remitterEmail: scope.ownerEmail,
+    remitterName: remitter.remitterName,
+    remitterEmail: remitter.remitterEmail,
     entries: entries.map((entry) => ({
       id: entry.id,
       workDate: entry.workDate,

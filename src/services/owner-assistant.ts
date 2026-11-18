@@ -11,7 +11,8 @@ import { requireOwnerBusinessId } from "@/lib/business";
 import { bytesToHex, sha256Bytes } from "@/lib/crypto";
 import { isUniqueConstraintError } from "@/lib/db-errors";
 import { readOwnerAssistantConfirmation, signOwnerAssistantConfirmation } from "@/lib/owner-assistant-confirm";
-import { buildRemittanceModel } from "@/lib/remittance";
+import { buildRemittanceModel, remittanceRemitter } from "@/lib/remittance";
+import { businessResourceForUser } from "@/services/business";
 import { findWeekApproval } from "@/lib/week-approval-query";
 import { getContractorWeekRemittance } from "@/services/remittance";
 import { createSite, listSites } from "@/services/sites";
@@ -175,9 +176,14 @@ async function prepareRemittanceResponse(
   plan: Extract<AssistantPlan, { intent: "get_remittance" }>,
   contractor: Contractor,
 ): Promise<OwnerAssistantTurnResponse> {
-  const remitterName = user.name?.trim() ?? "";
-  const remitterEmail = user.email?.trim() ?? "";
-  if (!remitterName || !remitterEmail) return message("Complete the owner name and email before requesting a remittance.");
+  const profile = await businessResourceForUser(database, user.id);
+  const remitter = remittanceRemitter({
+    businessName: profile?.name ?? "",
+    contactEmail: profile?.contactEmail ?? "",
+    ownerName: user.name ?? "",
+    ownerEmail: user.email ?? "",
+  });
+  if (!remitter.remitterName || !remitter.remitterEmail) return message("Complete the owner name and email before requesting a remittance.");
   let data: Awaited<ReturnType<typeof getContractorWeekRemittance>>;
   try {
     data = await getContractorWeekRemittance(database, user.id, contractor.id, plan.weekStart);
@@ -190,7 +196,7 @@ async function prepareRemittanceResponse(
   }
   const model = buildRemittanceModel({
     contractorId: data.contractor.id, contractorName: data.contractor.name,
-    weekStart: data.weekStart, weekEnd: data.weekEnd, remitterName, remitterEmail, entries: data.entries,
+    weekStart: data.weekStart, weekEnd: data.weekEnd, remitterName: remitter.remitterName, remitterEmail: remitter.remitterEmail, entries: data.entries,
   });
   const businessId = await requireOwnerBusinessId(database, user.id);
   const approval = await findWeekApproval(database, user.id, plan.weekStart, businessId);

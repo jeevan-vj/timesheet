@@ -65,6 +65,20 @@ export function remittanceReference(contractorId: string, weekStart: string): st
   return `RA-${contractorId}-${weekStart}`;
 }
 
+export function remittanceRemitter(input: {
+  businessName: string;
+  contactEmail: string;
+  ownerName: string;
+  ownerEmail: string;
+}): { remitterName: string; remitterEmail: string } {
+  const businessName = input.businessName.trim();
+  const contactEmail = input.contactEmail.trim();
+  return {
+    remitterName: businessName || input.ownerName.trim(),
+    remitterEmail: contactEmail || input.ownerEmail.trim(),
+  };
+}
+
 export function remittanceFilenameSlug(contractorName: string): string {
   const slug = contractorName
     .toLowerCase()
